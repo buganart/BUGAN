@@ -5,11 +5,12 @@
 
 ## Todo
 
-- [ ] Check if pip install from github works.
+- [x] Check if pip install from github works.
+- [ ] Verify if `obj` to `ply` conversion matches current workflow.
 
 Install with
 
-    pip install pip install -e "git+https://github.com/buganart/BUGAN.git&subdirectory=convert3d"
+    pip install -e "git+https://github.com/buganart/BUGAN.git#egg=convert3d&subdirectory=convert3d"
 
 Or run
 
