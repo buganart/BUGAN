@@ -23,3 +23,7 @@ Run
     convert3d --help
 
 To show usage.
+
+Convert a directory of wavefron mesh files to ply pointcloud files:
+
+    convert3d -i /my/obj/files -o /my/ply/files
