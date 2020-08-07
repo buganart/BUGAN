@@ -1,6 +1,6 @@
-with import ../nix/nixpkgs.nix {};
+with import ./nix/nixpkgs.nix {};
 
-let  
+let
   py = python3;
 in
 mkShell {
@@ -11,18 +11,10 @@ mkShell {
     (py.withPackages (ps: with ps; [
 
       # our python deps
-      click
-      joblib
+      pytorch
 
-      # open3d python deps
-      ipywidgets
-      widgetsnbextension
-      notebook
-      numpy
-      matplotlib
-
-      # to install open3d
-      pip  
+      # 2020-08-07: wandb not yet available in nixpkgs
+      pip
 
       # dev deps
       black
@@ -39,8 +31,5 @@ mkShell {
     export PATH="$PIP_PREFIX/bin:$PATH"
     export PYTHONPATH="$PIP_PREFIX/${py.sitePackages}:$PYTHONPATH"
     unset SOURCE_DATE_EPOCH
-
-    # Runtime dependencies for open3d
-    export LD_LIBRARY_PATH=${lib.makeLibraryPath [stdenv.cc.cc libGL xorg.libX11]}
   '';
 }
