@@ -1,4 +1,4 @@
-with import ./nix/nixpkgs.nix {};
+with import <nixpkgs> {};
 
 let
   py = python3;
@@ -10,14 +10,10 @@ mkShell {
 
     (py.withPackages (ps: with ps; [
 
-      # our python deps
-      pytorch
-
-      # 2020-08-07: wandb not yet available in nixpkgs
+      # to install open3d
       pip
 
       # dev deps
-      pudb  # debugger
       black
       ipython
       pyls-isort
