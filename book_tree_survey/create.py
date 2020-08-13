@@ -17,11 +17,11 @@ def mk_choice(label, href):
     }
 
 
-def mk_tree_question(choices):
+def mk_tree_question(version, choices):
     return {
-        "title": "Which tree resembles the book the most?",
+        "title": f"Which tree resembles the book the most? v{version}",
         "properties": {
-            "randomize": False,
+            "randomize": True,
             "allow_multiple_selection": False,
             "allow_other_choice": False,
             "supersized": False,
@@ -33,9 +33,9 @@ def mk_tree_question(choices):
     }
 
 
-def book_question():
+def book_question(version):
     return {
-        "title": "Name a book you like?",
+        "title": f"Name a book you like? v{version}",
         "properties": {},
         "validations": {"required": False},
         "type": "short_text",
@@ -76,8 +76,12 @@ for i in range(100):
     choices.append(choice)
 
 
-tree_question = mk_tree_question(choices)
-fields = [book_question(), tree_question]
+n_pairs = 5
+fields = []
+for version in range(n_pairs):
+    fields.append(book_question(version))
+    fields.append(mk_tree_question(version, choices))
+
 survey = mk_survey(fields)
 
 print(t.forms.create(survey))
