@@ -6,5 +6,8 @@
 
 ## Usage
 
-    blender --background --python render.py -x 1 -f 1 -- --input /path/to/mesh.obj --output renders
+    blender --background --python render.py -- --input /path/to/mesh.obj --output renders
 
+Render with CYCLES engine (for GPU rendering)
+
+    blender --background -E CYCLES --python render.py -- --input /path/to/mesh.obj --output renders
