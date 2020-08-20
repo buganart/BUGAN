@@ -52,12 +52,13 @@ def wandbLog(model, config, initial_log_dict={}, log_image=False, log_mesh=False
 
     wandb.log(initial_log_dict)
 
-def save_model(model, model_path = os.path.join(wandb.run.dir, 'model_dict.pth')):
+def save_model(model, model_path):
     torch.save(model.state_dict(), model_path)
     wandb.save(model_path)
 
 def load_model(model, model_path = 'model_dict.pth'):
     model_file = wandb.restore(model_path)
+    print("restored model: "+str(model_file.name))
     model.load_state_dict(torch.load(model_file.name))
     return model
 

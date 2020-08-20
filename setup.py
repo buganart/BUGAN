@@ -8,7 +8,10 @@ setup(
     description="3D GANs and more.",
     packages=find_packages(),
     install_requires=[
-        "torch"
+        "torch",
+        "trimesh",
+        "numpy",
+        "wandb"
         # TODO, add other dependencies.
     ],
 )
