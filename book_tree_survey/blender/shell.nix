@@ -7,13 +7,14 @@ mkShell {
    buildInputs = [
 
     entr
-    blender
+    # blender
 
     (py.withPackages (ps: with ps; [
 
       pip
 
       # dev deps
+      ipdb
       black
       ipython
       pyls-isort
