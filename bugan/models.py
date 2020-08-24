@@ -239,7 +239,7 @@ class Discriminator(nn.Module):
         num_layer_unit_list = [1] + num_layer_unit_list
         dis_module = []
         #5 blocks (need 4 pool to reduce size)
-        for i in range(5):
+        for i in range(self.num_blocks):
             num_layer_unit1, num_layer_unit2 = num_layer_unit_list[i], num_layer_unit_list[i+1]
 
             dis_module.append(nn.Conv3d(num_layer_unit1, num_layer_unit2, 3, 1, padding = 1))
