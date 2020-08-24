@@ -12,13 +12,13 @@ device
 #   models for training
 #####
 class VAEGAN(nn.Module):
-    def __init__(self, vae_encoder_layer =1, vae_decoder_layer = 2, z_size = 128, d_layer = 1):
+    def __init__(self, vae_encoder_layer =1, vae_decoder_layer = 2, z_size = 128, d_layer = 1, sample_size=64, gen_num_layer_unit = 32, dis_num_layer_unit = 16):
         super(VAEGAN, self).__init__()
         self.z_size = z_size
         #VAE
-        self.VAE = VAE(vae_encoder_layer, vae_decoder_layer, z_size)
+        self.VAE = VAE(vae_encoder_layer, vae_decoder_layer, z_size, sample_size=sample_size, gen_num_layer_unit = gen_num_layer_unit, dis_num_layer_unit = dis_num_layer_unit)
         #GAN
-        self.discriminator = Discriminator(d_layer)
+        self.discriminator = Discriminator(d_layer, z_size, input_size=sample_size, num_layer_unit=dis_num_layer_unit)
 
     def forward(self, x):
         #VAE
@@ -80,10 +80,10 @@ class VAEGAN(nn.Module):
 
 
 class GAN(nn.Module):
-    def __init__(self, g_layer = 2, d_layer = 1, input_channel=128):
+    def __init__(self, g_layer = 2, d_layer = 1, z_size=128, sample_size=64, gen_num_layer_unit = 32, dis_num_layer_unit = 16):
         super(GAN, self).__init__()
-        self.generator = Generator(g_layer, input_channel)
-        self.discriminator = Discriminator(d_layer)
+        self.generator = Generator(g_layer, z_size, output_size=sample_size, num_layer_unit=gen_num_layer_unit)
+        self.discriminator = Discriminator(d_layer, z_size, input_size=sample_size, num_layer_unit=dis_num_layer_unit)
 
     def forward(self, x):
         x = self.generator(x)
@@ -148,9 +148,9 @@ class GAN(nn.Module):
 #####
 
 class Generator(nn.Module):
-    def __init__(self, layer_per_block=1, input_channel=128):
+    def __init__(self, layer_per_block=2, z_size=128, output_size=64, num_layer_unit = 32):
         super(Generator, self).__init__()
-        self.input_channel = input_channel
+        self.z_size = z_size
 
         #layer_per_block must be >= 1
         if layer_per_block < 1:
@@ -159,24 +159,33 @@ class Generator(nn.Module):
         self.fc_channel = 8 #16
         self.fc_size = 4
 
-        num_unit1 = self.fc_channel   
-        num_unit2 = 16   #32
-        num_unit3 = 32   #64
-        num_unit4 = 64   #128
-        num_unit5 = 32   #256
-        num_unit6 = 16   #512
+        
+        self.output_size = output_size
+        #need int(output_size / self.fc_size) upsampling to increase size, so we have int(output_size / self.fc_size) + 1 block
+        self.num_blocks = int(np.log2(output_size) - np.log2(self.fc_size)) + 1
 
-        num_layer_unit_list = [num_unit1, num_unit2, num_unit3, num_unit4, num_unit5, num_unit6]
+
+        if type(num_layer_unit) is list:
+            if len(num_layer_unit) != self.num_blocks:
+                raise Exception("For output_size="+str(output_size)+", the list of num_layer_unit should have "+str(self.num_blocks)+" elements.")
+            num_layer_unit_list = num_layer_unit
+        elif type(num_layer_unit) is int:
+            num_layer_unit_list = [num_layer_unit] * self.num_blocks
+        else:
+            raise Exception("num_layer_unit should be int of list of int.")
+
+        # add initial self.fc_channel to num_layer_unit_list
+        num_layer_unit_list = [self.fc_channel] + num_layer_unit_list
         gen_module = []
-        #5 blocks (need 4 pool to reduce size)
-        for i in range(5):
+        #
+        for i in range(self.num_blocks):
             num_layer_unit1, num_layer_unit2 = num_layer_unit_list[i], num_layer_unit_list[i+1]
 
             gen_module.append(nn.ConvTranspose3d(num_layer_unit1, num_layer_unit2, 3, 1, padding = 1))
             gen_module.append(nn.BatchNorm3d(num_layer_unit2))
             gen_module.append(nn.ReLU(True))
 
-            for _ in range(layer_per_block):
+            for _ in range(layer_per_block-1):
                 gen_module.append(nn.ConvTranspose3d(num_layer_unit2, num_layer_unit2, 3, 1, padding = 1))
                 gen_module.append(nn.BatchNorm3d(num_layer_unit2))
                 gen_module.append(nn.ReLU(True))
@@ -187,12 +196,12 @@ class Generator(nn.Module):
         gen_module = gen_module[:-1]
 
         #add final sigmoid 
-        gen_module.append(nn.ConvTranspose3d(num_unit6, 1, 3, 1, padding = 1))
+        gen_module.append(nn.ConvTranspose3d(num_layer_unit_list[-1], 1, 3, 1, padding = 1))
         gen_module.append(nn.Sigmoid())
 
         
 
-        self.gen_fc = nn.Linear(self.input_channel, num_unit1 * self.fc_size * self.fc_size * self.fc_size)
+        self.gen_fc = nn.Linear(self.z_size, self.fc_channel * self.fc_size * self.fc_size * self.fc_size)
         self.gen = nn.Sequential(*gen_module)
 
     def forward(self, x):
@@ -203,22 +212,31 @@ class Generator(nn.Module):
 
 
 class Discriminator(nn.Module):
-    def __init__(self, layer_per_block=1, final_fc_size = 128):
+    def __init__(self, layer_per_block=2, z_size = 128, input_size=64, num_layer_unit = 16):
         super(Discriminator, self).__init__()
 
          #layer_per_block must be >= 1
         if layer_per_block < 1:
             layer_per_block = 1
 
-        num_unit1 = 1   #input channel number
-        num_unit2 = 8   #32
-        num_unit3 = 16   #64
-        num_unit4 = 32  #128
-        num_unit5 = 16   #256
-        num_unit6 = 8   #512
+        self.fc_size = 4    #final height of the volume in conv layers before flatten
+
+        self.input_size = input_size
+        #need int(input_size / self.fc_size) upsampling to increase size, so we have int(input_size / self.fc_size) + 1 block
+        self.num_blocks = int(np.log2(input_size) - np.log2(self.fc_size)) + 1
 
 
-        num_layer_unit_list = [num_unit1, num_unit2, num_unit3, num_unit4, num_unit5, num_unit6]
+        if type(num_layer_unit) is list:
+            if len(num_layer_unit) != self.num_blocks:
+                raise Exception("For input_size="+str(input_size)+", the list of num_layer_unit should have "+str(self.num_blocks)+" elements.")
+            num_layer_unit_list = num_layer_unit
+        elif type(num_layer_unit) is int:
+            num_layer_unit_list = [num_layer_unit] * self.num_blocks
+        else:
+            raise Exception("num_layer_unit should be int of list of int.")
+
+        # add initial num_unit to num_layer_unit_list
+        num_layer_unit_list = [1] + num_layer_unit_list
         dis_module = []
         #5 blocks (need 4 pool to reduce size)
         for i in range(5):
@@ -228,7 +246,7 @@ class Discriminator(nn.Module):
             dis_module.append(nn.BatchNorm3d(num_layer_unit2))
             dis_module.append(nn.ReLU(True))
 
-            for _ in range(layer_per_block):
+            for _ in range(layer_per_block-1):
                 dis_module.append(nn.Conv3d(num_layer_unit2, num_layer_unit2, 3, 1, padding = 1))
                 dis_module.append(nn.BatchNorm3d(num_layer_unit2))
                 dis_module.append(nn.ReLU(True))
@@ -242,11 +260,11 @@ class Discriminator(nn.Module):
         self.dis = nn.Sequential(*dis_module)
 
         self.dis_fc1 = nn.Sequential(
-            nn.Linear(num_unit6 * 4 * 4 * 4, final_fc_size),
+            nn.Linear(num_layer_unit_list[-1] * self.fc_size * self.fc_size * self.fc_size, z_size),
             nn.ReLU(True)
         )
         self.dis_fc2 = nn.Sequential(
-            nn.Linear(final_fc_size, 1),
+            nn.Linear(z_size, 1),
             nn.Sigmoid()
         )
 
@@ -259,14 +277,14 @@ class Discriminator(nn.Module):
         return x, fx
 
 class VAE(nn.Module):
-    def __init__(self, vae_encoder_layer = 1, vae_decoder_layer = 2, z_size = 128):
+    def __init__(self, vae_encoder_layer = 1, vae_decoder_layer = 2, z_size = 128, sample_size=64, gen_num_layer_unit = 32, dis_num_layer_unit = 16):
         super(VAE, self).__init__()
         self.z_size = z_size
         #VAE
-        self.vae_encoder = Discriminator(vae_encoder_layer, z_size)
+        self.vae_encoder = Discriminator(vae_encoder_layer, z_size, input_size=sample_size, num_layer_unit=dis_num_layer_unit)
         self.encoder_mean = nn.Linear(z_size, z_size)
         self.encoder_logvar = nn.Linear(z_size, z_size)
-        self.vae_decoder = Generator(vae_decoder_layer, z_size)
+        self.vae_decoder = Generator(vae_decoder_layer, z_size, output_size=sample_size, num_layer_unit=gen_num_layer_unit)
 
 
     #reference: https://github.com/YixinChen-AI/CVAE-GAN-zoos-PyTorch-Beginner/blob/master/CVAE-GAN/CVAE-GAN.py

@@ -26,9 +26,9 @@ def load_dataset(dataset_name, run, config):
             m = trimesh.load(filename, force='mesh')
             #augment data
             if config.data_augmentation:
-                array = data_augmentation(m, num_augment_data = config.num_augment_data)
+                array = data_augmentation(m, num_augment_data = config.num_augment_data, array_length = config.array_size)
             else:
-                array = mesh2arrayCentered(m)[np.newaxis, :, :, :]
+                array = mesh2arrayCentered(m, array_length = config.array_size)[np.newaxis, :, :, :]
             dataset.append(array)
             
     #now all the returned array contains multiple samples
@@ -46,6 +46,7 @@ def wandbLog(model, config, initial_log_dict={}, log_image=False, log_mesh=False
         if log_image:
             image = mesh2wandbImage(voxelmesh)
             initial_log_dict["sample_tree_image"] = image
+            
         if log_mesh:
             voxelmeshfile = mesh2wandb3D(voxelmesh)
             initial_log_dict["sample_tree_voxelmesh"] = voxelmeshfile
@@ -95,7 +96,10 @@ def netarray2mesh(array):
 
 def mesh2wandbImage(voxelmesh):
     scene = voxelmesh.scene()
-    png = scene.save_image(resolution=[600, 600],)
+    try:
+        png = scene.save_image(resolution=[600, 600],)
+    except NoSuchDisplayException:
+        print("NoSuchDisplayException. Renderer not found! Please check configuation so trimesh scene.save_image() can run successfully")
     png = io.BytesIO(png)
     image = Image.open(png)
     return wandb.Image(image)
