@@ -1,0 +1,135 @@
+{
+    "type": "form",
+    "title": "Books to Trees (from API)",
+    "workspace": {
+        "href": "https://api.typeform.com/workspaces/186595"
+    },
+    "theme": {
+        "href": "https://api.typeform.com/themes/qHWOQ7"
+    },
+    "settings": {
+        "language": "en",
+        "progress_bar": "proportion",
+        "meta": {
+            "allow_indexing": false
+        },
+        "is_public": true,
+        "is_trial": false,
+        "show_progress_bar": true,
+        "show_typeform_branding": true,
+        "are_uploads_public": false
+    },
+    "fields": [
+        {
+            "title": "A book you like?",
+            "properties": {},
+            "validations": {
+                "required": false
+            },
+            "type": "short_text"
+        },
+        {
+            "title": "Which tree resembles that book the most?",
+            "properties": {
+                "randomize": false,
+                "allow_multiple_selection": false,
+                "allow_other_choice": false,
+                "supersized": false,
+                "show_labels": true,
+                "choices": [
+                    {
+                        "label": "a",
+                        "attachment": {
+                            "type": "image",
+                            "href": "https://images.typeform.com/images/TiLCPvbuNrw4",
+                            "properties": {
+                                "description": "Heart"
+                            }
+                        }
+                    },
+                    {
+                        "label": "b",
+                        "attachment": {
+                            "type": "image",
+                            "href": "https://images.typeform.com/images/TDBqVJETHgSF",
+                            "properties": {
+                                "description": "Happy"
+                            }
+                        }
+                    },
+                    {
+                        "label": "c",
+                        "attachment": {
+                            "type": "image",
+                            "href": "https://images.typeform.com/images/ihdXQgNwPCpb",
+                            "properties": {
+                                "description": "Dog"
+                            }
+                        }
+                    }
+                ]
+            },
+            "validations": {
+                "required": false
+            },
+            "type": "picture_choice"
+        },
+        {
+            "title": "Another book?",
+            "properties": {},
+            "validations": {
+                "required": false
+            },
+            "type": "short_text"
+        },
+        {
+            "title": "Which tree resembles that book the most? v2",
+            "properties": {
+                "randomize": false,
+                "allow_multiple_selection": false,
+                "allow_other_choice": false,
+                "supersized": false,
+                "show_labels": true,
+                "choices": [
+                    {
+                        "label": "a",
+                        "attachment": {
+                            "type": "image",
+                            "href": "https://images.typeform.com/images/TiLCPvbuNrw4",
+                            "properties": {
+                                "description": "Heart"
+                            }
+                        }
+                    },
+                    {
+                        "label": "b",
+                        "attachment": {
+                            "type": "image",
+                            "href": "https://images.typeform.com/images/TDBqVJETHgSF",
+                            "properties": {
+                                "description": "Happy"
+                            }
+                        }
+                    },
+                    {
+                        "label": "c",
+                        "attachment": {
+                            "type": "image",
+                            "href": "https://images.typeform.com/images/ihdXQgNwPCpb",
+                            "properties": {
+                                "description": "Dog"
+                            }
+                        }
+                    }
+                ]
+            },
+            "validations": {
+                "required": false
+            },
+            "type": "picture_choice"
+        }
+    ],
+    "_links": {
+        "display": "https://mathis1.typeform.com/to/zOpC4MUt"
+    }
+}

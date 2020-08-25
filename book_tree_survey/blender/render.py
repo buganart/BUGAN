@@ -8,11 +8,13 @@ import bpy
 argv = sys.argv[sys.argv.index("--") + 1 :]
 parser = argparse.ArgumentParser()
 parser.add_argument("--input", help="Path of or folder with.obj files")
+parser.add_argument("infile", nargs="?", type=argparse.FileType("r"), default=sys.stdin)
 parser.add_argument("--output", help="Rendered image output path prefix")
 parser.add_argument("--energy", help="Brightness", default=2, type=float)
 parser.add_argument("--border", help="Zoom", default=0.1, type=float)
 parser.add_argument("--color", help="Color", default="custom", type=str)
 parser.add_argument("--samples", help="Samples", default=None, type=int)
+parser.add_argument("--match", help="Regex to filter filenames", default=None, type=str)
 args = parser.parse_args(argv)
 
 camera_y = -8
@@ -222,17 +224,18 @@ def render(mesh_path):
     bpy.ops.object.delete()
 
 
-input_path_arg = Path(args.input)
-
-input_paths = (
-    sorted(Path(args.input).glob("*.obj"))
-    if input_path_arg.expanduser().is_dir()
-    else [input_path_arg]
-)
+if args.input:
+    input_path_arg = Path(args.input)
+    if input_path_arg.expanduser().is_dir():
+        input_paths = sorted(Path(args.input).glob("*.obj"))
+    else:
+        input_paths = [input_path_arg]
+else:
+    input_paths = [Path(line.strip()) for line in args.infile]
 
 for input_path in input_paths:
     print(f"{input_path} -> {args.output}")
     try:
         render(input_path)
     except Exception as exc:
-        print(exc)
+        print(f"FAILED: {input_path}", file=sys.stderr)
