@@ -28,18 +28,20 @@ class VAEGAN(nn.Module):
         return x
 
 
-    def compute_loss(self, dataset_batch, vae_recon_loss_factor = 1, criterion_label = nn.BCELoss(reduction='mean'), criterion_reconstruct = nn.MSELoss(reduction='mean')):
+    def compute_loss(self, dataset_batch, vae_recon_loss_factor = 1, criterion_label = nn.BCELoss, criterion_reconstruct = nn.MSELoss, balance_voxel_in_space = False):
     # this function calculate loss of the model
         batch_size = dataset_batch.shape[0]
         vae = self.vae
         discriminator = self.discriminator
 
         #loss function
+        criterion_label = criterion_label(reduction='mean')
         # criterion_label = lambda input,target : nn.BCELoss(reduction='none')(input,target).mean()    #mean per element in each data, mean over batch
         # criterion_reconstruct = lambda input,target : nn.MSELoss(reduction='none')(input,target).mean()    #mean per element in each data, mean over batch
 
         # criterion_label = nn.BCELoss(reduction='mean')    #sum over element in each data, mean over batch
-        # criterion_reconstruct = nn.MSELoss(reduction='mean')    #sum over element in each data, mean over batch   
+        # criterion_reconstruct = nn.MSELoss(reduction='mean')    #sum over element in each data, mean over batch
+
             
         #labels
         real_label = torch.unsqueeze(torch.ones(batch_size),1).float().to(device)
@@ -67,7 +69,26 @@ class VAEGAN(nn.Module):
        
         reconstructed_data, mu, logVar = vae(dataset_batch, output_all=True)
 
-        vae_rec_loss = criterion_reconstruct(reconstructed_data, dataset_batch)    #loss is scaled to one
+        
+
+        #TODO: test
+        if balance_voxel_in_space:
+            mask_hasvoxel = dataset_batch.clone().detach()
+            mask_novoxel = torch.logical_not(mask_hasvoxel).float()
+            num_hasvoxel = torch.sum(mask_hasvoxel)
+            num_novoxel = torch.sum(mask_novoxel)
+            total_voxel = num_hasvoxel + num_novoxel
+
+            mask_hasvoxel = mask_hasvoxel / num_hasvoxel * total_voxel/2.
+            mask_novoxel = mask_novoxel / num_novoxel * total_voxel/2.
+            final_mask = mask_hasvoxel + mask_novoxel   #note that sum of final mask should be the same as the space volume
+            
+            #not grad on mask
+            final_mask = final_mask.clone().detach().requires_grad_(False)
+            vae_rec_loss = torch.mean(criterion_reconstruct(reduction='none')(reconstructed_data, dataset_batch) * final_mask)
+        else:
+            vae_rec_loss = criterion_reconstruct(reduction='mean')(reconstructed_data, dataset_batch)    #loss is scaled to one
+        
 
         #add KL loss
         KL = 0.5 * torch.sum(mu ** 2 + torch.exp(logVar) - 1. - logVar)

@@ -41,6 +41,9 @@ def wandbLog(model, config, initial_log_dict={}, log_image=False, log_mesh=False
     if log_image or log_mesh:
         sample_tree_array = model.generate_tree(config=config)[0]  #only 1 tree
         sample_tree_indices = netarray2indices(sample_tree_array)
+        #log number of points to wandb
+        print(sample_tree_indices.shape[0])
+        initial_log_dict["sample_tree_numpoints"] = sample_tree_indices.shape[0]
         voxelmesh = netarray2mesh(sample_tree_array)
 
         if log_image:
@@ -76,7 +79,7 @@ def netarray2indices(array):
             for k in range(z):
                 if array[i,j,k] > 0.5:        #tanh: voxel representation [-1,1], sigmoid: [0,1]
                     coord_list.append([i,j,k])
-    print(len(coord_list))
+    # print(len(coord_list))
     if len(coord_list) == 0:
         return np.array([[0,0,0]])  #return at least one point to prevent wandb 3dobject error
     return np.array(coord_list)
