@@ -23,6 +23,7 @@ class DataModule(pl.LightningDataModule):
         self.run = run
         self.dataset_artifact = None
         self.dataset = None
+        self.size = 0
 
     def prepare_data(self):
         # download
@@ -52,6 +53,7 @@ class DataModule(pl.LightningDataModule):
                 
         #now all the returned array contains multiple samples
         dataset = np.concatenate(dataset)
+        self.size = dataset.shape[0]
         self.dataset = torch.unsqueeze(torch.tensor(dataset), 1)
 
     def train_dataloader(self):
@@ -89,13 +91,12 @@ def load_dataset(dataset_name, run, config):
     return dataset
 
 
-def wandbLog(model, config, initial_log_dict={}, log_image=False, log_mesh=False):
+def wandbLog(model, initial_log_dict={}, log_image=False, log_mesh=False):
 
     if log_image or log_mesh:
-        sample_tree_array = model.generate_tree(config=config)[0]  #only 1 tree
+        sample_tree_array = model.generate_tree()[0]  #only 1 tree
         sample_tree_indices = netarray2indices(sample_tree_array)
         #log number of points to wandb
-        print(sample_tree_indices.shape[0])
         initial_log_dict["sample_tree_numpoints"] = sample_tree_indices.shape[0]
         voxelmesh = netarray2mesh(sample_tree_array)
 
@@ -109,15 +110,12 @@ def wandbLog(model, config, initial_log_dict={}, log_image=False, log_mesh=False
 
     wandb.log(initial_log_dict)
 
-def save_model(model, model_path):
-    torch.save(model.state_dict(), model_path)
-    wandb.save(model_path)
+def save_checkpoint_to_cloud(checkpoint_path):
+    wandb.save(checkpoint_path)
 
-def load_model(model, model_path = 'model_dict.pth'):
-    model_file = wandb.restore(model_path)
-    print("restored model: "+str(model_file.name))
-    model.load_state_dict(torch.load(model_file.name))
-    return model
+def load_checkpoint_from_cloud(checkpoint_path = 'model_dict.pth'):
+    checkpoint_file = wandb.restore(checkpoint_path)
+    return checkpoint_file.name
 
 #####
 #   helper function (array processing and log)

@@ -1,3 +1,5 @@
+from functionsPL import *
+
 import numpy as np
 
 import torch
@@ -15,10 +17,12 @@ device
 #   models for training
 #####
 class VAEGAN(pl.LightningModule):
-    def __init__(self, config):
+    def __init__(self, config, trainer, save_model_path):
         super(VAEGAN, self).__init__()
         # assert(vae.sample_size == discriminator.input_size)
         self.config = config
+        self.trainer = trainer
+        self.save_model_path = save_model_path
         #create components
         decoder = Generator(config.vae_decoder_layer, config.z_size, config.array_size, config.gen_num_layer_unit)
         encoder = Discriminator(config.vae_encoder_layer, config.z_size, config.array_size, config.dis_num_layer_unit)
@@ -30,6 +34,11 @@ class VAEGAN(pl.LightningModule):
         self.vae = vae
         #GAN
         self.discriminator = discriminator
+
+        #for logging
+        self.d_ep_loss = 0.
+        self.vae_ep_loss = 0.
+        self.epoch = 0
 
         
     def forward(self, x):
@@ -56,6 +65,34 @@ class VAEGAN(pl.LightningModule):
             self.discriminator_optimizer = optim.SGD(discriminator.parameters(), lr=config.d_lr)
 
         return self.vae_optimizer, self.discriminator_optimizer
+
+    def on_train_epoch_start(self):
+        #reset ep_loss
+        self.d_ep_loss = 0.
+        self.vae_ep_loss = 0.
+
+        #set model to train
+        self.vae.train()
+        self.discriminator.train()
+
+    def on_train_epoch_end(self):
+        self.d_ep_loss = self.d_ep_loss / self.config.num_data
+        self.vae_ep_loss = self.vae_ep_loss / self.config.num_data
+
+        #save model if necessary
+        log_dict = {
+            "discriminator loss": self.d_ep_loss,
+            "VAE loss": self.vae_ep_loss}
+
+        log_image = (self.epoch % self.config.log_image_interval == 0)    #boolean whether to log image
+        log_mesh = (self.epoch % self.config.log_mesh_interval == 0)    #boolean whether to log mesh
+
+        wandbLog(self, log_dict, log_image=log_image, log_mesh=log_mesh) 
+        if log_image:
+            self.trainer.save_checkpoint(self.save_model_path)
+            save_checkpoint_to_cloud(self.save_model_path)
+        self.epoch += 1
+
 
     def training_step(self, dataset_batch, batch_idx, optimizer_idx):
         config = self.config
@@ -114,6 +151,9 @@ class VAEGAN(pl.LightningModule):
 
             vae_loss = (vae_recon_loss_factor * vae_rec_loss + vae_d_loss) / (vae_recon_loss_factor + 1)   #scale the loss to one
 
+            #record loss
+            self.vae_ep_loss += vae_loss.detach()
+
             result = pl.TrainResult(minimize=vae_loss, checkpoint_on=vae_loss)
             result.log('vae_loss', vae_loss, on_epoch=True, prog_bar=True)
             return result
@@ -137,6 +177,9 @@ class VAEGAN(pl.LightningModule):
             dloss_real = criterion_label(dout_real, real_label)
 
             dloss = (dloss_fake + dloss_real) / 2   #scale the loss to one
+
+            #record loss
+            self.d_ep_loss += dloss.detach()  
 
             result = pl.TrainResult(minimize=dloss)
             result.log('dloss', dloss, on_epoch=True, prog_bar=True)
