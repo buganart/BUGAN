@@ -7,6 +7,7 @@ mkShell {
   buildInputs = [
 
     entr
+    meshlab
 
     (py.withPackages (ps: with ps; [
 
@@ -20,6 +21,7 @@ mkShell {
       notebook
       numpy
       matplotlib
+      trimesh
 
       # to install open3d
       pip  
