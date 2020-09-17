@@ -15,6 +15,78 @@ device
 #####
 #   DataModule
 #####
+
+class DataModule_custom_cond(pl.LightningDataModule):
+
+    def __init__(self, config, run, data_filename, index_filename):
+        super().__init__()
+        self.config = config
+        self.run = run
+        self.dataset_artifact = None
+        self.dataset = None
+        self.data_index = None
+        self.size = 0
+        self.num_classes = 0
+        self.data_filename = data_filename
+        self.index_filename = index_filename
+
+    def prepare_data(self):
+        return
+
+    def setup(self, stage=None):
+        config = self.config
+        dataset = np.load(os.path.join(data_path, self.data_filename))
+        data_index_dict = np.load(os.path.join(data_path, self.index_filename), allow_pickle=True)
+                
+        #now all the returned array contains multiple samples
+        self.size = dataset.shape[0]
+        self.dataset = torch.unsqueeze(torch.tensor(dataset), 1)
+
+        #process data index dict in the form {"double_trunk":[1,5,6], ....} to class index array [0, 1, 3, 1, 2, 0] 
+        data_index = np.zeros(self.size)
+        data_index_dict = data_index_dict.item()
+        for class_num, key in enumerate(data_index_dict.keys()):
+            class_list = data_index_dict[key]
+            for i in class_list:
+                data_index[i] = class_num
+
+        config.num_classes = class_num+1
+        self.data_index = torch.tensor(data_index).int()
+
+
+    def train_dataloader(self):
+        config = self.config
+        tensor_dataset = TensorDataset(self.dataset, self.data_index)
+        return DataLoader(tensor_dataset, batch_size=config.batch_size, shuffle=True)
+
+class DataModule_custom(pl.LightningDataModule):
+
+    def __init__(self, config, run, filename):
+        super().__init__()
+        self.config = config
+        self.run = run
+        self.dataset_artifact = None
+        self.dataset = None
+        self.size = 0
+        self.filename = filename
+
+    def prepare_data(self):
+        return
+
+    def setup(self, stage=None):
+        config = self.config
+        dataset = np.load(os.path.join(data_path, self.filename))
+                
+        #now all the returned array contains multiple samples
+        self.size = dataset.shape[0]
+        self.dataset = torch.unsqueeze(torch.tensor(dataset), 1)
+
+    def train_dataloader(self):
+        config = self.config
+        tensor_dataset = TensorDataset(self.dataset)
+        return DataLoader(tensor_dataset, batch_size=config.batch_size, shuffle=True)
+
+
 class DataModule(pl.LightningDataModule):
 
     def __init__(self, config, run):
@@ -97,6 +169,26 @@ def wandbLog(model, initial_log_dict={}, log_image=False, log_mesh=False):
         sample_tree_array = model.generate_tree()[0]  #only 1 tree
         sample_tree_indices = netarray2indices(sample_tree_array)
         #log number of points to wandb
+        initial_log_dict["sample_tree_numpoints"] = sample_tree_indices.shape[0]
+        voxelmesh = netarray2mesh(sample_tree_array)
+
+        if log_image:
+            image = mesh2wandbImage(voxelmesh)
+            initial_log_dict["sample_tree_image"] = image
+            
+        if log_mesh:
+            voxelmeshfile = mesh2wandb3D(voxelmesh)
+            initial_log_dict["sample_tree_voxelmesh"] = voxelmeshfile
+
+    wandb.log(initial_log_dict)
+
+def wandbLog_cond(model, c, initial_log_dict={}, log_image=False, log_mesh=False):
+
+    if log_image or log_mesh:
+        sample_tree_array = model.generate_tree(c)[0]  #only 1 tree
+        sample_tree_indices = netarray2indices(sample_tree_array)
+        #log number of points to wandb
+        initial_log_dict["sample_tree_class"] = c.detach().cpu().numpy()
         initial_log_dict["sample_tree_numpoints"] = sample_tree_indices.shape[0]
         voxelmesh = netarray2mesh(sample_tree_array)
 

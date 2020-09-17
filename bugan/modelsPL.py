@@ -16,6 +16,132 @@ device
 #####
 #   models for training
 #####
+class VAEGAN_Wloss_GP(VAEGAN):
+    def gradient_penalty(self, real_tree, generated_tree):
+        batch_size = real_tree.shape[0]
+
+        # Calculate interpolation
+        alpha = torch.rand(batch_size).reshape((batch_size,1,1,1,1)).float().to(device)
+        # alpha = alpha.expand_as(real_data)
+        # if self.use_cuda:
+        #     alpha = alpha.cuda()
+        interpolated = alpha * real_tree + (1 - alpha) * generated_tree
+        interpolated = interpolated.requires_grad_().float().to(device)        
+
+        #calculate prob of interpolated trees
+        prob_interpolated = self.discriminator(interpolated)
+
+        #calculate grad of prob
+        grad = torch.autograd.grad(outputs=prob_interpolated, inputs=interpolated,
+                               grad_outputs=torch.ones(prob_interpolated.size()).to(device),
+                               create_graph=True, retain_graph=True)[0]
+
+        #grad have shape same as input (batch_size,1,h,w,d),
+        grad = grad.view(batch_size, -1)
+
+        #calculate norm and add epsilon to prevent sqrt(0)
+        grad_norm = torch.sqrt(torch.sum(grad ** 2, dim=1) + 1e-10)
+
+        #return gradient penalty
+        return self.config.gp_epsilon * ((grad_norm - 1) ** 2).mean()
+
+    def training_step(self, dataset_batch, batch_idx, optimizer_idx):
+        config = self.config
+        vae_recon_loss_factor = config.vae_recon_loss_factor
+        balance_voxel_in_space = config.balance_voxel_in_space
+
+        dataset_batch = dataset_batch[0]    #dataset_batch was a list: [array], so just take the array inside
+        dataset_batch = dataset_batch.float().to(device)
+
+        batch_size = dataset_batch.shape[0]
+        vae = self.vae
+        discriminator = self.discriminator
+
+        #loss function
+        criterion_label = nn.MSELoss
+        criterion_reconstruct = nn.MSELoss
+        criterion_label = criterion_label(reduction='mean')
+            
+        #labels
+        # real_label = torch.unsqueeze(torch.ones(batch_size),1).float().to(device)
+        # fake_label = torch.unsqueeze(torch.zeros(batch_size),1).float().to(device)
+
+
+        if optimizer_idx == 0:
+            ############
+            #   VAE
+            ############
+           
+            reconstructed_data, mu, logVar = vae(dataset_batch, output_all=True)
+            vae_rec_loss = criterion_label(reconstructed_data, dataset_batch)
+
+            #add KL loss
+            KL = 0.5 * torch.sum(mu ** 2 + torch.exp(logVar) - 1. - logVar)
+            vae_rec_loss += KL
+
+            #output of the vae should fool discriminator
+            vae_out_d = discriminator(F.sigmoid(reconstructed_data))
+            vae_d_loss = -vae_out_d.mean()       #vae/generator should maximize vae_out_d
+
+            vae_loss = (vae_recon_loss_factor * vae_rec_loss + vae_d_loss) / (vae_recon_loss_factor + 1)   #scale the loss to one
+
+            #record loss
+            self.vae_ep_loss += vae_loss.detach()
+
+            result = pl.TrainResult(minimize=vae_loss)
+            result.log('vae_loss', vae_loss, on_epoch=True, prog_bar=True)
+            return result
+
+        if optimizer_idx == 1:
+
+            ############
+            #   discriminator (and classifier if necessary)
+            ############
+            
+            #generate fake trees
+            latent_size = vae.decoder_z_size
+            z = torch.randn(batch_size, latent_size).float().to(device) #noise vector
+            tree_fake = F.sigmoid(vae.generate_sample(z))
+            tree_fake = tree_fake.clone().detach()
+
+            #fake data (data from generator) 
+            dout_fake = discriminator(tree_fake)   #detach so no update to generator
+            # dloss_fake = criterion_label(dout_fake, fake_label)
+            #real data (data from dataloader)
+            dout_real = discriminator(dataset_batch)
+            # dloss_real = criterion_label(dout_real, real_label)
+
+            # dloss = (dloss_fake + dloss_real) / 2   #scale the loss to one
+            #add gradient penalty
+            gp = self.gradient_penalty(dataset_batch, tree_fake)
+
+            dloss = (dout_fake.mean() - dout_real.mean()) + gp     #d should maximize diff of real vs fake (dout_real - dout_fake)
+
+            #record loss
+            self.d_ep_loss += dloss.detach()  
+
+            result = pl.TrainResult(minimize=dloss)
+            result.log('dloss', dloss, on_epoch=True, prog_bar=True)
+            return result
+    def configure_optimizers(self):
+        config = self.config
+        vae = self.vae
+        discriminator = self.discriminator
+
+        self.vae_optimizer = optim.Adam(vae.parameters(), lr=config.vae_lr)
+
+        self.discriminator_optimizer = optim.Adam(discriminator.parameters(), lr=config.d_lr)
+
+        #clip critic (discriminator) gradient
+        #no clip when gp is applied
+
+        # clip_value = config.clip_value
+        # for p in discriminator.parameters():
+        #     p.register_hook(lambda grad: torch.clamp(grad, -clip_value, clip_value))
+
+        return self.vae_optimizer, self.discriminator_optimizer
+
+
 class VAEGAN(pl.LightningModule):
     def __init__(self, config, trainer, save_model_path):
         super(VAEGAN, self).__init__()
@@ -507,7 +633,7 @@ class Generator(nn.Module):
 
 
 class Discriminator(nn.Module):
-    def __init__(self, layer_per_block=2, z_size = 128, input_size=64, num_layer_unit = 16, activations = nn.ReLU(True)):
+    def __init__(self, layer_per_block=2, z_size = 128, input_size=64, num_layer_unit = 16, output_size = 1, activations = nn.ReLU(True)):
         super(Discriminator, self).__init__()
 
         self.z_size = z_size
@@ -519,6 +645,7 @@ class Discriminator(nn.Module):
         self.fc_size = 4    #final height of the volume in conv layers before flatten
 
         self.input_size = input_size
+        self.output_size = output_size
         #need int(input_size / self.fc_size) upsampling to increase size, so we have int(input_size / self.fc_size) + 1 block
         self.num_blocks = int(np.log2(input_size) - np.log2(self.fc_size)) + 1
 
@@ -561,7 +688,7 @@ class Discriminator(nn.Module):
             nn.ReLU(True)
         )
         self.dis_fc2 = nn.Sequential(
-            nn.Linear(z_size, 1),
+            nn.Linear(z_size, self.output_size),
             # nn.Sigmoid()  #remove sigmoid for loss with logit
         )
 
@@ -575,6 +702,7 @@ class Discriminator(nn.Module):
             return x, fx
         else:
             return x
+
 
 class VAE(nn.Module):
     def __init__(self, encoder, decoder):
@@ -612,3 +740,59 @@ class VAE(nn.Module):
         x = self.vae_decoder(z)
         return x
 
+
+class CVAE(nn.Module):
+    def __init__(self, encoder, decoder):
+        super(CVAE, self).__init__()
+        assert(encoder.input_size == decoder.output_size)
+        self.sample_size = decoder.output_size
+        self.encoder_z_size = encoder.z_size
+        self.decoder_z_size = decoder.z_size
+        self.num_classes = self.decoder_z_size - self.encoder_z_size
+        #CVAE
+        self.vae_encoder = encoder
+        self.encoder_mean = nn.Linear(self.encoder_z_size, self.encoder_z_size)
+        self.encoder_logvar = nn.Linear(self.encoder_z_size, self.encoder_z_size)
+        self.vae_decoder = decoder
+
+
+    #reference: https://github.com/YixinChen-AI/CVAE-GAN-zoos-PyTorch-Beginner/blob/master/CVAE-GAN/CVAE-GAN.py
+    def noise_reparameterize(self,mean,logvar):
+        eps = torch.randn(mean.shape).to(device)
+        z = mean + eps * torch.exp(logvar)
+        return z
+
+    def forward(self, x, c, output_all=False):
+        #CVAE
+        _, f = self.vae_encoder(x, output_all=True)
+        x_mean = self.encoder_mean(f)
+        x_logvar = self.encoder_logvar(f)
+        x = self.noise_reparameterize(x_mean, x_logvar)
+
+        #convert c to one-hot
+        batch_size = x.shape[0]
+        c = c.reshape((-1,1))
+        c_onehot = torch.zeros([batch_size, self.num_classes]).to(device)
+        c_onehot = c_onehot.scatter(1, c, 1)
+
+        #merge with x to be decoder input
+        x = torch.cat((x, c_onehot), 1)
+        
+        x = self.vae_decoder(x)
+        if output_all:
+            return x, x_mean, x_logvar
+        else:
+            return x
+
+    def generate_sample(self, z, c):
+        #convert c to one-hot
+        batch_size = z.shape[0]
+        c = c.reshape((-1,1))
+        c_onehot = torch.zeros([batch_size, self.num_classes]).to(device)
+        c_onehot = c_onehot.scatter(1, c, 1)
+
+        #merge with z to be decoder input
+        z = torch.cat((z, c_onehot), 1)
+
+        x = self.vae_decoder(z)
+        return x
