@@ -11,7 +11,17 @@ mkShell {
     (py.withPackages (ps: with ps; [
 
       # our python deps
-      pytorch
+      h5py
+      joblib
+      jupyter
+      networkx
+      pillow
+      pyglet
+      pytorchWithCuda
+      scikitimage
+      scipy
+      shapely
+      trimesh
 
       # 2020-08-07: wandb not yet available in nixpkgs
       pip
