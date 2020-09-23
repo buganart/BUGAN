@@ -200,6 +200,7 @@ def render(mesh_path):
                 0.8,
                 1,
             )
+
     bpy.context.object.active_material_index = 0
     bpy.ops.object.material_slot_assign()
 
@@ -220,7 +221,9 @@ def render(mesh_path):
     bpy.ops.render.render(write_still=True)
 
     bpy.ops.object.select_all(action="DESELECT")
-    bpy.data.objects[-1].select_set(True)
+    for obj in bpy.data.objects:
+        if obj.type == "MESH":
+            obj.select_set(True)
     bpy.ops.object.delete()
 
 
