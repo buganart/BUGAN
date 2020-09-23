@@ -1,8 +1,0 @@
-#!/usr/bin/env bash
-set -e
-
-pkill feh || true
-
-blender -b -P render.py -x 1 -f 1
-
-feh /tmp/0001.jpg &

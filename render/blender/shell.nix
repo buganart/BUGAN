@@ -7,6 +7,7 @@ mkShell {
    buildInputs = [
 
     entr
+    imagemagick
     # blender
 
     (py.withPackages (ps: with ps; [
