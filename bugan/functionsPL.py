@@ -1,6 +1,9 @@
 import os
 import io
 
+import zipfile
+from io import BytesIO
+
 import trimesh
 import numpy as np
 import torch
@@ -11,6 +14,8 @@ import pytorch_lightning as pl
 from torch.utils.data import DataLoader, TensorDataset
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 device
+
+
 
 #####
 #   DataModule
@@ -61,21 +66,49 @@ class DataModule_custom_cond(pl.LightningDataModule):
 
 class DataModule_custom(pl.LightningDataModule):
 
-    def __init__(self, config, run, filename):
+    def __init__(self, config, run, data_path, process_data=False):
         super().__init__()
         self.config = config
         self.run = run
         self.dataset_artifact = None
         self.dataset = None
         self.size = 0
-        self.filename = filename
+        self.data_path = data_path
+        self.process_data = process_data
 
     def prepare_data(self):
-        return
+        #if process data
+        #then: the data_path should indicate the dir containing .obj files. the script will read all files, and save a .npy file there
+            #the self.data_path will be updated to that file, which will be read to build tensor dataset in the next step
+        #else: do nothing, the data_path should indicate the processed .npy file
+        if self.process_data:
+            data = []
+            failed = []
+            dataset_array = []
+
+            for file_name in os.listdir(self.data_path):
+                if file_name.endswith(".obj"):
+                    try:
+                        m = trimesh.load(data_path+file_name, force='mesh')
+                        array = mesh2arrayCentered(m, array_length = 32)
+                        # print(array.shape)
+                        #get filename that can be read by trimesh
+                        data.append(file_name)
+                        dataset_array.append(array)
+                    except (IndexError, ValueError):
+                        failed.append(file_name)
+                        print(file_name+" failed")
+
+            #save as numpy array in the datapath
+            dataset_array = np.stack(dataset_array, axis=0)
+            # print(dataset_array.shape)
+            np.save(os.path.join(data_path, "dataset_array_custom_"+str(dataset_array.shape[0])), dataset_array)
+            self.data_path = os.path.join(data_path, "dataset_array_custom_"+str(dataset_array.shape[0]))
+
 
     def setup(self, stage=None):
         config = self.config
-        dataset = np.load(os.path.join(data_path, self.filename))
+        dataset = np.load(self.data_path)
                 
         #now all the returned array contains multiple samples
         self.size = dataset.shape[0]
@@ -264,7 +297,7 @@ def mesh2arrayCentered(mesh, voxel_size = 1, array_length = 64):
     vox_array = np.zeros(array_size, dtype=bool)    #tanh: voxel representation [-1,1], sigmoid: [0,1]
     #scale mesh extent to fit array_length
     max_length = np.max(np.array(mesh.extents))
-    mesh = mesh.apply_transform(trimesh.transformations.scale_matrix((array_length-1)/max_length))  #now the extent is [array_length**3]
+    mesh = mesh.apply_transform(trimesh.transformations.scale_matrix((array_length-1.5)/max_length))  #now the extent is [array_length**3]
     v = mesh.voxelized(voxel_size)  #max voxel array length = array_length / voxel_size
 
     #find indices in the v.matrix to center it in vox_array

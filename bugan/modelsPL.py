@@ -1,4 +1,4 @@
-from functionsPL import *
+from bugan.functionsPL import *
 
 import numpy as np
 
