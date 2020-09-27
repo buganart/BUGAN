@@ -1,11 +1,13 @@
 import os
 import io
+from pathlib import Path
 
 import zipfile
 from io import BytesIO
 
 import trimesh
 import numpy as np
+import tqdm
 import torch
 import wandb
 from PIL import Image
@@ -73,7 +75,7 @@ class DataModule_custom(pl.LightningDataModule):
         self.dataset_artifact = None
         self.dataset = None
         self.size = 0
-        self.data_path = data_path
+        self.data_path = Path(data_path)
         self.process_data = process_data
 
     def prepare_data(self):
@@ -86,24 +88,24 @@ class DataModule_custom(pl.LightningDataModule):
             failed = []
             dataset_array = []
 
-            for file_name in os.listdir(self.data_path):
-                if file_name.endswith(".obj"):
-                    try:
-                        m = trimesh.load(data_path+file_name, force='mesh')
-                        array = mesh2arrayCentered(m, array_length = 32)
-                        # print(array.shape)
-                        #get filename that can be read by trimesh
-                        data.append(file_name)
-                        dataset_array.append(array)
-                    except (IndexError, ValueError):
-                        failed.append(file_name)
-                        print(file_name+" failed")
+            for path in tqdm.tqdm(list(self.data_path.rglob('*.obj'))):
+                try:
+                    mesh = trimesh.load(str(path), force='mesh')
+                    array = mesh2arrayCentered(mesh, array_length=32)
+                    # print(array.shape)
+                    # get filename that can be read by trimesh
+                    data.append(path.name)
+                    dataset_array.append(array)
+                except (IndexError, ValueError):
+                    failed.append(path.name)
+                    print(f"{path.name} failed")
 
             #save as numpy array in the datapath
             dataset_array = np.stack(dataset_array, axis=0)
             # print(dataset_array.shape)
-            np.save(os.path.join(data_path, "dataset_array_custom_"+str(dataset_array.shape[0])), dataset_array)
-            self.data_path = os.path.join(data_path, "dataset_array_custom_"+str(dataset_array.shape[0]))
+            npy_path = self.data_path / f"dataset_array_custom_{dataset_array.shape[0]}.npy"
+            np.save(npy_path, dataset_array)
+            self.data_path = npy_path
 
 
     def setup(self, stage=None):

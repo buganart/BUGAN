@@ -11,6 +11,7 @@ mkShell {
     (py.withPackages (ps: with ps; [
 
       # our python deps
+      ConfigArgParse
       h5py
       joblib
       jupyter
@@ -18,6 +19,7 @@ mkShell {
       pillow
       pyglet
       pytorchWithCuda
+      # pytorch-lightning
       scikitimage
       scipy
       shapely

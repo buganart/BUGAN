@@ -1,13 +1,11 @@
 # BUGAN
 
-Install with
+## Installation
 
     pip install -e .
 
-And use it with
 
-```python
-from bugan import models
-```
+## Training
 
-More to come ...
+    wandb login  # Only if not yet logged in.
+    ./train.py --data-path my-data-path
