@@ -33,13 +33,11 @@ parser.add(
 parser.add("--data-path", "-d", required=True, help="Dataset directory.")
 parser.add("--id", required=False, help="Wandb run ID to resume.")
 parser.add("--run-path", required=False, help="Wandb run path.")
+parser.add("--epochs", default=2000, type=int, help="Number of epochs to train.")
+parser.add("--gpus", default=None, type=int, help="Number of GPUs to train with.")
 
 args = parser.parse_args()
 
-pprint.pprint(args)
-
-
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 if args.id is None:
     resume = False
@@ -55,7 +53,7 @@ config_dict = dict(
     dis_num_layer_unit=[32, 64, 128, 128],
     leakyReLU=False,  # leakyReLU implementation still not in modelPL,
     balance_voxel_in_space=False,
-    epochs=2000,
+    # epochs=2000,
     vae_lr=0.0025,
     vae_encoder_layer=1,
     vae_decoder_layer=2,
@@ -70,6 +68,9 @@ config_dict = dict(
     vae_opt="Adam",
     dis_opt="Adam",
 )
+
+config_dict.update(args.__dict__)
+
 run = wandb.init(
     project="tree-gan",
     id=args.id,
@@ -79,16 +80,19 @@ run = wandb.init(
     config=config_dict,
 )
 
-print("run id: " + str(wandb.run.id))
-print("run name: " + str(wandb.run.name))
+print(f"Run id: {wandb.run.id}")
+print(f"Run name: {wandb.run.name}")
 wandb.watch_called = False
 
 config = wandb.config
+pprint.pprint(config)
 
 np.random.seed(config["seed"])
 
 process_data = False if args.data_path.endswith(".npy") else True
-dataModule = DataModule_custom(config, run, args.data_path, process_data=process_data)
+dataModule = DataModule_custom(
+    config.batch_size, run, args.data_path, process_data=process_data
+)
 config.num_data = dataModule.size
 
 torch.manual_seed(config.seed)
@@ -102,19 +106,25 @@ if resume:
     # get file from the wandb cloud
     load_checkpoint_from_cloud(checkpoint_path="checkpoint.ckpt")
     # restore training state completely
-    trainer = pl.Trainer(
-        max_epochs=config.epochs,
-        logger=wandb_logger,
-        checkpoint_callback=None,
-        resume_from_checkpoint=checkpoint_path,
-    )
+    resume_from_checkpoint = checkpoint_path
 else:
-    trainer = pl.Trainer(
-        max_epochs=config.epochs, logger=wandb_logger, checkpoint_callback=None
-    )
+    resume_from_checkpoint = None
+
+trainer = pl.Trainer(
+    gpus=args.gpus,
+    max_epochs=config.epochs,
+    logger=wandb_logger,
+    checkpoint_callback=None,
+    resume_from_checkpoint=resume_from_checkpoint,
+    default_root_dir=wandb.run.dir,
+    distributed_backend="ddp",
+)
 
 # model
-vaegan = VAEGAN(config, trainer, save_model_path=checkpoint_path).to(device)
+import argparse
+
+frozen_config = argparse.Namespace(**config)
+vaegan = VAEGAN(frozen_config, save_model_path=checkpoint_path)
 wandb_logger.watch(vaegan)
 
 trainer.fit(vaegan, dataModule)

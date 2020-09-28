@@ -69,9 +69,9 @@ class DataModule_custom_cond(pl.LightningDataModule):
 
 
 class DataModule_custom(pl.LightningDataModule):
-    def __init__(self, config, run, data_path, process_data=False):
+    def __init__(self, batch_size, run, data_path, process_data=False):
         super().__init__()
-        self.config = config
+        self.batch_size = batch_size
         self.run = run
         self.dataset_artifact = None
         self.dataset = None
@@ -111,7 +111,6 @@ class DataModule_custom(pl.LightningDataModule):
             self.data_path = npy_path
 
     def setup(self, stage=None):
-        config = self.config
         dataset = np.load(self.data_path)
 
         # now all the returned array contains multiple samples
@@ -119,9 +118,8 @@ class DataModule_custom(pl.LightningDataModule):
         self.dataset = torch.unsqueeze(torch.tensor(dataset), 1)
 
     def train_dataloader(self):
-        config = self.config
         tensor_dataset = TensorDataset(self.dataset)
-        return DataLoader(tensor_dataset, batch_size=config.batch_size, shuffle=True)
+        return DataLoader(tensor_dataset, batch_size=self.batch_size, shuffle=True)
 
 
 class DataModule(pl.LightningDataModule):

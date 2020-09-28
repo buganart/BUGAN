@@ -12,7 +12,6 @@ import pytorch_lightning as pl
 from torch.utils.data import DataLoader, TensorDataset
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-device
 
 #####
 #   models for training
@@ -143,11 +142,10 @@ class VAE_train(pl.LightningModule):
         return result
 
 class VAEGAN(pl.LightningModule):
-    def __init__(self, config, trainer, save_model_path):
+    def __init__(self, config, save_model_path):
         super(VAEGAN, self).__init__()
         # assert(vae.sample_size == discriminator.input_size)
         self.config = config
-        self.trainer = trainer
         self.save_model_path = save_model_path
         # create components
         decoder = Generator(
@@ -216,25 +214,26 @@ class VAEGAN(pl.LightningModule):
         self.vae.train()
         self.discriminator.train()
 
-    def on_train_epoch_end(self):
-        self.d_ep_loss = self.d_ep_loss / self.config.num_data
-        self.vae_ep_loss = self.vae_ep_loss / self.config.num_data
+    # TODO: move to trainer callback
+    # def on_train_epoch_end(self):
+    #     self.d_ep_loss = self.d_ep_loss / self.config.num_data
+    #     self.vae_ep_loss = self.vae_ep_loss / self.config.num_data
 
-        # save model if necessary
-        log_dict = {"discriminator loss": self.d_ep_loss, "VAE loss": self.vae_ep_loss}
+    #     # save model if necessary
+    #     log_dict = {"discriminator loss": self.d_ep_loss, "VAE loss": self.vae_ep_loss}
 
-        log_image = (
-            self.epoch % self.config.log_image_interval == 0
-        )  # boolean whether to log image
-        log_mesh = (
-            self.epoch % self.config.log_mesh_interval == 0
-        )  # boolean whether to log mesh
+    #     log_image = (
+    #         self.epoch % self.config.log_image_interval == 0
+    #     )  # boolean whether to log image
+    #     log_mesh = (
+    #         self.epoch % self.config.log_mesh_interval == 0
+    #     )  # boolean whether to log mesh
 
-        wandbLog(self, log_dict, log_image=log_image, log_mesh=log_mesh)
-        if log_image:
-            self.trainer.save_checkpoint(self.save_model_path)
-            save_checkpoint_to_cloud(self.save_model_path)
-        self.epoch += 1
+    #     wandbLog(self, log_dict, log_image=log_image, log_mesh=log_mesh)
+    #     if log_image:
+    #         self.trainer.save_checkpoint(self.save_model_path)
+    #         save_checkpoint_to_cloud(self.save_model_path)
+    #     self.epoch += 1
 
     def training_step(self, dataset_batch, batch_idx, optimizer_idx):
         config = self.config
