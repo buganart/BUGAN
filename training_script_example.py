@@ -8,13 +8,13 @@ Original file is located at
 """
 
 ##########################################
-#TODO: args
+# TODO: args
 data_path = "../../../../../My Drive/Hand-Tool-Data-Set/"
 run_path = "./"
-id = "u9imsvva" 
+id = "u9imsvva"
 #!wandb login
 
-#TODO: package install
+# TODO: package install
 
 # !apt-get update
 # !apt install -y xvfb
@@ -26,16 +26,16 @@ id = "u9imsvva"
 # !pip install git+https://github.com/buganart/BUGAN.git#egg=bugan
 ###########################################
 
-#mount google drive
+# mount google drive
 # from google.colab import output
 # from google.colab import drive
 # drive.mount('/content/drive')
 
 # Commented out IPython magic to ensure Python compatibility.
-#right click shared folder IRCMS_GAN_collaborative_database and "Add shortcut to Drive" to My drive
+# right click shared folder IRCMS_GAN_collaborative_database and "Add shortcut to Drive" to My drive
 # %cd drive/My Drive/IRCMS_GAN_collaborative_database/Experiments/colab-handtool/
 
-#record paths to resources
+# record paths to resources
 # data_path = "../../../../../My Drive/Hand-Tool-Data-Set/"    #take care of .shortcut-targets-by-id/"folder-id"/ folders
 # run_path = "./"
 
@@ -56,13 +56,13 @@ import trimesh
 import numpy as np
 
 
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torchsummary import summary
 from torch.utils.data import DataLoader, TensorDataset
+
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 # device
 
@@ -71,7 +71,8 @@ from pytorch_lightning.loggers import WandbLogger
 
 # Ignore excessive warnings
 import logging
-logging.propagate = False 
+
+logging.propagate = False
 logging.getLogger().setLevel(logging.ERROR)
 
 # WandB – Import the wandb library
@@ -82,8 +83,8 @@ from xvfbwrapper import Xvfb
 # !wandb login
 # output.clear()
 
-#id None to start a new run. For resuming run, put the id of the run below
-# id = "u9imsvva" 
+# id None to start a new run. For resuming run, put the id of the run below
+# id = "u9imsvva"
 resume = False
 if id is None:
     id = wandb.util.generate_id()
@@ -96,7 +97,7 @@ print("run name: " + str(wandb.run.name))
 wandb.watch_called = False
 wandb.run.save_code = True
 
-#keep track of hyperparams
+# keep track of hyperparams
 config = wandb.config
 
 config.batch_size = 8
@@ -105,14 +106,14 @@ config.array_size = 32
 config.z_size = 128
 config.gen_num_layer_unit = [256, 1024, 512, 128]
 config.dis_num_layer_unit = [32, 64, 128, 128]
-config.leakyReLU = False    #leakyReLU implementation still not in modelPL
+config.leakyReLU = False  # leakyReLU implementation still not in modelPL
 config.balance_voxel_in_space = False
 
 config.epochs = 2000
 config.vae_lr = 0.0025
 config.vae_encoder_layer = 1
 config.vae_decoder_layer = 2
-config.d_lr = 0.00005            
+config.d_lr = 0.00005
 config.d_layer = 1
 config.vae_recon_loss_factor = 1
 config.seed = 1234
@@ -128,13 +129,13 @@ config.dis_opt = "Adam"
 
 ### load our package
 
-#clone then install
+# clone then install
 # !git clone https://github.com/buganart/BUGAN repo
 # !pip install -e ./repo/
 # import site
 # site.main()
 
-#directly install using pip
+# directly install using pip
 # !pip install git+https://github.com/buganart/BUGAN.git#egg=bugan
 # output.clear()
 
@@ -153,42 +154,49 @@ from bugan.modelsPL import VAEGAN, VAE, Discriminator, Generator
 np.random.seed(config.seed)
 # dataModule = DataModule(config, run)
 # config.num_data = dataModule.size
-        
+
 # config.dataset = "dataset-custom-handtool_287"
 
 if data_path.endswith(".npy"):
-	process_data=False
+    process_data = False
 else:
-	process_data=True
+    process_data = True
 
 dataModule = DataModule_custom(config, run, data_path, process_data=process_data)
 config.num_data = dataModule.size
 
 """#train"""
 
-#set seed
+# set seed
 torch.manual_seed(config.seed)
 torch.autograd.set_detect_anomaly(True)
 
-#render setup
+# render setup
 vdisplay = Xvfb()
 vdisplay.start()
 
-#wandb logger setup
+# wandb logger setup
 wandb_logger = WandbLogger(experiment=run, log_model=True)
 
-checkpoint_path = os.path.join(wandb.run.dir, 'checkpoint.ckpt')
+checkpoint_path = os.path.join(wandb.run.dir, "checkpoint.ckpt")
 
 if resume:
-    #get file from the wandb cloud
-    load_checkpoint_from_cloud(checkpoint_path = 'checkpoint.ckpt')
-    #restore training state completely
-    trainer = pl.Trainer(max_epochs = config.epochs, logger=wandb_logger, checkpoint_callback = None, resume_from_checkpoint = checkpoint_path)
+    # get file from the wandb cloud
+    load_checkpoint_from_cloud(checkpoint_path="checkpoint.ckpt")
+    # restore training state completely
+    trainer = pl.Trainer(
+        max_epochs=config.epochs,
+        logger=wandb_logger,
+        checkpoint_callback=None,
+        resume_from_checkpoint=checkpoint_path,
+    )
 else:
-    trainer = pl.Trainer(max_epochs = config.epochs, logger=wandb_logger, checkpoint_callback = None)
+    trainer = pl.Trainer(
+        max_epochs=config.epochs, logger=wandb_logger, checkpoint_callback=None
+    )
 
-#model
-vaegan = VAEGAN(config, trainer, save_model_path = checkpoint_path).to(device)
+# model
+vaegan = VAEGAN(config, trainer, save_model_path=checkpoint_path).to(device)
 wandb_logger.watch(vaegan)
 
 trainer.fit(vaegan, dataModule)
