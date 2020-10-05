@@ -19,12 +19,12 @@ import click
 # And going to Filter > Show current filter script
 
 
-def create_filter_script(filter_file_path, target_num_face):
+def create_filter_script(filter_file_path, target_face_num):
     filter_script_mlx = f"""
     <!DOCTYPE FilterScript>
     <FilterScript>
     <filter name="Simplification: Quadric Edge Collapse Decimation">
-    <Param type="RichInt" value="{target_num_face}" name="TargetFaceNum"/>
+    <Param type="RichInt" value="{target_face_num}" name="TargetFaceNum"/>
     <Param type="RichFloat" value="0" name="TargetPerc"/>
     <Param type="RichFloat" value="0.3" name="QualityThr"/>
     </filter>
@@ -60,14 +60,22 @@ def simplify(in_mesh, out_name, num_iterations, filter_file_path):
 
         for it in range(num_iterations):
             out_mesh = tmp_dir / f"it_{it}.obj"
-            reduce_faces(in_mesh, out_mesh, filter_file_path)
+            try:
+                reduce_faces(in_mesh, out_mesh, filter_file_path)
+            except Exception:
+                print(f"Mesh {in_mesh} failed.")
+                return
             in_mesh = out_mesh
 
         shutil.copy(out_mesh, out_name)
 
 
-def process_dir(input_dir, output_dir, num_iterations, filter_file_path):
-    in_paths = list(Path(input_dir).rglob("*.obj"))
+def process_dir(input_dir, output_dir, num_iterations, filter_file_path, n_jobs):
+
+    in_paths = [
+        p for p in Path(input_dir).rglob("*.*") if p.name.lower().endswith(".obj")
+    ]
+
     out_paths = [
         Path(output_dir) / in_path.relative_to(input_dir) for in_path in in_paths
     ]
@@ -77,7 +85,7 @@ def process_dir(input_dir, output_dir, num_iterations, filter_file_path):
     for in_path, out_path in zip(in_paths, out_paths):
         print(in_path, out_path)
 
-    Parallel(n_jobs=-1, verbose=20, backend='threading')(
+    Parallel(n_jobs=n_jobs, verbose=2)(
         delayed(simplify)(in_path, out_path, num_iterations, filter_file_path)
         for in_path, out_path in zip(in_paths, out_paths)
     )
@@ -89,16 +97,16 @@ def process_dir(input_dir, output_dir, num_iterations, filter_file_path):
 @click.option("--in-dir")
 @click.option("--out-dir")
 @click.option("--num-iterations", "-n", default=1, type=int)
-@click.option("--target-num-face", "-f", default=1000, type=int)
-def main(in_dir, out_dir, in_mesh, out_name, num_iterations, target_num_face):
-
+@click.option("--target-face-num", "-f", default=1000, type=int)
+@click.option("--n-jobs", "-j", default=-1, type=int)
+def main(in_dir, out_dir, in_mesh, out_name, num_iterations, target_face_num, n_jobs):
 
     with tempfile.TemporaryDirectory() as filter_file_dir:
         filter_file_path = Path(filter_file_dir) / "filter.mlx"
-        create_filter_script(filter_file_path, target_num_face)
+        create_filter_script(filter_file_path, target_face_num)
 
         if in_dir and out_dir:
-            process_dir(in_dir, out_dir, num_iterations, filter_file_path)
+            process_dir(in_dir, out_dir, num_iterations, filter_file_path, n_jobs)
         else:
             simplify(in_mesh, out_name, num_iterations, filter_file_path)
 
