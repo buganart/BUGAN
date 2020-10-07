@@ -243,7 +243,7 @@ class VAEGAN(pl.LightningModule):
         dataset_batch = dataset_batch[
             0
         ]  # dataset_batch was a list: [array], so just take the array inside
-        dataset_batch = dataset_batch.float().to(device)
+        dataset_batch = dataset_batch.float()
 
         batch_size = dataset_batch.shape[0]
         vae = self.vae
@@ -255,8 +255,8 @@ class VAEGAN(pl.LightningModule):
         criterion_label = criterion_label(reduction="mean")
 
         # labels
-        real_label = torch.unsqueeze(torch.ones(batch_size), 1).float().to(device)
-        fake_label = torch.unsqueeze(torch.zeros(batch_size), 1).float().to(device)
+        real_label = torch.unsqueeze(torch.ones(batch_size), 1).float().type_as(dataset_batch)
+        fake_label = torch.unsqueeze(torch.zeros(batch_size), 1).float().type_as(dataset_batch)
 
         if optimizer_idx == 0:
             ############
@@ -318,7 +318,7 @@ class VAEGAN(pl.LightningModule):
 
             # generate fake trees
             latent_size = vae.decoder_z_size
-            z = torch.randn(batch_size, latent_size).float().to(device)  # noise vector
+            z = torch.randn(batch_size, latent_size).float().type_as(dataset_batch)  # noise vector
             tree_fake = F.sigmoid(vae.generate_sample(z))
 
             # fake data (data from generator)
@@ -951,7 +951,7 @@ class VAE(nn.Module):
 
     # reference: https://github.com/YixinChen-AI/CVAE-GAN-zoos-PyTorch-Beginner/blob/master/CVAE-GAN/CVAE-GAN.py
     def noise_reparameterize(self, mean, logvar):
-        eps = torch.randn(mean.shape).to(device)
+        eps = torch.randn(mean.shape).type_as(mean)
         z = mean + eps * torch.exp(logvar/2.)
         return z
 
