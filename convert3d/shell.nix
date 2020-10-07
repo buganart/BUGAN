@@ -15,6 +15,14 @@ mkShell {
       click
       joblib
 
+      # trimesh
+      pillow
+      networkx
+      pyglet
+      scipy
+      shapely
+      scikitimage
+
       # open3d python deps
       ipywidgets
       widgetsnbextension

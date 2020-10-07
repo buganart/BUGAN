@@ -18,7 +18,9 @@ logging.propagate = False
 logging.getLogger().setLevel(logging.ERROR)
 
 parser = configargparse.ArgumentParser(
-    auto_env_var_prefix="GAN_", add_config_file_help=False, add_env_var_help=False,
+    auto_env_var_prefix="GAN_",
+    add_config_file_help=False,
+    add_env_var_help=False,
 )
 
 parser.add(

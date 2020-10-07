@@ -62,7 +62,10 @@ bpy.ops.object.delete()
 
 ##### Create and position camera #####
 bpy.ops.object.camera_add(
-    enter_editmode=False, align="VIEW", location=(0, 0, 0), rotation=(1.5708, 0, 0),
+    enter_editmode=False,
+    align="VIEW",
+    location=(0, 0, 0),
+    rotation=(1.5708, 0, 0),
 )
 
 cam = bpy.data.objects[bpy.context.active_object.name]
