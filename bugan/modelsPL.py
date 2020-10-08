@@ -24,24 +24,33 @@ class VAE_train(pl.LightningModule):
         self.config = config
         self.trainer = trainer
         self.save_model_path = save_model_path
-        #create components
-        decoder = Generator(config.vae_decoder_layer, config.z_size, config.array_size, config.gen_num_layer_unit)
-        encoder = Discriminator(config.vae_encoder_layer, config.z_size, config.array_size, config.dis_num_layer_unit)
+        # create components
+        decoder = Generator(
+            config.vae_decoder_layer,
+            config.z_size,
+            config.array_size,
+            config.gen_num_layer_unit,
+        )
+        encoder = Discriminator(
+            config.vae_encoder_layer,
+            config.z_size,
+            config.array_size,
+            config.dis_num_layer_unit,
+        )
         vae = VAE(encoder=encoder, decoder=decoder)
 
-        #VAE
+        # VAE
         self.vae = vae
 
-        #for logging
-        self.vae_ep_loss = 0.
+        # for logging
+        self.vae_ep_loss = 0.0
         self.epoch = 0
-
 
     def configure_optimizers(self):
         config = self.config
         vae = self.vae
 
-        #optimizer
+        # optimizer
         if config.vae_opt == "Adam":
             self.vae_optimizer = optim.Adam(vae.parameters(), lr=config.vae_lr)
         else:
@@ -50,68 +59,71 @@ class VAE_train(pl.LightningModule):
         return self.vae_optimizer
 
     def on_train_epoch_start(self):
-        #reset ep_loss
-        self.vae_ep_loss = 0.
+        # reset ep_loss
+        self.vae_ep_loss = 0.0
 
-        #set model to train
+        # set model to train
         self.vae.train()
 
     def on_train_epoch_end(self):
         self.vae_ep_loss = self.vae_ep_loss / self.config.num_data
 
-        #save model if necessary
-        log_dict = {
-            "VAE loss": self.vae_ep_loss}
+        # save model if necessary
+        log_dict = {"VAE loss": self.vae_ep_loss}
 
-        log_image = (self.epoch % self.config.log_image_interval == 0)    #boolean whether to log image
-        log_mesh = (self.epoch % self.config.log_mesh_interval == 0)    #boolean whether to log mesh
+        log_image = (
+            self.epoch % self.config.log_image_interval == 0
+        )  # boolean whether to log image
+        log_mesh = (
+            self.epoch % self.config.log_mesh_interval == 0
+        )  # boolean whether to log mesh
 
-        wandbLog(self, log_dict, log_image=log_image, log_mesh=log_mesh) 
+        wandbLog(self, log_dict, log_image=log_image, log_mesh=log_mesh)
         if log_image:
             self.trainer.save_checkpoint(self.save_model_path)
             save_checkpoint_to_cloud(self.save_model_path)
         self.epoch += 1
 
-
     def training_step(self, dataset_batch, batch_idx):
         config = self.config
 
-        dataset_batch = dataset_batch[0]    #dataset_batch was a list: [array], so just take the array inside
+        dataset_batch = dataset_batch[
+            0
+        ]  # dataset_batch was a list: [array], so just take the array inside
         dataset_batch = dataset_batch.float().to(device)
 
         batch_size = dataset_batch.shape[0]
         vae = self.vae
 
-        #loss function
+        # loss function
         criterion_reconstruct = nn.BCEWithLogitsLoss
 
         ############
         #   VAE
         ############
-        
-        reconstructed_data, mu, logVar = vae(dataset_batch, output_all=True)
-        vae_rec_loss = criterion_reconstruct(reduction='mean')(reconstructed_data, dataset_batch)    #loss is scaled to one
-        
 
-        #add KL loss
-        KL = 0.5 * torch.sum(mu ** 2 + torch.exp(logVar) - 1. - logVar)
+        reconstructed_data, mu, logVar = vae(dataset_batch, output_all=True)
+        vae_rec_loss = criterion_reconstruct(reduction="mean")(
+            reconstructed_data, dataset_batch
+        )  # loss is scaled to one
+
+        # add KL loss
+        KL = 0.5 * torch.sum(mu ** 2 + torch.exp(logVar) - 1.0 - logVar)
         vae_rec_loss += KL
 
         vae_loss = vae_rec_loss
 
-        #record loss
+        # record loss
         self.vae_ep_loss += vae_loss.detach()
 
         result = pl.TrainResult(minimize=vae_loss, checkpoint_on=vae_loss)
-        result.log('vae_loss', vae_loss, on_epoch=True, prog_bar=True)
+        result.log("vae_loss", vae_loss, on_epoch=True, prog_bar=True)
         return result
 
-
-
-    def generate_tree(self, num_trees = 1, num_try = 100):
+    def generate_tree(self, num_trees=1, num_try=100):
         config = self.config
-        #num_try is number of trial to generate a tree that can fool D
-        #total number of sample generated = num_trees * num_try
+        # num_try is number of trial to generate a tree that can fool D
+        # total number of sample generated = num_trees * num_try
         vae = self.vae.to(device)
         result = None
 
@@ -122,25 +134,26 @@ class VAE_train(pl.LightningModule):
 
         num_tree_total = num_trees
         num_runs = int(np.ceil(num_tree_total / batch_size))
-        #ignore discriminator
+        # ignore discriminator
         for i in range(num_runs):
-            #generate noise vector
+            # generate noise vector
             z = torch.randn(batch_size, vae.decoder_z_size).float().to(device)
-            tree_fake = F.sigmoid(vae.generate_sample(z))[:,0,:,:,:]
+            tree_fake = F.sigmoid(vae.generate_sample(z))[:, 0, :, :, :]
             selected_trees = tree_fake.detach().cpu().numpy()
             if result is None:
                 result = selected_trees
             else:
                 result = np.concatenate((result, selected_trees), axis=0)
-        
-        #select at most num_trees
+
+        # select at most num_trees
         if result.shape[0] > num_trees:
             result = result[:num_trees]
-        #in case no good result
+        # in case no good result
         if result.shape[0] <= 0:
-            result = np.zeros((1,64,64,64))
-            result[0,0,0,0] = 1
+            result = np.zeros((1, 64, 64, 64))
+            result[0, 0, 0, 0] = 1
         return result
+
 
 class VAEGAN(pl.LightningModule):
     def __init__(self, config, trainer, save_model_path):
@@ -936,7 +949,6 @@ class Discriminator(nn.Module):
             return x
 
 
-
 class VAE(nn.Module):
     def __init__(self, encoder, decoder):
         super(VAE, self).__init__()
@@ -953,7 +965,7 @@ class VAE(nn.Module):
     # reference: https://github.com/YixinChen-AI/CVAE-GAN-zoos-PyTorch-Beginner/blob/master/CVAE-GAN/CVAE-GAN.py
     def noise_reparameterize(self, mean, logvar):
         eps = torch.randn(mean.shape).to(device)
-        z = mean + eps * torch.exp(logvar/2.)
+        z = mean + eps * torch.exp(logvar / 2.0)
         return z
 
     def forward(self, x, output_all=False):
@@ -990,7 +1002,7 @@ class CVAE(nn.Module):
     # reference: https://github.com/YixinChen-AI/CVAE-GAN-zoos-PyTorch-Beginner/blob/master/CVAE-GAN/CVAE-GAN.py
     def noise_reparameterize(self, mean, logvar):
         eps = torch.randn(mean.shape).to(device)
-        z = mean + eps * torch.exp(logvar/2.)
+        z = mean + eps * torch.exp(logvar / 2.0)
         return z
 
     def forward(self, x, c, output_all=False):

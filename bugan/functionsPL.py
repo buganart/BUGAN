@@ -22,6 +22,67 @@ device
 #####
 #   DataModule
 #####
+class DataModule_zip(pl.LightningDataModule):
+    def __init__(self, config, run, filepath):
+        super().__init__()
+        self.config = config
+        self.run = run
+        self.dataset_artifact = None
+        self.dataset = None
+        self.size = 0
+        self.filepath = filepath
+
+    def prepare_data(self):
+        # process zipfile path information
+        zipfile_loc_list = self.filepath.split("/")
+        zipfile_name = zipfile_loc_list[-1]
+        zipfile_title = ".".join(zipfile_name.split(".")[:-1])
+        # check if exist .npy (the npy and zip files should be in the same location)
+        npy_path = "/".join(zipfile_loc_list[:-1]) + zipfile_title + ".npy"
+        if os.path.isfile(npy_path):
+            print(zipfile_title + ".npy file already exists!")
+            self.filepath = npy_path
+            return
+        # process zip file
+        zf = zipfile.ZipFile(self.filepath, "r")
+        # array to hold process information
+        data = []
+        failed = []
+        dataset_array = []
+        for file_name in zf.namelist():
+            if file_name.endswith(".obj"):
+                try:
+                    # print(file_name)
+                    file = zf.open(file_name, "r")
+                    file = BytesIO(file.read())
+                    m = trimesh.load(file, file_type="obj", force="mesh")
+                    array = mesh2arrayCentered(m, array_length=32)
+                    # #get filename that can be read by trimesh
+                    data.append(file_name)
+                    dataset_array.append(array)
+                except IndexError:
+                    failed.append(file_name)
+                    print(file_name + " failed")
+        # save as numpy array
+        dataset_array = np.stack(dataset_array, axis=0)
+        np.save(npy_path, dataset_array)
+        self.filepath = npy_path
+        print("processed dataset_array shape: " + str(dataset_array.shape))
+        print("number of failed data: " + str(len(failed)))
+        return
+
+    def setup(self, stage=None):
+        config = self.config
+        dataset = np.load(self.filepath)
+
+        # now all the returned array contains multiple samples
+        self.size = dataset.shape[0]
+        self.dataset = torch.unsqueeze(torch.tensor(dataset), 1)
+
+    def train_dataloader(self):
+        config = self.config
+        tensor_dataset = TensorDataset(self.dataset)
+        return DataLoader(tensor_dataset, batch_size=config.batch_size, shuffle=True)
 
 
 class DataModule_custom_cond(pl.LightningDataModule):
@@ -69,50 +130,21 @@ class DataModule_custom_cond(pl.LightningDataModule):
 
 
 class DataModule_custom(pl.LightningDataModule):
-    def __init__(self, config, run, data_path, process_data=False):
+    def __init__(self, config, run, filename):
         super().__init__()
         self.config = config
         self.run = run
         self.dataset_artifact = None
         self.dataset = None
         self.size = 0
-        self.data_path = Path(data_path)
-        self.process_data = process_data
+        self.filename = filename
 
     def prepare_data(self):
-        # if process data
-        # then: the data_path should indicate the dir containing .obj files. the script will read all files, and save a .npy file there
-        # the self.data_path will be updated to that file, which will be read to build tensor dataset in the next step
-        # else: do nothing, the data_path should indicate the processed .npy file
-        if self.process_data:
-            data = []
-            failed = []
-            dataset_array = []
-
-            for path in tqdm.tqdm(list(self.data_path.rglob("*.obj"))):
-                try:
-                    mesh = trimesh.load(str(path), force="mesh")
-                    array = mesh2arrayCentered(mesh, array_length=32)
-                    # print(array.shape)
-                    # get filename that can be read by trimesh
-                    data.append(path.name)
-                    dataset_array.append(array)
-                except (IndexError, ValueError):
-                    failed.append(path.name)
-                    print(f"{path.name} failed")
-
-            # save as numpy array in the datapath
-            dataset_array = np.stack(dataset_array, axis=0)
-            # print(dataset_array.shape)
-            npy_path = (
-                self.data_path / f"dataset_array_custom_{dataset_array.shape[0]}.npy"
-            )
-            np.save(npy_path, dataset_array)
-            self.data_path = npy_path
+        return
 
     def setup(self, stage=None):
         config = self.config
-        dataset = np.load(self.data_path)
+        dataset = np.load(os.path.join(data_path, self.filename))
 
         # now all the returned array contains multiple samples
         self.size = dataset.shape[0]
