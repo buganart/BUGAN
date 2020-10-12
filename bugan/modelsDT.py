@@ -132,7 +132,11 @@ class VAE_train(pl.LightningModule):
         # ignore discriminator
         for i in range(num_runs):
             # generate noise vector
-            z = torch.randn(batch_size, vae.decoder_z_size).float()
+            z = (
+                torch.randn(batch_size, vae.decoder_z_size)
+                .float()
+                .type_as(vae.encoder_mean.weight)
+            )
             tree_fake = F.sigmoid(vae.generate_sample(z))[:, 0, :, :, :]
             selected_trees = tree_fake.detach().cpu().numpy()
             if result is None:
@@ -259,8 +263,12 @@ class VAEGAN(pl.LightningModule):
         criterion_label = criterion_label(reduction="mean")
 
         # labels
-        real_label = torch.unsqueeze(torch.ones(batch_size), 1).float()
-        fake_label = torch.unsqueeze(torch.zeros(batch_size), 1).float()
+        real_label = (
+            torch.unsqueeze(torch.ones(batch_size), 1).float().type_as(dataset_batch)
+        )
+        fake_label = (
+            torch.unsqueeze(torch.zeros(batch_size), 1).float().type_as(dataset_batch)
+        )
 
         if optimizer_idx == 0:
             ############
@@ -322,7 +330,9 @@ class VAEGAN(pl.LightningModule):
 
             # generate fake trees
             latent_size = vae.decoder_z_size
-            z = torch.randn(batch_size, latent_size).float()  # noise vector
+            z = (
+                torch.randn(batch_size, latent_size).float().type_as(dataset_batch)
+            )  # noise vector
             tree_fake = F.sigmoid(vae.generate_sample(z))
 
             # fake data (data from generator)
@@ -363,7 +373,11 @@ class VAEGAN(pl.LightningModule):
             # ignore discriminator
             for i in range(num_runs):
                 # generate noise vector
-                z = torch.randn(batch_size, vae.decoder_z_size).float()
+                z = (
+                    torch.randn(batch_size, vae.decoder_z_size)
+                    .float()
+                    .type_as(vae.encoder_mean.weight)
+                )
                 tree_fake = F.sigmoid(vae.generate_sample(z))[:, 0, :, :, :]
                 selected_trees = tree_fake.detach().cpu().numpy()
                 if result is None:
@@ -376,7 +390,11 @@ class VAEGAN(pl.LightningModule):
             # only show samples can fool discriminator
             for i in range(num_runs):
                 # generate noise vector
-                z = torch.randn(batch_size, vae.decoder_z_size).float()
+                z = (
+                    torch.randn(batch_size, vae.decoder_z_size)
+                    .float()
+                    .type_as(vae.encoder_mean.weight)
+                )
 
                 tree_fake = F.sigmoid(vae.generate_sample(z))
                 dout = F.sigmoid(discriminator(tree_fake))
@@ -496,15 +514,21 @@ class GAN(pl.LightningModule):
         criterion_label = criterion_label(reduction="mean")
 
         # labels
-        real_label = torch.unsqueeze(torch.ones(batch_size), 1).float()
-        fake_label = torch.unsqueeze(torch.zeros(batch_size), 1).float()
+        real_label = (
+            torch.unsqueeze(torch.ones(batch_size), 1).float().type_as(dataset_batch)
+        )
+        fake_label = (
+            torch.unsqueeze(torch.zeros(batch_size), 1).float().type_as(dataset_batch)
+        )
 
         if optimizer_idx == 0:
             ############
             #   generator
             ############
 
-            z = torch.randn(batch_size, config.z_size).float()  # 128-d noise vector
+            z = (
+                torch.randn(batch_size, config.z_size).float().type_as(dataset_batch)
+            )  # 128-d noise vector
             tree_fake = F.sigmoid(self.generator(z))
 
             # tree_fake is already computed above
@@ -525,7 +549,9 @@ class GAN(pl.LightningModule):
             #   discriminator (and classifier if necessary)
             ############
 
-            z = torch.randn(batch_size, config.z_size).float()  # 128-d noise vector
+            z = (
+                torch.randn(batch_size, config.z_size).float().type_as(dataset_batch)
+            )  # 128-d noise vector
             tree_fake = F.sigmoid(self.generator(z))
 
             # real data (data from dataloader)
@@ -569,7 +595,9 @@ class GAN(pl.LightningModule):
             # ignore discriminator
             for i in range(num_runs):
                 # generate noise vector
-                z = torch.randn(batch_size, 128)
+                z = torch.randn(batch_size, 128).type_as(
+                    discriminator.dis_fc1[0].weight
+                )
 
                 tree_fake = generator(z)[:, 0, :, :, :]
                 selected_trees = tree_fake.detach().cpu().numpy()
@@ -583,7 +611,9 @@ class GAN(pl.LightningModule):
             # only show samples can fool discriminator
             for i in range(num_runs):
                 # generate noise vector
-                z = torch.randn(batch_size, 128)
+                z = torch.randn(batch_size, 128).type_as(
+                    discriminator.dis_fc1[0].weight
+                )
 
                 tree_fake = generator(z)
                 dout = F.sigmoid(discriminator(tree_fake))
@@ -656,8 +686,8 @@ class VAEGAN_Wloss_GP(VAEGAN):
         criterion_label = criterion_label(reduction="mean")
 
         # labels
-        # real_label = torch.unsqueeze(torch.ones(batch_size),1).float()
-        # fake_label = torch.unsqueeze(torch.zeros(batch_size),1).float()
+        # real_label = torch.unsqueeze(torch.ones(batch_size),1).float().type_as(dataset_batch)
+        # fake_label = torch.unsqueeze(torch.zeros(batch_size),1).float().type_as(dataset_batch)
 
         if optimizer_idx == 0:
             ############
@@ -694,7 +724,9 @@ class VAEGAN_Wloss_GP(VAEGAN):
 
             # generate fake trees
             latent_size = vae.decoder_z_size
-            z = torch.randn(batch_size, latent_size).float()  # noise vector
+            z = (
+                torch.randn(batch_size, latent_size).float().type_as(dataset_batch)
+            )  # noise vector
             tree_fake = F.sigmoid(vae.generate_sample(z))
             tree_fake = tree_fake.clone().detach()
 
@@ -943,7 +975,7 @@ class VAE(nn.Module):
 
     # reference: https://github.com/YixinChen-AI/CVAE-GAN-zoos-PyTorch-Beginner/blob/master/CVAE-GAN/CVAE-GAN.py
     def noise_reparameterize(self, mean, logvar):
-        eps = torch.randn(mean.shape)
+        eps = torch.randn(mean.shape).type_as(mean)
         z = mean + eps * torch.exp(logvar / 2.0)
         return z
 
@@ -980,7 +1012,7 @@ class CVAE(nn.Module):
 
     # reference: https://github.com/YixinChen-AI/CVAE-GAN-zoos-PyTorch-Beginner/blob/master/CVAE-GAN/CVAE-GAN.py
     def noise_reparameterize(self, mean, logvar):
-        eps = torch.randn(mean.shape)
+        eps = torch.randn(mean.shape).type_as(mean)
         z = mean + eps * torch.exp(logvar / 2.0)
         return z
 
