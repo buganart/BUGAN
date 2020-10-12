@@ -208,6 +208,24 @@ class DataModule(pl.LightningDataModule):
 
 
 #####
+#   callbacks
+#####
+class SaveWandbCallback(Callback):
+    def __init__(self, log_interval, save_model_path):
+        super().__init__()
+        self.epoch = 0
+        self.log_interval = log_interval
+        self.save_model_path = save_model_path
+
+    def on_train_epoch_end(self, trainer, pl_module):
+        if self.epoch % self.log_interval == 0:
+            # log
+            trainer.save_checkpoint(self.save_model_path)
+            save_checkpoint_to_cloud(self.save_model_path)
+        self.epoch += 1
+
+
+#####
 #   functions
 #####
 
