@@ -14,6 +14,7 @@ from PIL import Image
 
 import pytorch_lightning as pl
 from torch.utils.data import DataLoader, TensorDataset
+from pytorch_lightning.callbacks.base import Callback
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 device
