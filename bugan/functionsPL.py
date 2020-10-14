@@ -1,4 +1,3 @@
-import os
 import io
 from pathlib import Path
 
@@ -20,6 +19,26 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 device
 
 
+def make_npy_path(path: Path):
+    if path.is_dir():
+        # TODO
+        # Preferably we would not save into the dataset directory it can break
+        # code that relies on there not being extra files in the dataset directory.
+        #
+        # We could use
+        #
+        #     path.parent / "{path.name}.npy"
+        #
+        # instead or save to an entirely different location.
+        return path / "dataset_array_processed.npy"
+    elif path.suffix == ".zip":
+        return path.parent / f"{path.stem}.npy"
+    elif path.suffix == ".npy":
+        return path
+    else:
+        raise ValueError(f"Cannot handle dataset path {path}")
+
+
 #####
 #   DataModule
 #####
@@ -31,104 +50,95 @@ class DataModule_process(pl.LightningDataModule):
         self.dataset_artifact = None
         self.dataset = None
         self.size = 0
-        self.filepath = filepath
+        self.filepath = Path(filepath)
+        self.npy_path = make_npy_path(self.filepath)
 
     def prepare_data(self):
-        file_ext = [
-            ".obj",
-            ".off",
-            ".ply",
-            ".stl",
-            ".dae",
-            ".misc",
-            ".gltf",
-            ".assimp",
-            ".threemf",
-            ".openctm",
-            ".xml_based",
-            ".binvox",
-            ".xyz",
-        ]
+
+        if self.npy_path.exists():
+            print(f"Processed dataset {self.npy_path} already exists.")
+            return
 
         # array to hold process information
         data = []
         failed = []
-        dataset_array = []
+        samples = []
 
-        if self.filepath.endswith(".zip"):
+        supported_extensions = set(
+            [
+                ".obj",
+                ".off",
+                ".ply",
+                ".stl",
+                ".dae",
+                ".misc",
+                ".gltf",
+                ".assimp",
+                ".threemf",
+                ".openctm",
+                ".xml_based",
+                ".binvox",
+                ".xyz",
+            ]
+        )
 
-            # process zipfile path information
-            zipfile_loc_list = self.filepath.split("/")
-            zipfile_name = zipfile_loc_list[-1]
-            zipfile_title = ".".join(zipfile_name.split(".")[:-1])
-            # check if exist .npy (the npy and zip files should be in the same location)
-            npy_path = os.path.join(
-                "/".join(zipfile_loc_list[:-1]), zipfile_title + ".npy"
-            )
-            if os.path.isfile(npy_path):
-                print(zipfile_title + ".npy file already exists!")
-                self.filepath = npy_path
-                return
+        if self.filepath.suffix == ".zip":
+
             # process zip file
             zf = zipfile.ZipFile(self.filepath, "r")
-            for file_name in zf.namelist():
-                for ext in file_ext:
-                    if file_name.endswith(ext):
-                        try:
-                            # print(file_name)
-                            file = zf.open(file_name, "r")
-                            file = BytesIO(file.read())
-                            m = trimesh.load(file, file_type=ext[1:], force="mesh")
-                            array = mesh2arrayCentered(m, array_length=32)
-                            # #get filename that can be read by trimesh
-                            data.append(file_name)
-                            dataset_array.append(array)
-                        except IndexError:
-                            failed.append(file_name)
-                            print(file_name + " failed")
-                        # the file is processed with corresponding extension
-                        break
+            supported_files = [
+                path
+                for path in zf.namelist()
+                if Path(path).suffix in supported_extensions
+            ]
+            for path in tqdm.tqdm(supported_files, desc="Meshes"):
+                try:
+                    # print(file_name)
+                    file = zf.open(path, "r")
+                    file = BytesIO(file.read())
+                    m = trimesh.load(
+                        file,
+                        file_type=Path(path).suffix[1:],
+                        force="mesh",
+                    )
+                    array = mesh2arrayCentered(m, array_length=32)
+                    # #get filename that can be read by trimesh
+                    data.append(path)
+                    samples.append(array)
+                except IndexError:
+                    failed.append(path)
+                    print("Failed to load {path}")
 
         else:
-            # this is a file folder
-            # process zipfile path information
-            if self.filepath[-1] == "/":
-                self.filepath = self.filepath[:-1]
-            npy_path = os.path.join(self.filepath, "dataset_array_processed.npy")
-            if os.path.isfile(npy_path):
-                print("dataset_array_processed.npy file already exists!")
-                self.filepath = npy_path
-                return
-            # process file in self.filepath
-            for file_name in os.listdir(self.filepath):
-                for ext in file_ext:
-                    if file_name.endswith(ext):
-                        try:
-                            m = trimesh.load(
-                                os.path.join(self.filepath, file_name), force="mesh"
-                            )
-                            array = mesh2arrayCentered(m, array_length=32)
-                            # print(array.shape)
-                            # get filename that can be read by trimesh
-                            data.append(file_name)
-                            dataset_array.append(array)
-                        except IndexError:
-                            failed.append(file_name)
-                            print(file_name + " failed")
-                        # the file is processed with corresponding extension
-                        break
 
-        # save as numpy array
-        dataset_array = np.stack(dataset_array, axis=0)
-        np.save(npy_path, dataset_array)
-        self.filepath = npy_path
-        print("processed dataset_array shape: " + str(dataset_array.shape))
-        print("number of failed data: " + str(len(failed)))
-        return
+            paths = [
+                path
+                for path in self.filepath.rglob("*.*")
+                if path.suffix in supported_extensions
+            ]
+
+            for path in tqdm.tqdm(paths, desc="Meshes"):
+                try:
+                    m = trimesh.load(path, force="mesh")
+                    array = mesh2arrayCentered(m, array_length=32)
+                    # print(array.shape)
+                    # get filename that can be read by trimesh
+                    data.append(path)
+                    samples.append(array)
+                except IndexError:
+                    failed.append(path)
+                    print("Failed to load {path}")
+
+        dataset = np.array(samples)
+        print(f"Processed dataset_array shape: {dataset.shape}")
+        print(f"Number of failed file: {len(failed)}")
+
+        np.save(self.npy_path, dataset)
+        print(f"Saved processed dataset to {self.npy_path}")
 
     def setup(self, stage=None):
         config = self.config
-        dataset = np.load(self.filepath)
+        dataset = np.load(self.npy_path)
 
         # now all the returned array contains multiple samples
         self.size = dataset.shape[0]
