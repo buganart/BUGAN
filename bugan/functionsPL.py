@@ -50,6 +50,11 @@ class DataModule_process(pl.LightningDataModule):
             ".xyz",
         ]
 
+        # array to hold process information
+        data = []
+        failed = []
+        dataset_array = []
+
         if self.filepath.endswith(".zip"):
 
             # process zipfile path information
@@ -66,10 +71,6 @@ class DataModule_process(pl.LightningDataModule):
                 return
             # process zip file
             zf = zipfile.ZipFile(self.filepath, "r")
-            # array to hold process information
-            data = []
-            failed = []
-            dataset_array = []
             for file_name in zf.namelist():
                 for ext in file_ext:
                     if file_name.endswith(ext):
@@ -103,7 +104,9 @@ class DataModule_process(pl.LightningDataModule):
                 for ext in file_ext:
                     if file_name.endswith(ext):
                         try:
-                            m = trimesh.load(os.path.join(self.filepath, file_name), force="mesh")
+                            m = trimesh.load(
+                                os.path.join(self.filepath, file_name), force="mesh"
+                            )
                             array = mesh2arrayCentered(m, array_length=32)
                             # print(array.shape)
                             # get filename that can be read by trimesh
