@@ -43,6 +43,24 @@ def make_npy_path(path: Path):
 #   DataModule
 #####
 class DataModule_process(pl.LightningDataModule):
+    supported_extensions = set(
+        [
+            ".obj",
+            ".off",
+            ".ply",
+            ".stl",
+            ".dae",
+            ".misc",
+            ".gltf",
+            ".assimp",
+            ".threemf",
+            ".openctm",
+            ".xml_based",
+            ".binvox",
+            ".xyz",
+        ]
+    )
+
     def __init__(self, config, run, filepath):
         super().__init__()
         self.config = config
@@ -53,82 +71,67 @@ class DataModule_process(pl.LightningDataModule):
         self.filepath = Path(filepath)
         self.npy_path = make_npy_path(self.filepath)
 
+    def _read_meshes_from_zip_file(self):
+
+        failed = []
+        samples = []
+
+        zf = zipfile.ZipFile(self.filepath, "r")
+        supported_files = [
+            path
+            for path in zf.namelist()
+            if Path(path).suffix in self.supported_extensions
+        ]
+
+        for path in tqdm.tqdm(supported_files, desc="Meshes"):
+            try:
+                file = zf.open(path, "r")
+                file = BytesIO(file.read())
+                m = trimesh.load(
+                    file,
+                    file_type=Path(path).suffix[1:],
+                    force="mesh",
+                )
+                array = mesh2arrayCentered(m, array_length=32)
+                samples.append(array)
+            except IndexError:
+                failed.append(path)
+                print("Failed to load {path}")
+        return samples, failed
+
+    def _read_meshes_from_directory(self):
+
+        failed = []
+        samples = []
+
+        paths = [
+            path
+            for path in self.filepath.rglob("*.*")
+            if path.suffix in self.supported_extensions
+        ]
+
+        for path in tqdm.tqdm(paths, desc="Meshes"):
+            try:
+                m = trimesh.load(path, force="mesh")
+                array = mesh2arrayCentered(m, array_length=32)
+                samples.append(array)
+            except IndexError:
+                failed.append(path)
+                print("Failed to load {path}")
+        return samples, failed
+
     def prepare_data(self):
 
         if self.npy_path.exists():
             print(f"Processed dataset {self.npy_path} already exists.")
             return
 
-        # array to hold process information
-        data = []
-        failed = []
-        samples = []
-
-        supported_extensions = set(
-            [
-                ".obj",
-                ".off",
-                ".ply",
-                ".stl",
-                ".dae",
-                ".misc",
-                ".gltf",
-                ".assimp",
-                ".threemf",
-                ".openctm",
-                ".xml_based",
-                ".binvox",
-                ".xyz",
-            ]
-        )
-
         if self.filepath.suffix == ".zip":
-
-            # process zip file
-            zf = zipfile.ZipFile(self.filepath, "r")
-            supported_files = [
-                path
-                for path in zf.namelist()
-                if Path(path).suffix in supported_extensions
-            ]
-            for path in tqdm.tqdm(supported_files, desc="Meshes"):
-                try:
-                    # print(file_name)
-                    file = zf.open(path, "r")
-                    file = BytesIO(file.read())
-                    m = trimesh.load(
-                        file,
-                        file_type=Path(path).suffix[1:],
-                        force="mesh",
-                    )
-                    array = mesh2arrayCentered(m, array_length=32)
-                    # #get filename that can be read by trimesh
-                    data.append(path)
-                    samples.append(array)
-                except IndexError:
-                    failed.append(path)
-                    print("Failed to load {path}")
-
+            loader = self._read_meshes_from_zip_file
         else:
+            loader = self._read_meshes_from_directory
 
-            paths = [
-                path
-                for path in self.filepath.rglob("*.*")
-                if path.suffix in supported_extensions
-            ]
-
-            for path in tqdm.tqdm(paths, desc="Meshes"):
-                try:
-                    m = trimesh.load(path, force="mesh")
-                    array = mesh2arrayCentered(m, array_length=32)
-                    # print(array.shape)
-                    # get filename that can be read by trimesh
-                    data.append(path)
-                    samples.append(array)
-                except IndexError:
-                    failed.append(path)
-                    print("Failed to load {path}")
-
+        samples, failed = loader()
         dataset = np.array(samples)
         print(f"Processed dataset_array shape: {dataset.shape}")
         print(f"Number of failed file: {len(failed)}")
@@ -137,7 +140,6 @@ class DataModule_process(pl.LightningDataModule):
         print(f"Saved processed dataset to {self.npy_path}")
 
     def setup(self, stage=None):
-        config = self.config
         dataset = np.load(self.npy_path)
 
         # now all the returned array contains multiple samples
