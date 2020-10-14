@@ -23,7 +23,7 @@ device
 #####
 #   DataModule
 #####
-class DataModule_zip(pl.LightningDataModule):
+class DataModule_process(pl.LightningDataModule):
     def __init__(self, config, run, filepath):
         super().__init__()
         self.config = config
@@ -34,36 +34,87 @@ class DataModule_zip(pl.LightningDataModule):
         self.filepath = filepath
 
     def prepare_data(self):
-        # process zipfile path information
-        zipfile_loc_list = self.filepath.split("/")
-        zipfile_name = zipfile_loc_list[-1]
-        zipfile_title = ".".join(zipfile_name.split(".")[:-1])
-        # check if exist .npy (the npy and zip files should be in the same location)
-        npy_path = "/".join(zipfile_loc_list[:-1]) + zipfile_title + ".npy"
-        if os.path.isfile(npy_path):
-            print(zipfile_title + ".npy file already exists!")
-            self.filepath = npy_path
-            return
-        # process zip file
-        zf = zipfile.ZipFile(self.filepath, "r")
-        # array to hold process information
-        data = []
-        failed = []
-        dataset_array = []
-        for file_name in zf.namelist():
-            if file_name.endswith(".obj"):
-                try:
-                    # print(file_name)
-                    file = zf.open(file_name, "r")
-                    file = BytesIO(file.read())
-                    m = trimesh.load(file, file_type="obj", force="mesh")
-                    array = mesh2arrayCentered(m, array_length=32)
-                    # #get filename that can be read by trimesh
-                    data.append(file_name)
-                    dataset_array.append(array)
-                except IndexError:
-                    failed.append(file_name)
-                    print(file_name + " failed")
+        file_ext = [
+            ".obj",
+            ".off",
+            ".ply",
+            ".stl",
+            ".dae",
+            ".misc",
+            ".gltf",
+            ".assimp",
+            ".threemf",
+            ".openctm",
+            ".xml_based",
+            ".binvox",
+            ".xyz",
+        ]
+
+        if self.filepath.endswith(".zip"):
+
+            # process zipfile path information
+            zipfile_loc_list = self.filepath.split("/")
+            zipfile_name = zipfile_loc_list[-1]
+            zipfile_title = ".".join(zipfile_name.split(".")[:-1])
+            # check if exist .npy (the npy and zip files should be in the same location)
+            npy_path = os.path.join(
+                "/".join(zipfile_loc_list[:-1]), zipfile_title + ".npy"
+            )
+            if os.path.isfile(npy_path):
+                print(zipfile_title + ".npy file already exists!")
+                self.filepath = npy_path
+                return
+            # process zip file
+            zf = zipfile.ZipFile(self.filepath, "r")
+            # array to hold process information
+            data = []
+            failed = []
+            dataset_array = []
+            for file_name in zf.namelist():
+                for ext in file_ext:
+                    if file_name.endswith(ext):
+                        try:
+                            # print(file_name)
+                            file = zf.open(file_name, "r")
+                            file = BytesIO(file.read())
+                            m = trimesh.load(file, force="mesh")
+                            array = mesh2arrayCentered(m, array_length=32)
+                            # #get filename that can be read by trimesh
+                            data.append(file_name)
+                            dataset_array.append(array)
+                        except IndexError:
+                            failed.append(file_name)
+                            print(file_name + " failed")
+                        # the file is processed with corresponding extension
+                        break
+
+        else:
+            # this is a file folder
+            # process zipfile path information
+            if self.filepath[-1] == "/":
+                self.filepath = self.filepath[:-1]
+            npy_path = os.path.join(self.filepath, "dataset_array_processed.npy")
+            if os.path.isfile(npy_path):
+                print("dataset_array_processed.npy file already exists!")
+                self.filepath = npy_path
+                return
+            # process file in self.filepath
+            for file_name in os.listdir(self.filepath):
+                for ext in file_ext:
+                    if file_name.endswith(ext):
+                        try:
+                            m = trimesh.load(self.filepath + file_name, force="mesh")
+                            array = mesh2arrayCentered(m, array_length=32)
+                            # print(array.shape)
+                            # get filename that can be read by trimesh
+                            data.append(file_name)
+                            dataset_array.append(array)
+                        except IndexError:
+                            failed.append(file_name)
+                            print(file_name + " failed")
+                        # the file is processed with corresponding extension
+                        break
+
         # save as numpy array
         dataset_array = np.stack(dataset_array, axis=0)
         np.save(npy_path, dataset_array)
