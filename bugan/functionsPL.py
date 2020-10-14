@@ -158,10 +158,8 @@ class DataModule_custom_cond(pl.LightningDataModule):
 
     def setup(self, stage=None):
         config = self.config
-        dataset = np.load(os.path.join(data_path, self.data_filename))
-        data_index_dict = np.load(
-            os.path.join(data_path, self.index_filename), allow_pickle=True
-        )
+        dataset = np.load(self.data_filename)
+        data_index_dict = np.load(self.index_filename, allow_pickle=True)
 
         # now all the returned array contains multiple samples
         self.size = dataset.shape[0]
@@ -199,7 +197,7 @@ class DataModule_custom(pl.LightningDataModule):
 
     def setup(self, stage=None):
         config = self.config
-        dataset = np.load(os.path.join(data_path, self.filename))
+        dataset = np.load(self.filename)
 
         # now all the returned array contains multiple samples
         self.size = dataset.shape[0]
