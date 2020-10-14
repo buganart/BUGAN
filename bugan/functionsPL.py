@@ -77,7 +77,7 @@ class DataModule_process(pl.LightningDataModule):
                             # print(file_name)
                             file = zf.open(file_name, "r")
                             file = BytesIO(file.read())
-                            m = trimesh.load(file, force="mesh")
+                            m = trimesh.load(file, file_type=ext[1:], force="mesh")
                             array = mesh2arrayCentered(m, array_length=32)
                             # #get filename that can be read by trimesh
                             data.append(file_name)
