@@ -251,7 +251,6 @@ class VAEGAN(pl.LightningModule):
         dataset_batch = dataset_batch[
             0
         ]  # dataset_batch was a list: [array], so just take the array inside
-        dataset_batch = dataset_batch.float()
 
         batch_size = dataset_batch.shape[0]
         vae = self.vae

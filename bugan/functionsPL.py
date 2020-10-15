@@ -140,7 +140,7 @@ class DataModule_process(pl.LightningDataModule):
         print(f"Saved processed dataset to {self.npy_path}")
 
     def setup(self, stage=None):
-        dataset = np.load(self.npy_path)
+        dataset = np.load(self.npy_path).astype(np.float32)
 
         # now all the returned array contains multiple samples
         self.size = dataset.shape[0]
