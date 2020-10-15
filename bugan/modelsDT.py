@@ -97,7 +97,7 @@ class VAE_train(pl.LightningModule):
         #   VAE
         ############
 
-        reconstructed_data, mu, logVar = vae(dataset_batch, output_all=True)
+        reconstructed_data, mu, logVar = vae(dataset_batch)
         vae_rec_loss = criterion_reconstruct(reduction="mean")(
             reconstructed_data, dataset_batch
         )  # loss is scaled to one
@@ -190,9 +190,9 @@ class VAEGAN(pl.LightningModule):
 
     def forward(self, x):
         # VAE
-        x = self.vae(x)
+        x, *_ = self.vae(x)
         # classifier and discriminator
-        x = self.discriminator(x)
+        x, *_ = self.discriminator(x)
         return x
 
     def configure_optimizers(self):
@@ -274,7 +274,7 @@ class VAEGAN(pl.LightningModule):
             #   VAE
             ############
 
-            reconstructed_data, mu, logVar = vae(dataset_batch, output_all=True)
+            reconstructed_data, mu, logVar = vae(dataset_batch)
 
             if balance_voxel_in_space:
                 mask_hasvoxel = dataset_batch.clone().detach()
@@ -307,7 +307,7 @@ class VAEGAN(pl.LightningModule):
             vae_rec_loss += KL
 
             # output of the vae should fool discriminator
-            vae_out_d = discriminator(F.sigmoid(reconstructed_data))
+            vae_out_d, *_ = discriminator(F.sigmoid(reconstructed_data))
             vae_d_loss = criterion_label(vae_out_d, real_label)
 
             vae_loss = (vae_recon_loss_factor * vae_rec_loss + vae_d_loss) / (
@@ -335,12 +335,12 @@ class VAEGAN(pl.LightningModule):
             tree_fake = F.sigmoid(vae.generate_sample(z))
 
             # fake data (data from generator)
-            dout_fake = discriminator(
+            dout_fake, *_ = discriminator(
                 tree_fake.clone().detach()
             )  # detach so no update to generator
             dloss_fake = criterion_label(dout_fake, fake_label)
             # real data (data from dataloader)
-            dout_real = discriminator(dataset_batch)
+            dout_real, *_ = discriminator(dataset_batch)
             dloss_real = criterion_label(dout_real, real_label)
 
             dloss = (dloss_fake + dloss_real) / 2  # scale the loss to one
@@ -531,7 +531,7 @@ class GAN(pl.LightningModule):
             tree_fake = F.sigmoid(self.generator(z))
 
             # tree_fake is already computed above
-            dout_fake = self.discriminator(tree_fake, output_all=False)
+            dout_fake, *_ = self.discriminator(tree_fake)
             # generator should generate trees that discriminator think they are real
             gloss = criterion_label(dout_fake, real_label)
 
@@ -554,11 +554,11 @@ class GAN(pl.LightningModule):
             tree_fake = F.sigmoid(self.generator(z))
 
             # real data (data from dataloader)
-            dout_real = self.discriminator(dataset_batch, output_all=False)
+            dout_real, *_ = self.discriminator(dataset_batch)
             dloss_real = criterion_label(dout_real, real_label)
             score_real = dout_real
             # fake data (data from generator)
-            dout_fake = self.discriminator(
+            dout_fake, *_ = self.discriminator(
                 tree_fake.clone().detach()
             )  # detach so no update to generator
             dloss_fake = criterion_label(dout_fake, fake_label)
@@ -693,7 +693,7 @@ class VAEGAN_Wloss_GP(VAEGAN):
             #   VAE
             ############
 
-            reconstructed_data, mu, logVar = vae(dataset_batch, output_all=True)
+            reconstructed_data, mu, logVar = vae(dataset_batch)
             vae_rec_loss = criterion_label(reconstructed_data, dataset_batch)
 
             # add KL loss
@@ -947,16 +947,13 @@ class Discriminator(nn.Module):
             # nn.Sigmoid()  #remove sigmoid for loss with logit
         )
 
-    def forward(self, x, output_all=False):
+    def forward(self, x):
 
         x = self.dis(x)
         x = x.view(x.shape[0], -1)
         fx = self.dis_fc1(x)
         x = self.dis_fc2(fx)
-        if output_all:
-            return x, fx
-        else:
-            return x
+        return x, fx
 
 
 class VAE(nn.Module):
@@ -978,17 +975,14 @@ class VAE(nn.Module):
         z = mean + eps * torch.exp(logvar / 2.0)
         return z
 
-    def forward(self, x, output_all=False):
+    def forward(self, x):
         # VAE
-        _, f = self.vae_encoder(x, output_all=True)
+        _, f = self.vae_encoder(x)
         x_mean = self.encoder_mean(f)
         x_logvar = self.encoder_logvar(f)
         x = self.noise_reparameterize(x_mean, x_logvar)
         x = self.vae_decoder(x)
-        if output_all:
-            return x, x_mean, x_logvar
-        else:
-            return x
+        return x, x_mean, x_logvar
 
     def generate_sample(self, z):
         x = self.vae_decoder(z)
