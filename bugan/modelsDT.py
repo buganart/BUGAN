@@ -221,7 +221,7 @@ class VAEGAN(pl.LightningModule):
         self.vae.train()
         self.discriminator.train()
 
-    def on_train_epoch_end(self):
+    def on_train_epoch_end(self, _outputs):
         self.d_ep_loss = self.d_ep_loss / self.config.num_data
         self.vae_ep_loss = self.vae_ep_loss / self.config.num_data
 
@@ -235,7 +235,7 @@ class VAEGAN(pl.LightningModule):
             self.epoch % self.config.log_mesh_interval == 0
         )  # boolean whether to log mesh
 
-        wandbLog(self, log_dict, log_image=log_image, log_mesh=log_mesh)
+        # wandbLog(self, log_dict, log_image=log_image, log_mesh=log_mesh)
         self.epoch += 1
 
     def training_step(self, dataset_batch, batch_idx, optimizer_idx):
@@ -308,9 +308,9 @@ class VAEGAN(pl.LightningModule):
             # record loss
             self.vae_ep_loss += vae_loss.detach()
 
-            result = pl.TrainResult(minimize=vae_loss, checkpoint_on=vae_loss)
-            result.log("vae_loss", vae_loss, on_epoch=True, prog_bar=True)
-            return result
+            # result = pl.TrainResult(minimize=vae_loss, checkpoint_on=vae_loss)
+            self.log("vae_loss", vae_loss, on_epoch=True, prog_bar=True)
+            return vae_loss
 
         if optimizer_idx == 1:
 
@@ -339,9 +339,9 @@ class VAEGAN(pl.LightningModule):
             # record loss
             self.d_ep_loss += dloss.detach()
 
-            result = pl.TrainResult(minimize=dloss)
-            result.log("dloss", dloss, on_epoch=True, prog_bar=True)
-            return result
+            # result = pl.TrainResult(minimize=dloss)
+            self.log("dloss", dloss, on_epoch=True, prog_bar=True)
+            return dloss
 
     def generate_tree(self, check_D=False, num_trees=1, num_try=100):
         config = self.config
