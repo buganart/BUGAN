@@ -197,20 +197,20 @@ class VAEGAN(pl.LightningModule):
 
         # optimizer
         if config.vae_opt == "Adam":
-            self.vae_optimizer = optim.Adam(vae.parameters(), lr=config.vae_lr)
+            vae_optimizer = optim.Adam(vae.parameters(), lr=config.vae_lr)
         else:
-            self.vae_optimizer = optim.SGD(vae.parameters(), lr=config.vae_lr)
+            vae_optimizer = optim.SGD(vae.parameters(), lr=config.vae_lr)
 
         if config.dis_opt == "Adam":
-            self.discriminator_optimizer = optim.Adam(
+            discriminator_optimizer = optim.Adam(
                 discriminator.parameters(), lr=config.d_lr
             )
         else:
-            self.discriminator_optimizer = optim.SGD(
+            discriminator_optimizer = optim.SGD(
                 discriminator.parameters(), lr=config.d_lr
             )
 
-        return self.vae_optimizer, self.discriminator_optimizer
+        return vae_optimizer, discriminator_optimizer
 
     def on_train_epoch_start(self):
         # reset ep_loss
