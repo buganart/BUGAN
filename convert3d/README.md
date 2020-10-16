@@ -18,12 +18,12 @@ Or run
 
 From this directory for an editable installation that reflects changes made to the local files.
 
-Run
+### Decimating meshes
 
-    convert3d --help
+Make sure `meshlab` is installed, then
 
-To show usage.
+     decimate -j 8 --in-dir my-data-tir --target-face-num 1000 --out-dir my-out-dir
 
-Convert a directory of wavefron mesh files to ply pointcloud files:
+Or run `decimate --help` to see all the options.
 
-    convert3d -i /my/obj/files -o /my/ply/files
+
