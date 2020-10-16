@@ -140,16 +140,15 @@ class DataModule_process(pl.LightningDataModule):
         print(f"Saved processed dataset to {self.npy_path}")
 
     def setup(self, stage=None):
-        dataset = np.load(self.npy_path).astype(np.float32)
 
-        # now all the returned array contains multiple samples
-        self.size = dataset.shape[0]
+        dataset = np.load(self.npy_path).astype(np.float32)
         self.dataset = torch.unsqueeze(torch.tensor(dataset), 1)
 
+        print(f"Dataset shape {self.dataset.shape}")
+        self.size = self.dataset.shape[0]
+
     def train_dataloader(self):
-        config = self.config
-        tensor_dataset = TensorDataset(self.dataset)
-        return DataLoader(tensor_dataset, batch_size=config.batch_size, shuffle=True)
+        return DataLoader(self.dataset, batch_size=self.config.batch_size, shuffle=True)
 
 
 class DataModule_custom_cond(pl.LightningDataModule):

@@ -82,11 +82,6 @@ class VAE_train(pl.LightningModule):
     def training_step(self, dataset_batch, batch_idx):
         config = self.config
 
-        dataset_batch = dataset_batch[
-            0
-        ]  # dataset_batch was a list: [array], so just take the array inside
-        dataset_batch = dataset_batch.float()
-
         batch_size = dataset_batch.shape[0]
         vae = self.vae
 
@@ -247,10 +242,6 @@ class VAEGAN(pl.LightningModule):
         config = self.config
         vae_recon_loss_factor = config.vae_recon_loss_factor
         balance_voxel_in_space = config.balance_voxel_in_space
-
-        dataset_batch = dataset_batch[
-            0
-        ]  # dataset_batch was a list: [array], so just take the array inside
 
         batch_size = dataset_batch.shape[0]
         vae = self.vae
@@ -499,11 +490,6 @@ class GAN(pl.LightningModule):
     def training_step(self, dataset_batch, batch_idx, optimizer_idx):
         config = self.config
 
-        dataset_batch = dataset_batch[
-            0
-        ]  # dataset_batch was a list: [array], so just take the array inside
-        dataset_batch = dataset_batch.float()
-
         batch_size = dataset_batch.shape[0]
         generator = self.generator
         discriminator = self.discriminator
@@ -669,11 +655,6 @@ class VAEGAN_Wloss_GP(VAEGAN):
         config = self.config
         vae_recon_loss_factor = config.vae_recon_loss_factor
         balance_voxel_in_space = config.balance_voxel_in_space
-
-        dataset_batch = dataset_batch[
-            0
-        ]  # dataset_batch was a list: [array], so just take the array inside
-        dataset_batch = dataset_batch.float()
 
         batch_size = dataset_batch.shape[0]
         vae = self.vae
