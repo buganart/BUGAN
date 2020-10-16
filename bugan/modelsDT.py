@@ -1024,3 +1024,45 @@ class CVAE(nn.Module):
 
         x = self.vae_decoder(z)
         return x
+
+
+from functools import wraps
+from time import perf_counter
+
+
+def decorate_all_functions(function_decorator):
+    def decorator(cls):
+        for name, obj in vars(cls).items():
+            if callable(obj):
+                try:
+                    obj = obj.__func__  # unwrap Python 2 unbound method
+                except AttributeError:
+                    pass  # not needed in Python 3
+                setattr(cls, name, function_decorator(obj))
+        return cls
+
+    return decorator
+
+
+def print_on_call(func):
+    @wraps(func)
+    def wrapper(*args, **kw):
+        start = perf_counter()
+        name = f"{args[0].__class__.__name__}.{func.__name__}"
+        print(f"{name} called")
+        try:
+            res = func(*args, **kw)
+        finally:
+            stop = perf_counter()
+            print(f"{name} finished in {stop - start:.4f}s")
+        return res
+
+    return wrapper
+
+
+debug_method_calls = decorate_all_functions(print_on_call)
+
+VAEGAN = debug_method_calls(VAEGAN)
+Discriminator = debug_method_calls(Discriminator)
+Generator = debug_method_calls(Generator)
+VAE = debug_method_calls(VAE)
