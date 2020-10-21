@@ -80,7 +80,10 @@ class DataModule_process(pl.LightningDataModule):
         supported_files = [
             path
             for path in zf.namelist()
-            if Path(path).suffix in self.supported_extensions
+            if (
+                Path(path).suffix in self.supported_extensions
+                and not path.startswith("__MACOSX")
+            )
         ]
 
         for path in tqdm.tqdm(supported_files, desc="Meshes"):
@@ -115,9 +118,9 @@ class DataModule_process(pl.LightningDataModule):
                 m = trimesh.load(path, force="mesh")
                 array = mesh2arrayCentered(m, array_length=32)
                 samples.append(array)
-            except IndexError:
+            except Exception as exc:
                 failed.append(path)
-                print("Failed to load {path}")
+                print(f"Failed to load {path}: {exc}")
         return samples, failed
 
     def prepare_data(self):
