@@ -26,4 +26,10 @@ Make sure `meshlab` is installed, then
 
 Or run `decimate --help` to see all the options.
 
+To convert dataset to a new extension
 
+     decimate -j 8 ... --out-extension .ply
+     
+To filter input files by extensions
+
+     decimate -j 8 ... --extensions .ply,.obj

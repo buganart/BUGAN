@@ -70,15 +70,26 @@ def simplify(in_mesh, out_name, num_iterations, filter_file_path):
         shutil.copy(out_mesh, out_name)
 
 
-def process_dir(input_dir, output_dir, num_iterations, filter_file_path, n_jobs):
+def process_dir(
+    input_dir,
+    extensions,
+    output_dir,
+    out_extension,
+    num_iterations,
+    filter_file_path,
+    n_jobs,
+):
 
     in_paths = [
-        p for p in Path(input_dir).rglob("*.*") if p.name.lower().endswith(".obj")
+        p for p in Path(input_dir).rglob("*.*") if p.suffix.lower() in extensions
     ]
 
     out_paths = [
-        Path(output_dir) / in_path.relative_to(input_dir) for in_path in in_paths
+        Path(output_dir)
+        / in_path.relative_to(input_dir).with_suffix(out_extension or in_path.suffix)
+        for in_path in in_paths
     ]
+
     for parent in set([out.parent for out in out_paths]):
         parent.mkdir(exist_ok=True, parents=True)
 
@@ -94,19 +105,43 @@ def process_dir(input_dir, output_dir, num_iterations, filter_file_path, n_jobs)
 @click.command()
 @click.option("--in-mesh", "-i")
 @click.option("--out-name", "-o")
+@click.option("--out-extension", "-e")
 @click.option("--in-dir")
 @click.option("--out-dir")
+@click.option(
+    "--extensions", default=".obj", help="Comma separated list of extensions."
+)
 @click.option("--num-iterations", "-n", default=1, type=int)
 @click.option("--target-face-num", "-f", default=1000, type=int)
 @click.option("--n-jobs", "-j", default=-1, type=int)
-def main(in_dir, out_dir, in_mesh, out_name, num_iterations, target_face_num, n_jobs):
+def main(
+    in_dir,
+    out_dir,
+    in_mesh,
+    out_extension,
+    out_name,
+    extensions,
+    num_iterations,
+    target_face_num,
+    n_jobs,
+):
+
+    extensions = set(extensions.split(","))
 
     with tempfile.TemporaryDirectory() as filter_file_dir:
         filter_file_path = Path(filter_file_dir) / "filter.mlx"
         create_filter_script(filter_file_path, target_face_num)
 
         if in_dir and out_dir:
-            process_dir(in_dir, out_dir, num_iterations, filter_file_path, n_jobs)
+            process_dir(
+                in_dir,
+                extensions,
+                out_dir,
+                out_extension,
+                num_iterations,
+                filter_file_path,
+                n_jobs,
+            )
         else:
             simplify(in_mesh, out_name, num_iterations, filter_file_path)
 
