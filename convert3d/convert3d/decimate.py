@@ -59,7 +59,7 @@ def simplify(in_mesh, out_name, num_iterations, filter_file_path):
         tmp_dir = Path(tmp_folder_name)
 
         for it in range(num_iterations):
-            out_mesh = tmp_dir / f"it_{it}.obj"
+            out_mesh = tmp_dir / f"it_{it}{Path(out_name).suffix}"
             try:
                 reduce_faces(in_mesh, out_mesh, filter_file_path)
             except Exception:
