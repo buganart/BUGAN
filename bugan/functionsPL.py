@@ -12,11 +12,125 @@ import wandb
 from PIL import Image
 
 import pytorch_lightning as pl
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import DataLoader, TensorDataset, Dataset
 from pytorch_lightning.callbacks.base import Callback
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 device
+
+#################
+#       datamodule that modify data on-the-fly
+#       data are processed in __getitem__() func defined in AugmentationDataset in the module
+#       init: dataModule = DataModule_augmentation(config, run, data_path)
+#              where data_path is the directory of all the files (not recursive)
+#              example: data_path = "../../../../../My Drive/Hand-Tool-Data-Set/turbosquid_thingiverse_dataset/dataset_ply/"
+#################
+class DataModule_augmentation(pl.LightningDataModule):
+    class AugmentationDataset(Dataset):
+        def mesh2arrayCentered_aug(
+            self, mesh, rot_radian, voxel_size=1, array_length=32
+        ):
+            # given array length 64, voxel size 2, then output array size is [128,128,128]
+            array_size = np.ceil(
+                np.array([array_length, array_length, array_length]) / voxel_size
+            ).astype(int)
+            vox_array = np.zeros(
+                array_size, dtype=bool
+            )  # tanh: voxel representation [-1,1], sigmoid: [0,1]
+
+            # rotate/transform/scale based on function arguments
+            mesh = mesh.apply_transform(
+                trimesh.transformations.rotation_matrix(rot_radian, (0, 1, 0))
+            )
+
+            # scale mesh extent to fit array_length so every mesh in same scale
+            max_length = np.max(np.array(mesh.extents))
+            mesh = mesh.apply_transform(
+                trimesh.transformations.scale_matrix((array_length * 0.8) / max_length)
+            )  # now the extent is [array_length**3]
+
+            v = mesh.voxelized(
+                voxel_size
+            )  # max voxel array length = array_length / voxel_size
+            voxel_shape = v.matrix.shape
+            # find indices in the v.matrix to center it in vox_array
+            indices = np.floor((array_size - voxel_shape) / 2).astype(int)
+            vox_array[
+                indices[0] : indices[0] + voxel_shape[0],
+                indices[1] : indices[1] + voxel_shape[1],
+                indices[2] : indices[2] + voxel_shape[2],
+            ] = v.matrix
+
+            return vox_array
+
+        def __init__(self, data_list):
+            assert isinstance(data_list, list)
+            self.data_list = data_list
+
+        def __getitem__(self, index):
+            selectedItem = self.data_list[index]
+            angle = 2 * np.pi * (np.random.rand(1)[0])
+            array = self.mesh2arrayCentered_aug(
+                selectedItem, angle
+            )  # assume selectedItem is Trimesh object
+            # print("mesh index:", index, "| rot radian:", angle)
+            return torch.tensor(array[np.newaxis, np.newaxis, :, :, :])
+
+        def __len__(self):
+            return len(self.data_list)
+
+        def __add__(self, other):
+            return AugmentationDataset(self.data_list.append(other))
+
+    def __init__(self, config, run, data_path):
+        super().__init__()
+        self.config = config
+        self.run = run
+        self.dataset_artifact = None
+        self.dataset = None
+        self.size = 0
+        self.data_path = data_path
+
+    def prepare_data(self):
+        return
+
+    def setup(self, stage=None):
+        config = self.config
+        dataset = []
+
+        file_ext = [
+            ".ply",
+            ".stl",
+            ".dae",
+            ".obj",
+            ".off",
+            ".misc",
+            ".gltf",
+            ".assimp",
+            ".threemf",
+            ".openctm",
+            ".xml_based",
+            ".binvox",
+            ".xyz",
+        ]
+
+        for file_name in os.listdir(self.data_path):
+            for ext in file_ext:
+                if file_name.endswith(ext):
+                    try:
+                        m = trimesh.load(data_path + file_name, force="mesh")
+                        dataset.append(m)
+                    except:  # TODO: check if we should report error
+                        print(file_name + " failed")
+
+        # now all the returned array contains multiple samples
+        self.size = len(dataset)
+        self.dataset = dataset
+
+    def train_dataloader(self):
+        config = self.config
+        aug_dataset = self.AugmentationDataset(self.dataset)
+        return DataLoader(aug_dataset, batch_size=config.batch_size, shuffle=True)
 
 
 def make_npy_path(path: Path):
