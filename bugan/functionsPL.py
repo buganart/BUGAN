@@ -119,9 +119,10 @@ class DataModule_augmentation(pl.LightningDataModule):
             for ext in file_ext:
                 if file_name.endswith(ext):
                     try:
-                        m = trimesh.load(data_path + file_name, force="mesh")
+                        m = trimesh.load(os.path.join(self.data_path,file_name), force="mesh")
                         dataset.append(m)
-                    except:  # TODO: check if we should report error
+                    except Exception as e:  # TODO: check if we should report error
+                        print(e)
                         print(file_name + " failed")
 
         # now all the returned array contains multiple samples
