@@ -7,7 +7,7 @@ setup(
     author="buganart",
     description="Convert between 3D object representations",
     packages=find_packages(),
-    install_requires=["click", "trimesh", "joblib"],
+    install_requires=["click", "trimesh", "joblib", "tqdm"],
     entry_points={
         "console_scripts": [
             # "convert3d = convert3d.__main__:main",
