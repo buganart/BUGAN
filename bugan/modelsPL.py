@@ -79,9 +79,10 @@ class VAE_train(pl.LightningModule):
         )  # boolean whether to log mesh
 
         wandbLog(self, log_dict, log_image=log_image, log_mesh=log_mesh)
-        if log_image:
-            self.trainer.save_checkpoint(self.save_model_path)
-            save_checkpoint_to_cloud(self.save_model_path)
+
+        self.trainer.save_checkpoint(self.save_model_path)
+        save_checkpoint_to_cloud(self.save_model_path)
+
         self.epoch += 1
 
     def training_step(self, dataset_batch, batch_idx):
@@ -244,9 +245,10 @@ class VAEGAN(pl.LightningModule):
         )  # boolean whether to log mesh
 
         wandbLog(self, log_dict, log_image=log_image, log_mesh=log_mesh)
-        if log_image:
-            self.trainer.save_checkpoint(self.save_model_path)
-            save_checkpoint_to_cloud(self.save_model_path)
+
+        self.trainer.save_checkpoint(self.save_model_path)
+        save_checkpoint_to_cloud(self.save_model_path)
+
         self.epoch += 1
 
     def training_step(self, dataset_batch, batch_idx, optimizer_idx):
@@ -489,9 +491,10 @@ class GAN(pl.LightningModule):
         )  # boolean whether to log mesh
 
         wandbLog(self, log_dict, log_image=log_image, log_mesh=log_mesh)
-        if log_image:
-            self.trainer.save_checkpoint(self.save_model_path)
-            save_checkpoint_to_cloud(self.save_model_path)
+
+        self.trainer.save_checkpoint(self.save_model_path)
+        save_checkpoint_to_cloud(self.save_model_path)
+
         self.epoch += 1
 
     def training_step(self, dataset_batch, batch_idx, optimizer_idx):

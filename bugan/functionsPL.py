@@ -15,6 +15,7 @@ from PIL import Image
 import pytorch_lightning as pl
 from torch.utils.data import DataLoader, TensorDataset, Dataset
 from pytorch_lightning.callbacks.base import Callback
+from disjoint_set import DisjointSet
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 device
@@ -445,13 +446,49 @@ def load_dataset(dataset_name, run, config):
     return dataset
 
 
+def eval_count_cluster(array):
+    def nearby_voxels(array, i,j,k):
+        bound = array.shape
+        low_i, high_i = np.clip([i-1, i+1], 0, bound[0]-1)
+        low_j, high_j = np.clip([j-1, j+1], 0, bound[1]-1)
+        low_k, high_k = np.clip([k-1, k+1], 0, bound[2]-1)
+
+        retval = []
+        for x in range(low_i, high_i+1):
+            for y in range(low_j, high_j+1):
+                for z in range(low_k, high_k+1):
+                    if array[x,y,z]:
+                        #voxel exists
+                        retval.append((x,y,z))
+        #remove the selected vox itself
+        retval.remove((i,j,k))
+        return retval
+
+
+    ds = DisjointSet()
+    for i in range(array.shape[0]):
+        for j in range(array.shape[1]):
+            for k in range(array.shape[2]):
+                vox = array[i,j,k]
+                if vox:
+                    #voxel exists in coord (i,j,k)
+                    nearby_vox = nearby_voxels(array, i,j,k)
+                    for v in nearby_vox:
+                        ds.union(v,(i,j,k))
+    return len(list(ds.itersets()))
+
 def wandbLog(model, initial_log_dict={}, log_image=False, log_mesh=False):
 
     if log_image or log_mesh:
         sample_tree_array = model.generate_tree()[0]  # only 1 tree
-        sample_tree_indices = netarray2indices(sample_tree_array)
+
         # log number of points to wandb
+        sample_tree_indices = netarray2indices(sample_tree_array)
         initial_log_dict["sample_tree_numpoints"] = sample_tree_indices.shape[0]
+        # count number of cluster in the tree (grouped with dist_inf = 1)
+        num_cluster = eval_count_cluster(sample_tree_array)
+        initial_log_dict["eval_num_cluster"] = num_cluster
+
         voxelmesh = netarray2mesh(sample_tree_array)
 
         if log_image:
