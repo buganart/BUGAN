@@ -4,6 +4,7 @@ import os
 import subprocess
 import tempfile
 import shutil
+import tqdm
 from pathlib import Path
 
 from joblib import Parallel, delayed
@@ -93,13 +94,14 @@ def process_dir(
     for parent in set([out.parent for out in out_paths]):
         parent.mkdir(exist_ok=True, parents=True)
 
-    for in_path, out_path in zip(in_paths, out_paths):
-        print(in_path, out_path)
-
-    Parallel(n_jobs=n_jobs, verbose=2)(
-        delayed(simplify)(in_path, out_path, num_iterations, filter_file_path)
-        for in_path, out_path in zip(in_paths, out_paths)
-    )
+    if n_jobs == 1:
+        for in_path, out_path in tqdm.tqdm(list(zip(in_paths, out_paths))):
+            simplify(in_path, out_path, num_iterations, filter_file_path)
+    else:
+        Parallel(n_jobs=n_jobs, verbose=2)(
+            delayed(simplify)(in_path, out_path, num_iterations, filter_file_path)
+            for in_path, out_path in zip(in_paths, out_paths)
+        )
 
 
 @click.command()
