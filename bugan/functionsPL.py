@@ -42,7 +42,9 @@ class DataModule_augmentation(pl.LightningDataModule):
 
             # rotate/transform/scale based on function arguments
             mesh = mesh.apply_transform(
-                trimesh.transformations.rotation_matrix(rot_radian, (0, 1, 0))
+                trimesh.transformations.rotation_matrix(
+                    rot_radian, self.config.aug_rotation_axis
+                )
             )
 
             # scale mesh extent to fit array_length so every mesh in same scale
@@ -65,9 +67,10 @@ class DataModule_augmentation(pl.LightningDataModule):
 
             return vox_array
 
-        def __init__(self, data_list):
+        def __init__(self, config, data_list):
             assert isinstance(data_list, list)
             self.data_list = data_list
+            self.config = config
 
         def __getitem__(self, index):
             selectedItem = self.data_list[index]
@@ -82,7 +85,7 @@ class DataModule_augmentation(pl.LightningDataModule):
             return len(self.data_list)
 
         def __add__(self, other):
-            return AugmentationDataset(self.data_list.append(other))
+            return AugmentationDataset(self.config, self.data_list.append(other))
 
     def __init__(self, config, run, data_path):
         super().__init__()
@@ -120,7 +123,9 @@ class DataModule_augmentation(pl.LightningDataModule):
             for ext in file_ext:
                 if file_name.endswith(ext):
                     try:
-                        m = trimesh.load(os.path.join(self.data_path,file_name), force="mesh")
+                        m = trimesh.load(
+                            os.path.join(self.data_path, file_name), force="mesh"
+                        )
                         dataset.append(m)
                     except Exception as e:  # TODO: check if we should report error
                         print(e)
@@ -132,7 +137,7 @@ class DataModule_augmentation(pl.LightningDataModule):
 
     def train_dataloader(self):
         config = self.config
-        aug_dataset = self.AugmentationDataset(self.dataset)
+        aug_dataset = self.AugmentationDataset(self.config, self.dataset)
         return DataLoader(aug_dataset, batch_size=config.batch_size, shuffle=True)
 
 
@@ -447,35 +452,35 @@ def load_dataset(dataset_name, run, config):
 
 
 def eval_count_cluster(array):
-    def nearby_voxels(array, i,j,k):
+    def nearby_voxels(array, i, j, k):
         bound = array.shape
-        low_i, high_i = np.clip([i-1, i+1], 0, bound[0]-1)
-        low_j, high_j = np.clip([j-1, j+1], 0, bound[1]-1)
-        low_k, high_k = np.clip([k-1, k+1], 0, bound[2]-1)
+        low_i, high_i = np.clip([i - 1, i + 1], 0, bound[0] - 1)
+        low_j, high_j = np.clip([j - 1, j + 1], 0, bound[1] - 1)
+        low_k, high_k = np.clip([k - 1, k + 1], 0, bound[2] - 1)
 
         retval = []
-        for x in range(low_i, high_i+1):
-            for y in range(low_j, high_j+1):
-                for z in range(low_k, high_k+1):
-                    if array[x,y,z]:
-                        #voxel exists
-                        retval.append((x,y,z))
-        #remove the selected vox itself
-        retval.remove((i,j,k))
+        for x in range(low_i, high_i + 1):
+            for y in range(low_j, high_j + 1):
+                for z in range(low_k, high_k + 1):
+                    if array[x, y, z]:
+                        # voxel exists
+                        retval.append((x, y, z))
+        # remove the selected vox itself
+        retval.remove((i, j, k))
         return retval
-
 
     ds = DisjointSet()
     for i in range(array.shape[0]):
         for j in range(array.shape[1]):
             for k in range(array.shape[2]):
-                vox = array[i,j,k]
+                vox = array[i, j, k]
                 if vox:
-                    #voxel exists in coord (i,j,k)
-                    nearby_vox = nearby_voxels(array, i,j,k)
+                    # voxel exists in coord (i,j,k)
+                    nearby_vox = nearby_voxels(array, i, j, k)
                     for v in nearby_vox:
-                        ds.union(v,(i,j,k))
+                        ds.union(v, (i, j, k))
     return len(list(ds.itersets()))
+
 
 def wandbLog(model, initial_log_dict={}, log_image=False, log_mesh=False):
 
