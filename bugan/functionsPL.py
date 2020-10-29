@@ -29,44 +29,6 @@ device
 #################
 class DataModule_augmentation(pl.LightningDataModule):
     class AugmentationDataset(Dataset):
-        def mesh2arrayCentered_aug(
-            self, mesh, rot_radian, voxel_size=1, array_length=32
-        ):
-            # given array length 64, voxel size 2, then output array size is [128,128,128]
-            array_size = np.ceil(
-                np.array([array_length, array_length, array_length]) / voxel_size
-            ).astype(int)
-            vox_array = np.zeros(
-                array_size, dtype=bool
-            )  # tanh: voxel representation [-1,1], sigmoid: [0,1]
-
-            # rotate/transform/scale based on function arguments
-            mesh = mesh.apply_transform(
-                trimesh.transformations.rotation_matrix(
-                    rot_radian, self.config.aug_rotation_axis
-                )
-            )
-
-            # scale mesh extent to fit array_length so every mesh in same scale
-            max_length = np.max(np.array(mesh.extents))
-            mesh = mesh.apply_transform(
-                trimesh.transformations.scale_matrix((array_length * 0.8) / max_length)
-            )  # now the extent is [array_length**3]
-
-            v = mesh.voxelized(
-                voxel_size
-            )  # max voxel array length = array_length / voxel_size
-            voxel_shape = v.matrix.shape
-            # find indices in the v.matrix to center it in vox_array
-            indices = np.floor((array_size - voxel_shape) / 2).astype(int)
-            vox_array[
-                indices[0] : indices[0] + voxel_shape[0],
-                indices[1] : indices[1] + voxel_shape[1],
-                indices[2] : indices[2] + voxel_shape[2],
-            ] = v.matrix
-
-            return vox_array
-
         def __init__(self, config, data_list):
             assert isinstance(data_list, list)
             self.data_list = data_list
@@ -74,9 +36,13 @@ class DataModule_augmentation(pl.LightningDataModule):
 
         def __getitem__(self, index):
             selectedItem = self.data_list[index]
-            angle = 2 * np.pi * (np.random.rand(1)[0])
-            array = self.mesh2arrayCentered_aug(
-                selectedItem, angle
+            radian = 2 * np.pi * (np.random.rand(1)[0])
+            # not going to copy the mesh before rotation (performance consideration)
+            selectedItem = rotateMesh(
+                selectedItem, [radian], [config.aug_rotation_axis]
+            )
+            array = mesh2arrayCentered(
+                selectedItem, array_length=32
             )  # assume selectedItem is Trimesh object
             # print("mesh index:", index, "| rot radian:", angle)
             return torch.tensor(array[np.newaxis, np.newaxis, :, :, :])
@@ -600,7 +566,18 @@ def mesh2wandb3D(voxelmesh):
 #####
 #   helper function (dataset)
 #####
-def mesh2arrayCentered(mesh, voxel_size=1, array_length=64):
+def rotateMesh(voxelmesh, radians, axes):
+    assert len(radians) == len(axes)
+    for i in range(len(axes)):
+        ra = radians[i]
+        ax = axes[i]
+        voxelmesh = voxelmesh.apply_transform(
+            trimesh.transformations.rotation_matrix(ra, ax)
+        )
+    return voxelmesh
+
+
+def mesh2arrayCentered(mesh, voxel_size=1, array_length=32):
     # given array length 64, voxel size 2, then output array size is [128,128,128]
     array_size = np.ceil(
         np.array([array_length, array_length, array_length]) / voxel_size
