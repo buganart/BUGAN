@@ -107,7 +107,7 @@ class DataModule_augmentation(pl.LightningDataModule):
         return DataLoader(aug_dataset, batch_size=config.batch_size, shuffle=True)
 
 
-def make_npy_path(path: Path):
+def make_npy_path(path: Path, res):
     if path.is_dir():
         # TODO
         # Preferably we would not save into the dataset directory it can break
@@ -118,9 +118,9 @@ def make_npy_path(path: Path):
         #     path.parent / "{path.name}.npy"
         #
         # instead or save to an entirely different location.
-        return path / "dataset_array_processed.npy"
+        return path / "dataset_array_processed_res" + str(res) + ".npy"
     elif path.suffix == ".zip":
-        return path.parent / f"{path.stem}.npy"
+        return path.parent / f"{path.stem}_res{res}.npy"
     elif path.suffix == ".npy":
         return path
     else:
@@ -157,7 +157,7 @@ class DataModule_process(pl.LightningDataModule):
         self.dataset = None
         self.size = 0
         self.filepath = Path(filepath)
-        self.npy_path = make_npy_path(self.filepath)
+        self.npy_path = make_npy_path(self.filepath, self.config.array_size)
 
     def _read_meshes_from_zip_file(self):
 
@@ -577,7 +577,7 @@ def rotateMesh(voxelmesh, radians, axes):
     return voxelmesh
 
 
-def mesh2arrayCentered(mesh, voxel_size=1, array_length=32):
+def mesh2arrayCentered(mesh, array_length, voxel_size=1):
     # given array length 64, voxel size 2, then output array size is [128,128,128]
     array_size = np.ceil(
         np.array([array_length, array_length, array_length]) / voxel_size
@@ -603,7 +603,7 @@ def mesh2arrayCentered(mesh, voxel_size=1, array_length=32):
     return vox_array
 
 
-def data_augmentation(mesh, array_length=32, num_augment_data=4, scale_max_margin=3):
+def data_augmentation(mesh, array_length, num_augment_data=4, scale_max_margin=3):
 
     retval = np.zeros((num_augment_data, array_length, array_length, array_length))
 
