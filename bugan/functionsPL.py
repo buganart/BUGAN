@@ -42,7 +42,7 @@ class DataModule_augmentation(pl.LightningDataModule):
                 selectedItem, [radian], [config.aug_rotation_axis]
             )
             array = mesh2arrayCentered(
-                selectedItem, array_length=32
+                selectedItem, array_length=self.config.array_size
             )  # assume selectedItem is Trimesh object
             # print("mesh index:", index, "| rot radian:", angle)
             return torch.tensor(array[np.newaxis, np.newaxis, :, :, :])
@@ -183,7 +183,7 @@ class DataModule_process(pl.LightningDataModule):
                     file_type=Path(path).suffix[1:],
                     force="mesh",
                 )
-                array = mesh2arrayCentered(m, array_length=32)
+                array = mesh2arrayCentered(m, array_length=self.config.array_size)
                 samples.append(array)
             except IndexError:
                 failed.append(path)
@@ -204,7 +204,7 @@ class DataModule_process(pl.LightningDataModule):
         for path in tqdm.tqdm(paths, desc="Meshes"):
             try:
                 m = trimesh.load(path, force="mesh")
-                array = mesh2arrayCentered(m, array_length=32)
+                array = mesh2arrayCentered(m, array_length=self.config.array_size)
                 samples.append(array)
             except Exception as exc:
                 failed.append(path)
@@ -603,7 +603,7 @@ def mesh2arrayCentered(mesh, voxel_size=1, array_length=32):
     return vox_array
 
 
-def data_augmentation(mesh, array_length=64, num_augment_data=4, scale_max_margin=3):
+def data_augmentation(mesh, array_length=32, num_augment_data=4, scale_max_margin=3):
 
     retval = np.zeros((num_augment_data, array_length, array_length, array_length))
 

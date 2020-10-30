@@ -151,7 +151,9 @@ class VAE_train(pl.LightningModule):
             result = result[:num_trees]
         # in case no good result
         if result.shape[0] <= 0:
-            result = np.zeros((1, 64, 64, 64))
+            result = np.zeros(
+                (1, config.array_size, config.array_size, config.array_size)
+            )
             result[0, 0, 0, 0] = 1
         return result
 
@@ -403,7 +405,9 @@ class VAEGAN(pl.LightningModule):
             result = result[:num_trees]
         # in case no good result
         if result.shape[0] <= 0:
-            result = np.zeros((1, 64, 64, 64))
+            result = np.zeros(
+                (1, config.array_size, config.array_size, config.array_size)
+            )
             result[0, 0, 0, 0] = 1
         return result
 
@@ -620,7 +624,9 @@ class GAN(pl.LightningModule):
             result = result[:num_trees]
         # in case no good result
         if result.shape[0] <= 0:
-            result = np.zeros((1, 64, 64, 64))
+            result = np.zeros(
+                (1, config.array_size, config.array_size, config.array_size)
+            )
             result[0, 0, 0, 0] = 1
         return result
 
