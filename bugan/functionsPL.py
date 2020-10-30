@@ -448,27 +448,38 @@ def eval_count_cluster(array):
     return len(list(ds.itersets()))
 
 
-def wandbLog(model, initial_log_dict={}, log_image=False, log_mesh=False):
+def wandbLog(model, initial_log_dict={}, log_media=False, log_num_samples=1):
 
-    if log_image or log_mesh:
-        sample_tree_array = model.generate_tree()[0]  # only 1 tree
+    if log_media:
+        sample_trees = model.generate_tree(num_trees=log_num_samples)
 
-        # log number of points to wandb
-        sample_tree_indices = netarray2indices(sample_tree_array)
-        initial_log_dict["sample_tree_numpoints"] = sample_tree_indices.shape[0]
-        # count number of cluster in the tree (grouped with dist_inf = 1)
-        num_cluster = eval_count_cluster(sample_tree_array)
-        initial_log_dict["eval_num_cluster"] = num_cluster
+        # log_dict list record
+        sample_tree_numpoints = []
+        eval_num_cluster = []
+        sample_tree_image = []
+        sample_tree_voxelmesh = []
+        for n in range(log_num_samples):
+            sample_tree_array = sample_trees[n]
+            # log number of points to wandb
+            sample_tree_indices = netarray2indices(sample_tree_array)
+            sample_tree_numpoints.append(sample_tree_indices.shape[0])
+            # count number of cluster in the tree (grouped with dist_inf = 1)
+            num_cluster = eval_count_cluster(sample_tree_array)
+            eval_num_cluster.append(num_cluster)
 
-        voxelmesh = netarray2mesh(sample_tree_array)
+            voxelmesh = netarray2mesh(sample_tree_array)
 
-        if log_image:
+            # image / 3D object to log_dict
             image = mesh2wandbImage(voxelmesh)
-            initial_log_dict["sample_tree_image"] = image
-
-        if log_mesh:
+            sample_tree_image.append(image)
             voxelmeshfile = mesh2wandb3D(voxelmesh)
-            initial_log_dict["sample_tree_voxelmesh"] = voxelmeshfile
+            sample_tree_voxelmesh.append(voxelmeshfile)
+
+        # add list record to log_dict
+        initial_log_dict["sample_tree_numpoints"] = sample_tree_numpoints
+        initial_log_dict["eval_num_cluster"] = eval_num_cluster
+        initial_log_dict["sample_tree_image"] = sample_tree_image
+        initial_log_dict["sample_tree_voxelmesh"] = sample_tree_voxelmesh
 
     wandb.log(initial_log_dict)
 

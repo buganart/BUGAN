@@ -71,14 +71,16 @@ class VAE_train(pl.LightningModule):
         # save model if necessary
         log_dict = {"VAE loss": self.vae_ep_loss}
 
-        log_image = (
-            self.epoch % self.config.log_image_interval == 0
-        )  # boolean whether to log image
-        log_mesh = (
-            self.epoch % self.config.log_mesh_interval == 0
-        )  # boolean whether to log mesh
+        log_media = (
+            self.epoch % self.config.log_interval == 0
+        )  # boolean whether to log image/3D object
 
-        wandbLog(self, log_dict, log_image=log_image, log_mesh=log_mesh)
+        wandbLog(
+            self,
+            log_dict,
+            log_media=log_media,
+            log_num_samples=self.config.log_num_samples,
+        )
 
         self.trainer.save_checkpoint(self.save_model_path)
         save_checkpoint_to_cloud(self.save_model_path)
@@ -121,10 +123,8 @@ class VAE_train(pl.LightningModule):
         result.log("vae_loss", vae_loss, on_epoch=True, prog_bar=True)
         return result
 
-    def generate_tree(self, num_trees=1, num_try=100):
+    def generate_tree(self, num_trees=1):
         config = self.config
-        # num_try is number of trial to generate a tree that can fool D
-        # total number of sample generated = num_trees * num_try
         vae = self.vae.to(device)
         result = None
 
@@ -152,9 +152,9 @@ class VAE_train(pl.LightningModule):
         # in case no good result
         if result.shape[0] <= 0:
             result = np.zeros(
-                (1, config.array_size, config.array_size, config.array_size)
+                (num_trees, config.array_size, config.array_size, config.array_size)
             )
-            result[0, 0, 0, 0] = 1
+            result[:, 0, 0, 0] = 1
         return result
 
 
@@ -239,14 +239,16 @@ class VAEGAN(pl.LightningModule):
         # save model if necessary
         log_dict = {"discriminator loss": self.d_ep_loss, "VAE loss": self.vae_ep_loss}
 
-        log_image = (
-            self.epoch % self.config.log_image_interval == 0
-        )  # boolean whether to log image
-        log_mesh = (
-            self.epoch % self.config.log_mesh_interval == 0
-        )  # boolean whether to log mesh
+        log_media = (
+            self.epoch % self.config.log_interval == 0
+        )  # boolean whether to log image/3D object
 
-        wandbLog(self, log_dict, log_image=log_image, log_mesh=log_mesh)
+        wandbLog(
+            self,
+            log_dict,
+            log_media=log_media,
+            log_num_samples=self.config.log_num_samples,
+        )
 
         self.trainer.save_checkpoint(self.save_model_path)
         save_checkpoint_to_cloud(self.save_model_path)
@@ -357,10 +359,8 @@ class VAEGAN(pl.LightningModule):
             result.log("dloss", dloss, on_epoch=True, prog_bar=True)
             return result
 
-    def generate_tree(self, check_D=False, num_trees=1, num_try=100):
+    def generate_tree(self, num_trees=1):
         config = self.config
-        # num_try is number of trial to generate a tree that can fool D
-        # total number of sample generated = num_trees * num_try
         vae = self.vae.to(device)
         discriminator = self.discriminator.to(device)
 
@@ -371,44 +371,28 @@ class VAEGAN(pl.LightningModule):
         else:
             batch_size = config.batch_size
 
-        if not check_D:
-            num_tree_total = num_trees
-            num_runs = int(np.ceil(num_tree_total / batch_size))
-            # ignore discriminator
-            for i in range(num_runs):
-                # generate noise vector
-                z = torch.randn(batch_size, vae.decoder_z_size).float().to(device)
-                tree_fake = F.sigmoid(vae.generate_sample(z))[:, 0, :, :, :]
-                selected_trees = tree_fake.detach().cpu().numpy()
-                if result is None:
-                    result = selected_trees
-                else:
-                    result = np.concatenate((result, selected_trees), axis=0)
-        else:
-            num_tree_total = num_trees * num_try
-            num_runs = int(np.ceil(num_tree_total / batch_size))
-            # only show samples can fool discriminator
-            for i in range(num_runs):
-                # generate noise vector
-                z = torch.randn(batch_size, vae.decoder_z_size).float().to(device)
+        num_tree_total = num_trees
+        num_runs = int(np.ceil(num_tree_total / batch_size))
+        # ignore discriminator
+        for i in range(num_runs):
+            # generate noise vector
+            z = torch.randn(batch_size, vae.decoder_z_size).float().to(device)
+            tree_fake = F.sigmoid(vae.generate_sample(z))[:, 0, :, :, :]
+            selected_trees = tree_fake.detach().cpu().numpy()
+            if result is None:
+                result = selected_trees
+            else:
+                result = np.concatenate((result, selected_trees), axis=0)
 
-                tree_fake = F.sigmoid(vae.generate_sample(z))
-                dout = F.sigmoid(discriminator(tree_fake))
-                dout = dout > 0.5
-                selected_trees = tree_fake[dout].detach().cpu().numpy()
-                if result is None:
-                    result = selected_trees
-                else:
-                    result = np.concatenate((result, selected_trees), axis=0)
         # select at most num_trees
         if result.shape[0] > num_trees:
             result = result[:num_trees]
         # in case no good result
         if result.shape[0] <= 0:
             result = np.zeros(
-                (1, config.array_size, config.array_size, config.array_size)
+                (num_trees, config.array_size, config.array_size, config.array_size)
             )
-            result[0, 0, 0, 0] = 1
+            result[:, 0, 0, 0] = 1
         return result
 
 
@@ -487,14 +471,16 @@ class GAN(pl.LightningModule):
             "generator loss": self.g_ep_loss,
         }
 
-        log_image = (
-            self.epoch % self.config.log_image_interval == 0
-        )  # boolean whether to log image
-        log_mesh = (
-            self.epoch % self.config.log_mesh_interval == 0
-        )  # boolean whether to log mesh
+        log_media = (
+            self.epoch % self.config.log_interval == 0
+        )  # boolean whether to log image/3D object
 
-        wandbLog(self, log_dict, log_image=log_image, log_mesh=log_mesh)
+        wandbLog(
+            self,
+            log_dict,
+            log_media=log_media,
+            log_num_samples=self.config.log_num_samples,
+        )
 
         self.trainer.save_checkpoint(self.save_model_path)
         save_checkpoint_to_cloud(self.save_model_path)
@@ -575,9 +561,7 @@ class GAN(pl.LightningModule):
             result.log("dloss", dloss, on_epoch=True, prog_bar=True)
             return result
 
-    def generate_tree(self, check_D=False, num_trees=1, num_try=100):
-        # num_try is number of trial to generate a tree that can fool D
-        # total number of sample generated = num_trees * num_try
+    def generate_tree(self, num_trees=1):
         config = self.config
         generator = self.generator.to(device)
         discriminator = self.discriminator.to(device)
@@ -589,36 +573,20 @@ class GAN(pl.LightningModule):
         else:
             batch_size = config.batch_size
 
-        if not check_D:
-            num_tree_total = num_trees
-            num_runs = int(np.ceil(num_tree_total / batch_size))
-            # ignore discriminator
-            for i in range(num_runs):
-                # generate noise vector
-                z = torch.randn(batch_size, 128).to(device)
+        num_tree_total = num_trees
+        num_runs = int(np.ceil(num_tree_total / batch_size))
+        # ignore discriminator
+        for i in range(num_runs):
+            # generate noise vector
+            z = torch.randn(batch_size, 128).to(device)
 
-                tree_fake = generator(z)[:, 0, :, :, :]
-                selected_trees = tree_fake.detach().cpu().numpy()
-                if result is None:
-                    result = selected_trees
-                else:
-                    result = np.concatenate((result, selected_trees), axis=0)
-        else:
-            num_tree_total = num_trees * num_try
-            num_runs = int(np.ceil(num_tree_total / batch_size))
-            # only show samples can fool discriminator
-            for i in range(num_runs):
-                # generate noise vector
-                z = torch.randn(batch_size, 128).to(device)
+            tree_fake = generator(z)[:, 0, :, :, :]
+            selected_trees = tree_fake.detach().cpu().numpy()
+            if result is None:
+                result = selected_trees
+            else:
+                result = np.concatenate((result, selected_trees), axis=0)
 
-                tree_fake = generator(z)
-                dout = F.sigmoid(discriminator(tree_fake))
-                dout = dout > 0.5
-                selected_trees = tree_fake[dout].detach().cpu().numpy()
-                if result is None:
-                    result = selected_trees
-                else:
-                    result = np.concatenate((result, selected_trees), axis=0)
         # select at most num_trees
         if result.shape[0] > num_trees:
             result = result[:num_trees]
