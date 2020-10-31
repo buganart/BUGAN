@@ -39,7 +39,7 @@ class DataModule_augmentation(pl.LightningDataModule):
             radian = 2 * np.pi * (np.random.rand(1)[0])
             # not going to copy the mesh before rotation (performance consideration)
             selectedItem = rotateMesh(
-                selectedItem, [radian], [config.aug_rotation_axis]
+                selectedItem, [radian], [self.config.aug_rotation_axis]
             )
             array = mesh2arrayCentered(
                 selectedItem, array_length=self.config.array_size
