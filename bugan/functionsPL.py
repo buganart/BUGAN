@@ -110,9 +110,7 @@ class DataModule_augmentation(pl.LightningDataModule):
         paths = [
             path
             for path in self.data_path.rglob("*.*")
-            if path.suffix in self.file_ext
-            and not "__MACOSX" in str(path)
-            and not path.is_dir()
+            if path.suffix in self.file_ext and not "__MACOSX" in str(path)
         ]
 
         for file_name in paths:
