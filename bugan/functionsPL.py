@@ -60,7 +60,9 @@ class DataModule_augmentation(pl.LightningDataModule):
         self.dataset_artifact = None
         self.dataset = None
         self.size = 0
-        self.data_path = Path(data_path)
+        self.data_path = (
+            Path(data_path) if data_path[-1] != "/" else Path(data_path[:-1])
+        )
         self.file_ext = [
             ".ply",
             ".stl",
@@ -180,7 +182,7 @@ class DataModule_process(pl.LightningDataModule):
         self.dataset_artifact = None
         self.dataset = None
         self.size = 0
-        self.filepath = Path(filepath)
+        self.filepath = Path(filepath) if filepath[-1] != "/" else Path(filepath[:-1])
         self.npy_path = make_npy_path(self.filepath, self.config.array_size)
 
     def _read_meshes_from_zip_file(self):
