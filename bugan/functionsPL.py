@@ -60,16 +60,8 @@ class DataModule_augmentation(pl.LightningDataModule):
         self.dataset_artifact = None
         self.dataset = None
         self.size = 0
-        self.data_path = data_path
-
-    def prepare_data(self):
-        return
-
-    def setup(self, stage=None):
-        config = self.config
-        dataset = []
-
-        file_ext = [
+        self.data_path = Path(data_path)
+        self.file_ext = [
             ".ply",
             ".stl",
             ".dae",
@@ -85,17 +77,49 @@ class DataModule_augmentation(pl.LightningDataModule):
             ".xyz",
         ]
 
-        for file_name in os.listdir(self.data_path):
-            for ext in file_ext:
-                if file_name.endswith(ext):
-                    try:
-                        m = trimesh.load(
-                            os.path.join(self.data_path, file_name), force="mesh"
-                        )
-                        dataset.append(m)
-                    except Exception as e:  # TODO: check if we should report error
-                        print(e)
-                        print(file_name + " failed")
+    def _unzip_zip_file(self):
+
+        failed = []
+        samples = []
+
+        zf = zipfile.ZipFile(self.data_path, "r")
+
+        # unzip all the files into a directory
+        dir_path = self.data_path.parent / self.data_path.stem
+        # create folder if dir not exists
+        if not dir_path.exists():
+            try:
+                os.mkdir(dir_path)
+            except OSError:
+                print(f"create directory {dir_path} failed")
+        zf.extractall(path=dir_path)
+        # construct datapath file
+        return dir_path
+
+    def prepare_data(self):
+        if self.data_path.is_dir():
+            return
+        elif self.data_path.suffix == ".zip":
+            self.data_path = self._unzip_zip_file()
+            return
+
+    def setup(self, stage=None):
+        config = self.config
+        dataset = []
+
+        paths = [
+            path
+            for path in self.data_path.rglob("*.*")
+            if path.suffix in self.file_ext and not "__MACOSX" in str(path)
+        ]
+
+        for file_name in paths:
+            try:
+                m = trimesh.load(file_name, force="mesh")
+                dataset.append(m)
+            except Exception as e:  # TODO: check if we should report error
+                print(e)
+                print(str(file_name) + " failed")
 
         # now all the returned array contains multiple samples
         self.size = len(dataset)
