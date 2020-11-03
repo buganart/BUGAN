@@ -33,14 +33,31 @@ class DataModule_augmentation(pl.LightningDataModule):
             assert isinstance(data_list, list)
             self.data_list = data_list
             self.config = config
+            self.rotation_type = config.aug_rotation_type
+
+            if self.rotation_type not in ["random rotation", "axis rotation"]:
+                raise ValueError(
+                    f"aug_rotation_type should be one of ['random rotation', 'axis rotation'], current {self.rotation_type}"
+                )
 
         def __getitem__(self, index):
             selectedItem = self.data_list[index]
-            radian = 2 * np.pi * (np.random.rand(1)[0])
             # not going to copy the mesh before rotation (performance consideration)
-            selectedItem = rotateMesh(
-                selectedItem, [radian], [self.config.aug_rotation_axis]
-            )
+            if self.rotation_type == "axis rotation":
+                # axis rotation
+                radian = 2 * np.pi * (np.random.rand(1)[0])
+                selectedItem = rotateMesh(
+                    selectedItem, [radian], [self.config.aug_rotation_axis]
+                )
+            else:
+                # random rotation
+                radian = 2 * np.pi * (np.random.rand(3))
+                selectedItem = rotateMesh(
+                    selectedItem,
+                    [radian[0], radian[1], radian[2]],
+                    [(1, 0, 0), (0, 1, 0), (0, 0, 1)],
+                )
+
             array = mesh2arrayCentered(
                 selectedItem, array_length=self.config.array_size
             )  # assume selectedItem is Trimesh object
