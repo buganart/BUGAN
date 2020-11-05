@@ -104,12 +104,16 @@ class DataModule_augmentation(pl.LightningDataModule):
         # unzip all the files into a directory
         dir_path = self.data_path.parent / self.data_path.stem
         # create folder if dir not exists
-        if not dir_path.exists():
-            try:
-                os.mkdir(dir_path)
-            except OSError:
-                print(f"create directory {dir_path} failed")
-        zf.extractall(path=dir_path)
+        dir_path.mkdir(parents=True, exist_ok=True)
+        # find marker. if marker not exists, extractall
+        marker = Path(dir_path / "__extracted_marker")
+        if not marker.exists():
+            zf.extractall(path=dir_path)
+            zf.close()
+            (dir_path / "__extracted_marker").mkdir(parents=True, exist_ok=True)
+        else:
+            print("zip file is extracted already!")
+
         # construct datapath file
         return dir_path
 
@@ -594,7 +598,7 @@ def netarray2mesh(array):
     return voxelmesh
 
 
-def mesh2wandbImage(voxelmesh):
+def mesh2wandbImage(voxelmesh, wandb_format=True):
     scene = voxelmesh.scene()
     try:
         png = scene.save_image(
@@ -606,13 +610,19 @@ def mesh2wandbImage(voxelmesh):
         )
     png = io.BytesIO(png)
     image = Image.open(png)
-    return wandb.Image(image)
+    if wandb_format:
+        return wandb.Image(image)
+    else:
+        return image
 
 
-def mesh2wandb3D(voxelmesh):
+def mesh2wandb3D(voxelmesh, wandb_format=True):
     voxelmeshfile = voxelmesh.export(file_type="obj")
-    voxelmeshfile = wandb.Object3D(io.StringIO(voxelmeshfile), file_type="obj")
-    return voxelmeshfile
+    if not wandb_format:
+        return voxelmeshfile
+    else:
+        voxelmeshfile = wandb.Object3D(io.StringIO(voxelmeshfile), file_type="obj")
+        return voxelmeshfile
 
 
 #####
