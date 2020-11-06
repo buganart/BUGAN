@@ -18,12 +18,11 @@ device
 #   models for training
 #####
 class VAE_train(pl.LightningModule):
-    def __init__(self, config, trainer, save_model_path):
+    def __init__(self, config):
         super(VAE_train, self).__init__()
         # assert(vae.sample_size == discriminator.input_size)
         self.config = config
-        self.trainer = trainer
-        self.save_model_path = save_model_path
+        self.save_hyperparameters("config")
         # create components
         decoder = Generator(
             config.vae_decoder_layer,
@@ -81,9 +80,6 @@ class VAE_train(pl.LightningModule):
             log_media=log_media,
             log_num_samples=self.config.log_num_samples,
         )
-
-        self.trainer.save_checkpoint(self.save_model_path)
-        save_checkpoint_to_cloud(self.save_model_path)
 
         self.epoch += 1
 
@@ -159,12 +155,11 @@ class VAE_train(pl.LightningModule):
 
 
 class VAEGAN(pl.LightningModule):
-    def __init__(self, config, trainer, save_model_path):
+    def __init__(self, config):
         super(VAEGAN, self).__init__()
         # assert(vae.sample_size == discriminator.input_size)
         self.config = config
-        self.trainer = trainer
-        self.save_model_path = save_model_path
+        self.save_hyperparameters("config")
         # create components
         decoder = Generator(
             config.vae_decoder_layer,
@@ -249,9 +244,6 @@ class VAEGAN(pl.LightningModule):
             log_media=log_media,
             log_num_samples=self.config.log_num_samples,
         )
-
-        self.trainer.save_checkpoint(self.save_model_path)
-        save_checkpoint_to_cloud(self.save_model_path)
 
         self.epoch += 1
 
@@ -397,12 +389,11 @@ class VAEGAN(pl.LightningModule):
 
 
 class GAN(pl.LightningModule):
-    def __init__(self, config, trainer, save_model_path):
+    def __init__(self, config):
         super(GAN, self).__init__()
 
         self.config = config
-        self.trainer = trainer
-        self.save_model_path = save_model_path
+        self.save_hyperparameters("config")
         # create components
         generator = Generator(
             config.g_layer, config.z_size, config.array_size, config.gen_num_layer_unit
@@ -481,9 +472,6 @@ class GAN(pl.LightningModule):
             log_media=log_media,
             log_num_samples=self.config.log_num_samples,
         )
-
-        self.trainer.save_checkpoint(self.save_model_path)
-        save_checkpoint_to_cloud(self.save_model_path)
 
         self.epoch += 1
 
