@@ -27,151 +27,6 @@ device
 #              where data_path is the directory of all the files (not recursive)
 #              example: data_path = "../../../../../My Drive/Hand-Tool-Data-Set/turbosquid_thingiverse_dataset/dataset_ply/"
 #################
-class DataModule_augmentation(pl.LightningDataModule):
-    class AugmentationDataset(Dataset):
-        def __init__(self, config, data_list):
-            assert isinstance(data_list, list)
-            self.data_list = data_list
-            self.config = config
-            self.rotation_type = config.aug_rotation_type
-
-            if self.rotation_type not in ["random rotation", "axis rotation"]:
-                raise ValueError(
-                    f"aug_rotation_type should be one of ['random rotation', 'axis rotation'], current {self.rotation_type}"
-                )
-
-        def __getitem__(self, index):
-            selectedItem = self.data_list[index]
-            # not going to copy the mesh before rotation (performance consideration)
-            if self.rotation_type == "axis rotation":
-                # axis rotation
-                radian = 2 * np.pi * (np.random.rand(1)[0])
-                selectedItem = rotateMesh(
-                    selectedItem, [radian], [self.config.aug_rotation_axis]
-                )
-            else:
-                # random rotation
-                radian = 2 * np.pi * (np.random.rand(3))
-                selectedItem = rotateMesh(
-                    selectedItem,
-                    [radian[0], radian[1], radian[2]],
-                    [(1, 0, 0), (0, 1, 0), (0, 0, 1)],
-                )
-
-            array = mesh2arrayCentered(
-                selectedItem, array_length=self.config.array_size
-            )  # assume selectedItem is Trimesh object
-            # print("mesh index:", index, "| rot radian:", angle)
-            return torch.tensor(array[np.newaxis, np.newaxis, :, :, :])
-
-        def __len__(self):
-            return len(self.data_list)
-
-        def __add__(self, other):
-            return AugmentationDataset(self.config, self.data_list.append(other))
-
-    def __init__(self, config, run, data_path):
-        super().__init__()
-        self.config = config
-        self.run = run
-        self.dataset_artifact = None
-        self.dataset = None
-        self.size = 0
-        self.data_path = Path(data_path)
-        self.file_ext = [
-            ".ply",
-            ".stl",
-            ".dae",
-            ".obj",
-            ".off",
-            ".misc",
-            ".gltf",
-            ".assimp",
-            ".threemf",
-            ".openctm",
-            ".xml_based",
-            ".binvox",
-            ".xyz",
-        ]
-
-    def _unzip_zip_file(self):
-
-        failed = []
-        samples = []
-
-        zf = zipfile.ZipFile(self.data_path, "r")
-
-        # unzip all the files into a directory
-        dir_path = self.data_path.parent / self.data_path.stem
-        # create folder if dir not exists
-        dir_path.mkdir(parents=True, exist_ok=True)
-        # find marker. if marker not exists, extractall
-        marker = Path(dir_path / "__extracted_marker")
-        if not marker.exists():
-            zf.extractall(path=dir_path)
-            zf.close()
-            (dir_path / "__extracted_marker").mkdir(parents=True, exist_ok=True)
-        else:
-            print("zip file is extracted already!")
-
-        # construct datapath file
-        return dir_path
-
-    def prepare_data(self):
-        if self.data_path.is_dir():
-            return
-        elif self.data_path.suffix == ".zip":
-            self.data_path = self._unzip_zip_file()
-            return
-
-    def setup(self, stage=None):
-        config = self.config
-        dataset = []
-
-        paths = [
-            path
-            for path in self.data_path.rglob("*.*")
-            if path.suffix in self.file_ext and not "__MACOSX" in str(path)
-        ]
-
-        for file_name in paths:
-            try:
-                m = trimesh.load(file_name, force="mesh")
-                dataset.append(m)
-            except Exception as e:  # TODO: check if we should report error
-                print(e)
-                print(str(file_name) + " failed")
-
-        # now all the returned array contains multiple samples
-        self.size = len(dataset)
-        self.dataset = dataset
-
-    def train_dataloader(self):
-        config = self.config
-        aug_dataset = self.AugmentationDataset(self.config, self.dataset)
-        return DataLoader(aug_dataset, batch_size=config.batch_size, shuffle=True)
-
-
-def make_npy_path(path: Path, res):
-    if path.is_dir():
-        # TODO
-        # Preferably we would not save into the dataset directory it can break
-        # code that relies on there not being extra files in the dataset directory.
-        #
-        # We could use
-        #
-        #     path.parent / "{path.name}.npy"
-        #
-        # instead or save to an entirely different location.
-        return path / "dataset_array_processed_res" + str(res) + ".npy"
-    elif path.suffix == ".zip":
-        return path.parent / f"{path.stem}_res{res}.npy"
-    elif path.suffix == ".npy":
-        return path
-    else:
-        raise ValueError(f"Cannot handle dataset path {path}")
-
-
 #####
 #   DataModule
 #####
@@ -194,22 +49,45 @@ class DataModule_process(pl.LightningDataModule):
         ]
     )
 
-    def __init__(self, config, run, filepath):
+    def __init__(self, config, run, data_path):
         super().__init__()
         self.config = config
         self.run = run
         self.dataset_artifact = None
         self.dataset = None
         self.size = 0
-        self.filepath = Path(filepath)
-        self.npy_path = make_npy_path(self.filepath, self.config.array_size)
+        self.data_path = Path(data_path)
+        self.npy_path = make_npy_path(self.data_path, self.config.array_size)
 
-    def _read_meshes_from_zip_file(self):
+    def _unzip_zip_file_to_directory(self):
 
         failed = []
         samples = []
 
-        zf = zipfile.ZipFile(self.filepath, "r")
+        zf = zipfile.ZipFile(self.data_path, "r")
+
+        # unzip all the files into a directory
+        dir_path = self.data_path.parent / self.data_path.stem
+        # create folder if dir not exists
+        dir_path.mkdir(parents=True, exist_ok=True)
+        # find marker. if marker not exists, extractall
+        marker = Path(dir_path / "__extracted_marker")
+        if not marker.exists():
+            zf.extractall(path=dir_path)
+            zf.close()
+            (dir_path / "__extracted_marker").mkdir(parents=True, exist_ok=True)
+        else:
+            print("zip file is extracted already!")
+
+        # construct datapath file
+        return dir_path
+
+    def _read_mesh_array_from_zip_file(self):
+
+        failed = 0
+        samples = []
+
+        zf = zipfile.ZipFile(self.data_path, "r")
         supported_files = [
             path
             for path in zf.namelist()
@@ -231,61 +109,103 @@ class DataModule_process(pl.LightningDataModule):
                 array = mesh2arrayCentered(m, array_length=self.config.array_size)
                 samples.append(array)
             except IndexError:
-                failed.append(path)
+                failed += 1
                 print("Failed to load {path}")
         return samples, failed
 
-    def _read_meshes_from_directory(self):
+    def _read_mesh_array_from_directory(self, process_to_array=True):
 
-        failed = []
+        failed = 0
         samples = []
 
         paths = [
             path
-            for path in self.filepath.rglob("*.*")
+            for path in self.data_path.rglob("*.*")
             if path.suffix in self.supported_extensions
         ]
 
         for path in tqdm.tqdm(paths, desc="Meshes"):
             try:
                 m = trimesh.load(path, force="mesh")
-                array = mesh2arrayCentered(m, array_length=self.config.array_size)
-                samples.append(array)
+                if process_to_array:
+                    m = mesh2arrayCentered(m, array_length=self.config.array_size)
+                samples.append(m)
             except Exception as exc:
-                failed.append(path)
+                failed += 1
                 print(f"Failed to load {path}: {exc}")
         return samples, failed
 
+    # prepare_data() should contains code that will be run once per dataset.
+    # most of the code will be skipped in subsequent run.
     def prepare_data(self):
 
-        if self.npy_path.exists():
-            print(f"Processed dataset {self.npy_path} already exists.")
-            return
-
-        if self.filepath.suffix == ".zip":
-            loader = self._read_meshes_from_zip_file
+        if self.config.data_augmentation:
+            # for data_augmentation:
+            # put/unzip all 3D objects to a directory. Ready for setup() to read
+            # after perpare_data(), the target should be a directory with all 3D object files
+            if self.data_path.is_dir():
+                return
+            elif self.data_path.suffix == ".zip":
+                self.data_path = self._unzip_zip_file_to_directory()
+                return
         else:
-            loader = self._read_meshes_from_directory
+            # for normal:
+            # read all files and process the object array to .npy file
+            if self.npy_path.exists():
+                print(f"Processed dataset {self.npy_path} already exists.")
+                return
 
-        samples, failed = loader()
-        dataset = np.array(samples)
-        print(f"Processed dataset_array shape: {dataset.shape}")
-        print(f"Number of failed file: {len(failed)}")
+            if self.data_path.suffix == ".zip":
+                loader = self._read_mesh_array_from_zip_file
+            else:
+                loader = self._read_mesh_array_from_directory
 
-        np.save(self.npy_path, dataset)
-        print(f"Saved processed dataset to {self.npy_path}")
+            samples, failed = loader()
+            dataset = np.array(samples)
+            print(f"Processed dataset_array shape: {dataset.shape}")
+            print(f"Number of failed file: {failed}")
 
+            np.save(self.npy_path, dataset)
+            print(f"Saved processed dataset to {self.npy_path}")
+
+    # setup() should contains code that will be run once per run.
     def setup(self, stage=None):
-        dataset = np.load(self.npy_path)
+        if self.config.data_augmentation:
+            dataset, failed = self._read_mesh_array_from_directory(
+                process_to_array=False
+            )
 
-        # now all the returned array contains multiple samples
-        self.size = dataset.shape[0]
-        self.dataset = torch.unsqueeze(torch.tensor(dataset), 1)
+            # now all the returned array contains multiple samples
+            self.size = len(dataset)
+            self.dataset = dataset
+            print(f"Processed dataset size: {len(dataset)}")
+            print(f"Number of failed file: {failed}")
+        else:
+            dataset = np.load(self.npy_path)
+
+            # now all the returned array contains multiple samples
+            self.size = dataset.shape[0]
+            self.dataset = torch.unsqueeze(torch.tensor(dataset), 1)
 
     def train_dataloader(self):
-        config = self.config
-        tensor_dataset = TensorDataset(self.dataset)
-        return DataLoader(tensor_dataset, batch_size=config.batch_size, shuffle=True)
+        if self.config.data_augmentation:
+            config = self.config
+            aug_dataset = AugmentationDataset(self.config, self.dataset)
+            return DataLoader(aug_dataset, batch_size=config.batch_size, shuffle=True)
+        else:
+            config = self.config
+            tensor_dataset = TensorDataset(self.dataset)
+            return DataLoader(
+                tensor_dataset, batch_size=config.batch_size, shuffle=True
+            )
+
+
+###
+#   Deprecated. will be removed
+###
+class DataModule_augmentation(DataModule_process):
+    def __init__(self, config, run, data_path):
+        super(DataModule_augmentation, self).__init__(config, run, data_path)
 
 
 class DataModule_custom_cond(pl.LightningDataModule):
@@ -427,6 +347,54 @@ class SaveWandbCallback(Callback):
 
 
 #####
+#   helper class
+#####
+
+
+class AugmentationDataset(Dataset):
+    def __init__(self, config, data_list):
+        assert isinstance(data_list, list)
+        self.data_list = data_list
+        self.config = config
+        self.rotation_type = config.aug_rotation_type
+
+        if self.rotation_type not in ["random rotation", "axis rotation"]:
+            raise ValueError(
+                f"aug_rotation_type should be one of ['random rotation', 'axis rotation'], current {self.rotation_type}"
+            )
+
+    def __getitem__(self, index):
+        selectedItem = self.data_list[index]
+        # not going to copy the mesh before rotation (performance consideration)
+        if self.rotation_type == "axis rotation":
+            # axis rotation
+            radian = 2 * np.pi * (np.random.rand(1)[0])
+            selectedItem = rotateMesh(
+                selectedItem, [radian], [self.config.aug_rotation_axis]
+            )
+        else:
+            # random rotation
+            radian = 2 * np.pi * (np.random.rand(3))
+            selectedItem = rotateMesh(
+                selectedItem,
+                [radian[0], radian[1], radian[2]],
+                [(1, 0, 0), (0, 1, 0), (0, 0, 1)],
+            )
+
+        array = mesh2arrayCentered(
+            selectedItem, array_length=self.config.array_size
+        )  # assume selectedItem is Trimesh object
+        # print("mesh index:", index, "| rot radian:", angle)
+        return torch.tensor(array[np.newaxis, np.newaxis, :, :, :])
+
+    def __len__(self):
+        return len(self.data_list)
+
+    def __add__(self, other):
+        return AugmentationDataset(self.config, self.data_list.append(other))
+
+
+#####
 #   functions
 #####
 
@@ -460,6 +428,26 @@ def load_dataset(dataset_name, run, config):
     # now all the returned array contains multiple samples
     dataset = np.concatenate(dataset)
     return dataset
+
+
+def make_npy_path(path: Path, res):
+    if path.is_dir():
+        # TODO
+        # Preferably we would not save into the dataset directory it can break
+        # code that relies on there not being extra files in the dataset directory.
+        #
+        # We could use
+        #
+        #     path.parent / "{path.name}.npy"
+        #
+        # instead or save to an entirely different location.
+        return path / ("dataset_array_processed_res" + str(res) + ".npy")
+    elif path.suffix == ".zip":
+        return path.parent / f"{path.stem}_res{res}.npy"
+    elif path.suffix == ".npy":
+        return path
+    else:
+        raise ValueError(f"Cannot handle dataset path {path}")
 
 
 def eval_count_cluster(array):
