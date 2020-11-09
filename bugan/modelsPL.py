@@ -50,10 +50,7 @@ class VAE_train(pl.LightningModule):
         vae = self.vae
 
         # optimizer
-        if config.vae_opt == "Adam":
-            self.vae_optimizer = optim.Adam(vae.parameters(), lr=config.vae_lr)
-        else:
-            self.vae_optimizer = optim.SGD(vae.parameters(), lr=config.vae_lr)
+        self.vae_optimizer = get_model_optimizer(vae, config.vae_opt, config.vae_lr)
 
         return self.vae_optimizer
 
@@ -121,37 +118,9 @@ class VAE_train(pl.LightningModule):
 
     def generate_tree(self, num_trees=1):
         config = self.config
-        vae = self.vae.to(device)
-        result = None
+        generator = self.vae.vae_decoder.to(device)
 
-        if config is None:
-            batch_size = 4
-        else:
-            batch_size = config.batch_size
-
-        num_tree_total = num_trees
-        num_runs = int(np.ceil(num_tree_total / batch_size))
-        # ignore discriminator
-        for i in range(num_runs):
-            # generate noise vector
-            z = torch.randn(batch_size, vae.decoder_z_size).float().to(device)
-            tree_fake = F.sigmoid(vae.generate_sample(z))[:, 0, :, :, :]
-            selected_trees = tree_fake.detach().cpu().numpy()
-            if result is None:
-                result = selected_trees
-            else:
-                result = np.concatenate((result, selected_trees), axis=0)
-
-        # select at most num_trees
-        if result.shape[0] > num_trees:
-            result = result[:num_trees]
-        # in case no good result
-        if result.shape[0] <= 0:
-            result = np.zeros(
-                (num_trees, config.array_size, config.array_size, config.array_size)
-            )
-            result[:, 0, 0, 0] = 1
-        return result
+        return generate_tree(generator, config.array_size, num_trees=num_trees)
 
 
 class VAEGAN(pl.LightningModule):
@@ -192,6 +161,7 @@ class VAEGAN(pl.LightningModule):
     def forward(self, x):
         # VAE
         x = self.vae(x)
+        x = F.sigmoid(x)
         # classifier and discriminator
         x = self.discriminator(x)
         return x
@@ -202,19 +172,10 @@ class VAEGAN(pl.LightningModule):
         discriminator = self.discriminator
 
         # optimizer
-        if config.vae_opt == "Adam":
-            self.vae_optimizer = optim.Adam(vae.parameters(), lr=config.vae_lr)
-        else:
-            self.vae_optimizer = optim.SGD(vae.parameters(), lr=config.vae_lr)
-
-        if config.dis_opt == "Adam":
-            self.discriminator_optimizer = optim.Adam(
-                discriminator.parameters(), lr=config.d_lr
-            )
-        else:
-            self.discriminator_optimizer = optim.SGD(
-                discriminator.parameters(), lr=config.d_lr
-            )
+        self.vae_optimizer = get_model_optimizer(vae, config.vae_opt, config.vae_lr)
+        self.discriminator_optimizer = get_model_optimizer(
+            discriminator, config.dis_opt, config.d_lr
+        )
 
         return self.vae_optimizer, self.discriminator_optimizer
 
@@ -250,7 +211,6 @@ class VAEGAN(pl.LightningModule):
     def training_step(self, dataset_batch, batch_idx, optimizer_idx):
         config = self.config
         vae_recon_loss_factor = config.vae_recon_loss_factor
-        balance_voxel_in_space = config.balance_voxel_in_space
 
         dataset_batch = dataset_batch[
             0
@@ -277,31 +237,9 @@ class VAEGAN(pl.LightningModule):
 
             reconstructed_data, mu, logVar = vae(dataset_batch, output_all=True)
 
-            if balance_voxel_in_space:
-                mask_hasvoxel = dataset_batch.clone().detach()
-                mask_novoxel = torch.logical_not(mask_hasvoxel).float()
-                num_hasvoxel = torch.sum(mask_hasvoxel)
-                num_novoxel = torch.sum(mask_novoxel)
-                total_voxel = num_hasvoxel + num_novoxel
-
-                mask_hasvoxel = mask_hasvoxel / num_hasvoxel * total_voxel / 2.0
-                mask_novoxel = mask_novoxel / num_novoxel * total_voxel / 2.0
-                final_mask = (
-                    mask_hasvoxel + mask_novoxel
-                )  # note that sum of final mask should be the same as the space volume
-
-                # not grad on mask
-                final_mask = final_mask.clone().detach().requires_grad_(False)
-                vae_rec_loss = torch.mean(
-                    criterion_reconstruct(reduction="none")(
-                        reconstructed_data, dataset_batch
-                    )
-                    * final_mask
-                )
-            else:
-                vae_rec_loss = criterion_reconstruct(reduction="mean")(
-                    reconstructed_data, dataset_batch
-                )  # loss is scaled to one
+            vae_rec_loss = criterion_reconstruct(reduction="mean")(
+                reconstructed_data, dataset_batch
+            )  # loss is scaled to one
 
             # add KL loss
             KL = 0.5 * torch.sum(mu ** 2 + torch.exp(logVar) - 1.0 - logVar)
@@ -353,39 +291,9 @@ class VAEGAN(pl.LightningModule):
 
     def generate_tree(self, num_trees=1):
         config = self.config
-        vae = self.vae.to(device)
-        discriminator = self.discriminator.to(device)
+        generator = self.vae.vae_decoder.to(device)
 
-        result = None
-
-        if config is None:
-            batch_size = 4
-        else:
-            batch_size = config.batch_size
-
-        num_tree_total = num_trees
-        num_runs = int(np.ceil(num_tree_total / batch_size))
-        # ignore discriminator
-        for i in range(num_runs):
-            # generate noise vector
-            z = torch.randn(batch_size, vae.decoder_z_size).float().to(device)
-            tree_fake = F.sigmoid(vae.generate_sample(z))[:, 0, :, :, :]
-            selected_trees = tree_fake.detach().cpu().numpy()
-            if result is None:
-                result = selected_trees
-            else:
-                result = np.concatenate((result, selected_trees), axis=0)
-
-        # select at most num_trees
-        if result.shape[0] > num_trees:
-            result = result[:num_trees]
-        # in case no good result
-        if result.shape[0] <= 0:
-            result = np.zeros(
-                (num_trees, config.array_size, config.array_size, config.array_size)
-            )
-            result[:, 0, 0, 0] = 1
-        return result
+        return generate_tree(generator, config.array_size, num_trees=num_trees)
 
 
 class GAN(pl.LightningModule):
@@ -425,21 +333,12 @@ class GAN(pl.LightningModule):
         discriminator = self.discriminator
 
         # optimizer
-        if config.gen_opt == "Adam":
-            self.generator_optimizer = optim.Adam(
-                generator.parameters(), lr=config.g_lr
-            )
-        else:
-            self.generator_optimizer = optim.SGD(generator.parameters(), lr=config.g_lr)
-
-        if config.dis_opt == "Adam":
-            self.discriminator_optimizer = optim.Adam(
-                discriminator.parameters(), lr=config.d_lr
-            )
-        else:
-            self.discriminator_optimizer = optim.SGD(
-                discriminator.parameters(), lr=config.d_lr
-            )
+        self.generator_optimizer = get_model_optimizer(
+            generator, config.gen_opt, config.g_lr
+        )
+        self.discriminator_optimizer = get_model_optimizer(
+            discriminator, config.dis_opt, config.d_lr
+        )
 
         return self.generator_optimizer, self.discriminator_optimizer
 
@@ -552,39 +451,8 @@ class GAN(pl.LightningModule):
     def generate_tree(self, num_trees=1):
         config = self.config
         generator = self.generator.to(device)
-        discriminator = self.discriminator.to(device)
 
-        result = None
-
-        if config is None:
-            batch_size = 4
-        else:
-            batch_size = config.batch_size
-
-        num_tree_total = num_trees
-        num_runs = int(np.ceil(num_tree_total / batch_size))
-        # ignore discriminator
-        for i in range(num_runs):
-            # generate noise vector
-            z = torch.randn(batch_size, 128).to(device)
-
-            tree_fake = generator(z)[:, 0, :, :, :]
-            selected_trees = tree_fake.detach().cpu().numpy()
-            if result is None:
-                result = selected_trees
-            else:
-                result = np.concatenate((result, selected_trees), axis=0)
-
-        # select at most num_trees
-        if result.shape[0] > num_trees:
-            result = result[:num_trees]
-        # in case no good result
-        if result.shape[0] <= 0:
-            result = np.zeros(
-                (1, config.array_size, config.array_size, config.array_size)
-            )
-            result[0, 0, 0, 0] = 1
-        return result
+        return generate_tree(generator, config.array_size, num_trees=num_trees)
 
 
 class VAEGAN_Wloss_GP(VAEGAN):
@@ -625,7 +493,6 @@ class VAEGAN_Wloss_GP(VAEGAN):
     def training_step(self, dataset_batch, batch_idx, optimizer_idx):
         config = self.config
         vae_recon_loss_factor = config.vae_recon_loss_factor
-        balance_voxel_in_space = config.balance_voxel_in_space
 
         dataset_batch = dataset_batch[
             0
@@ -1004,3 +871,50 @@ class CVAE(nn.Module):
 
         x = self.vae_decoder(z)
         return x
+
+
+###
+#       functions
+###
+
+
+def generate_tree(generator, array_size, num_trees=1, batch_size=-1):
+    if batch_size == -1:
+        batch_size = 32
+
+    result = None
+
+    num_runs = int(np.ceil(num_trees / batch_size))
+    # ignore discriminator
+    for i in range(num_runs):
+        # generate noise vector
+        z = (
+            torch.randn(batch_size, generator.z_size)
+            .type_as(generator.gen_fc.weight)
+            .to(device)
+        )
+
+        tree_fake = generator(z)[:, 0, :, :, :]
+        selected_trees = tree_fake.detach().cpu().numpy()
+        if result is None:
+            result = selected_trees
+        else:
+            result = np.concatenate((result, selected_trees), axis=0)
+
+    # select at most num_trees
+    if result.shape[0] > num_trees:
+        result = result[:num_trees]
+    # in case no good result
+    if result.shape[0] <= 0:
+        result = np.zeros((1, array_size, array_size, array_size))
+        result[:, 0, 0, 0] = 1
+    return result
+
+
+def get_model_optimizer(model, optimizer_option, lr):
+
+    if optimizer_option == "Adam":
+        optimizer = optim.Adam
+    else:
+        optimizer = optim.SGD
+    return optimizer(model.parameters(), lr=lr)
