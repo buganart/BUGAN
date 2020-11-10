@@ -13,7 +13,7 @@ setup(
         "torch",
         "torchsummary",
         "trimesh",
-        "wandb",
-        "disjoint-set",
+        "wandb==0.9.7",
+        "disjoint-set==0.6.3",
     ],
 )
