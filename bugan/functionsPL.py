@@ -191,12 +191,17 @@ class DataModule_process(pl.LightningDataModule):
         if self.config.data_augmentation:
             config = self.config
             aug_dataset = AugmentationDataset(self.config, self.dataset)
-            return DataLoader(aug_dataset, batch_size=config.batch_size, shuffle=True)
+            return DataLoader(
+                aug_dataset, batch_size=config.batch_size, shuffle=True, num_workers=8
+            )
         else:
             config = self.config
             tensor_dataset = TensorDataset(self.dataset)
             return DataLoader(
-                tensor_dataset, batch_size=config.batch_size, shuffle=True
+                tensor_dataset,
+                batch_size=config.batch_size,
+                shuffle=True,
+                num_workers=8,
             )
 
 
@@ -247,7 +252,9 @@ class DataModule_custom_cond(pl.LightningDataModule):
     def train_dataloader(self):
         config = self.config
         tensor_dataset = TensorDataset(self.dataset, self.data_index)
-        return DataLoader(tensor_dataset, batch_size=config.batch_size, shuffle=True)
+        return DataLoader(
+            tensor_dataset, batch_size=config.batch_size, shuffle=True, num_workers=8
+        )
 
 
 class DataModule_custom(pl.LightningDataModule):
@@ -274,7 +281,9 @@ class DataModule_custom(pl.LightningDataModule):
     def train_dataloader(self):
         config = self.config
         tensor_dataset = TensorDataset(self.dataset)
-        return DataLoader(tensor_dataset, batch_size=config.batch_size, shuffle=True)
+        return DataLoader(
+            tensor_dataset, batch_size=config.batch_size, shuffle=True, num_workers=8
+        )
 
 
 class DataModule(pl.LightningDataModule):
@@ -325,7 +334,9 @@ class DataModule(pl.LightningDataModule):
     def train_dataloader(self):
         config = self.config
         tensor_dataset = TensorDataset(self.dataset)
-        return DataLoader(tensor_dataset, batch_size=config.batch_size, shuffle=True)
+        return DataLoader(
+            tensor_dataset, batch_size=config.batch_size, shuffle=True, num_workers=8
+        )
 
 
 #####
