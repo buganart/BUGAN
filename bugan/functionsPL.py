@@ -49,7 +49,7 @@ class DataModule_process(pl.LightningDataModule):
         ]
     )
 
-    def __init__(self, config, run, data_path):
+    def __init__(self, config, run, data_path, tmp_folder="/tmp/"):
         super().__init__()
         self.config = config
         self.run = run
@@ -57,6 +57,7 @@ class DataModule_process(pl.LightningDataModule):
         self.dataset = None
         self.size = 0
         self.data_path = Path(data_path)
+        self.tmp_folder = Path(tmp_folder)
         self.npy_path = make_npy_path(self.data_path, self.config.array_size)
 
     def _unzip_zip_file_to_directory(self):
@@ -65,22 +66,10 @@ class DataModule_process(pl.LightningDataModule):
         samples = []
 
         zf = zipfile.ZipFile(self.data_path, "r")
-
-        # unzip all the files into a directory
-        dir_path = self.data_path.parent / self.data_path.stem
-        # create folder if dir not exists
-        dir_path.mkdir(parents=True, exist_ok=True)
-        # find marker. if marker not exists, extractall
-        marker = Path(dir_path / "__extracted_marker")
-        if not marker.exists():
-            zf.extractall(path=dir_path)
-            zf.close()
-            (dir_path / "__extracted_marker").mkdir(parents=True, exist_ok=True)
-        else:
-            print("zip file is extracted already!")
-
-        # construct datapath file
-        return dir_path
+        zf.extractall(path=self.tmp_folder)
+        zf.close()
+        # return temp folder location
+        return self.tmp_folder
 
     def _read_mesh_array_from_zip_file(self):
 
@@ -209,8 +198,10 @@ class DataModule_process(pl.LightningDataModule):
 #   Deprecated. will be removed
 ###
 class DataModule_augmentation(DataModule_process):
-    def __init__(self, config, run, data_path):
-        super(DataModule_augmentation, self).__init__(config, run, data_path)
+    def __init__(self, config, run, data_path, tmp_folder="/tmp/"):
+        super(DataModule_augmentation, self).__init__(
+            config, run, data_path, tmp_folder
+        )
 
 
 class DataModule_custom_cond(pl.LightningDataModule):
