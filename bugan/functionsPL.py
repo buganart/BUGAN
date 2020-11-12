@@ -17,6 +17,7 @@ from torch.utils.data import DataLoader, TensorDataset, Dataset
 from pytorch_lightning.callbacks.base import Callback
 from disjoint_set import DisjointSet
 
+
 #################
 #       datamodule that modify data on-the-fly
 #       data are processed in __getitem__() func defined in AugmentationDataset in the module
@@ -54,26 +55,27 @@ class DataModule_process(pl.LightningDataModule):
         self.dataset = None
         self.size = 0
         self.data_path = Path(data_path)
-        self.tmp_folder = Path(tmp_folder)
+        is_zip = self.data_path.suffix == ".zip"
+        self.zip_path = self.data_path if is_zip else None
+        self.folder_path = Path(tmp_folder) if is_zip else self.data_path
         self.npy_path = make_npy_path(self.data_path, self.config.array_size)
 
     def _unzip_zip_file_to_directory(self):
+        print(f"Unzipping {self.zip_path} to {self.folder_path}")
 
         failed = []
         samples = []
 
-        zf = zipfile.ZipFile(self.data_path, "r")
-        zf.extractall(path=self.tmp_folder)
+        zf = zipfile.ZipFile(self.zip_path, "r")
+        zf.extractall(path=self.folder_path)
         zf.close()
-        # return temp folder location
-        return self.tmp_folder
 
     def _read_mesh_array_from_zip_file(self):
 
         failed = 0
         samples = []
 
-        zf = zipfile.ZipFile(self.data_path, "r")
+        zf = zipfile.ZipFile(self.zip_path, "r")
         supported_files = [
             path
             for path in zf.namelist()
@@ -106,7 +108,7 @@ class DataModule_process(pl.LightningDataModule):
 
         paths = [
             path
-            for path in self.data_path.rglob("*.*")
+            for path in self.folder_path.rglob("*.*")
             if path.suffix in self.supported_extensions
         ]
 
@@ -129,11 +131,8 @@ class DataModule_process(pl.LightningDataModule):
             # for data_augmentation:
             # put/unzip all 3D objects to a directory. Ready for setup() to read
             # after perpare_data(), the target should be a directory with all 3D object files
-            if self.data_path.is_dir():
-                return
-            elif self.data_path.suffix == ".zip":
-                self.data_path = self._unzip_zip_file_to_directory()
-                return
+            if self.zip_path:
+                self._unzip_zip_file_to_directory()
         else:
             # for normal:
             # read all files and process the object array to .npy file
