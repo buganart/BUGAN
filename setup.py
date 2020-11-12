@@ -9,11 +9,12 @@ setup(
     packages=find_packages(),
     install_requires=[
         "ConfigArgParse",
+        "disjoint-set==0.6.3",
         "numpy",
         "torch",
         "torchsummary",
+        "tqdm",
         "trimesh",
         "wandb==0.9.7",
-        "disjoint-set==0.6.3",
     ],
 )
