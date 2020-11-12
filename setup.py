@@ -15,6 +15,6 @@ setup(
         "torchsummary",
         "tqdm",
         "trimesh",
-        "wandb==0.9.7",
+        "wandb",
     ],
 )
