@@ -10,11 +10,14 @@ setup(
     install_requires=[
         "ConfigArgParse",
         "disjoint-set==0.6.3",
+        "Pillow",
+        "pytorch_lightning",
         "numpy",
         "torch",
         "torchsummary",
         "tqdm",
         "trimesh",
+        "scipy",
         "wandb",
     ],
 )
