@@ -10,6 +10,7 @@ setup(
     install_requires=[
         "ConfigArgParse",
         "disjoint-set==0.6.3",
+        "Pillow",
         "numpy",
         "torch",
         "torchsummary",
