@@ -1,4 +1,6 @@
 # BUGAN
+![CI](https://github.com/buganart/BUGAN/workflows/CI/badge.svg?branch=master)
+[![codecov](https://codecov.io/gh/buganart/BUGAN/branch/master/graph/badge.svg)](https://codecov.io/gh/buganart/BUGAN)
 
 ## Installation
 
