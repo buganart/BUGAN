@@ -16,7 +16,7 @@ from bugan.functionsPL import (
     DataModule_custom,
     load_checkpoint_from_cloud,
 )
-from bugan.modelsDT import VAEGAN
+from bugan.modelsPL import VAEGAN
 
 logging.propagate = False
 logging.getLogger().setLevel(logging.ERROR)
@@ -50,6 +50,8 @@ else:
     resume = True
 
 config_dict = dict(
+    aug_rotation_type = "random rotation",
+
     batch_size=8,
     array_size=32,
     z_size=128,
@@ -65,10 +67,9 @@ config_dict = dict(
     d_layer=1,
     vae_recon_loss_factor=1,
     seed=1234,
-    log_image_interval=5,
-    log_mesh_interval=50,
+    log_interval=5,
+    log_num_samples=3,
     data_augmentation=True,
-    num_augment_data=4,
     vae_opt="Adam",
     dis_opt="Adam",
 )

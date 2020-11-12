@@ -86,7 +86,7 @@ class VAE_train(pl.LightningModule):
         dataset_batch = dataset_batch[
             0
         ]  # dataset_batch was a list: [array], so just take the array inside
-        dataset_batch = dataset_batch.float().to(device)
+        dataset_batch = dataset_batch.float()
 
         batch_size = dataset_batch.shape[0]
         vae = self.vae
@@ -118,7 +118,7 @@ class VAE_train(pl.LightningModule):
 
     def generate_tree(self, num_trees=1):
         config = self.config
-        generator = self.vae.vae_decoder.to(device)
+        generator = self.vae.vae_decoder
 
         return generate_tree(generator, config.array_size, num_trees=num_trees)
 
@@ -215,7 +215,7 @@ class VAEGAN(pl.LightningModule):
         dataset_batch = dataset_batch[
             0
         ]  # dataset_batch was a list: [array], so just take the array inside
-        dataset_batch = dataset_batch.float().to(device)
+        dataset_batch = dataset_batch.float()
 
         batch_size = dataset_batch.shape[0]
         vae = self.vae
@@ -227,8 +227,12 @@ class VAEGAN(pl.LightningModule):
         criterion_label = criterion_label(reduction="mean")
 
         # labels
-        real_label = torch.unsqueeze(torch.ones(batch_size), 1).float().to(device)
-        fake_label = torch.unsqueeze(torch.zeros(batch_size), 1).float().to(device)
+        real_label = (
+            torch.unsqueeze(torch.ones(batch_size), 1).float().type_as(dataset_batch)
+        )
+        fake_label = (
+            torch.unsqueeze(torch.zeros(batch_size), 1).float().type_as(dataset_batch)
+        )
 
         if optimizer_idx == 0:
             ############
@@ -268,7 +272,9 @@ class VAEGAN(pl.LightningModule):
 
             # generate fake trees
             latent_size = vae.decoder_z_size
-            z = torch.randn(batch_size, latent_size).float().to(device)  # noise vector
+            z = (
+                torch.randn(batch_size, latent_size).float().type_as(dataset_batch)
+            )  # noise vector
             tree_fake = F.sigmoid(vae.generate_sample(z))
 
             # fake data (data from generator)
@@ -291,7 +297,7 @@ class VAEGAN(pl.LightningModule):
 
     def generate_tree(self, num_trees=1):
         config = self.config
-        generator = self.vae.vae_decoder.to(device)
+        generator = self.vae.vae_decoder
 
         return generate_tree(generator, config.array_size, num_trees=num_trees)
 
@@ -380,7 +386,7 @@ class GAN(pl.LightningModule):
         dataset_batch = dataset_batch[
             0
         ]  # dataset_batch was a list: [array], so just take the array inside
-        dataset_batch = dataset_batch.float().to(device)
+        dataset_batch = dataset_batch.float()
 
         batch_size = dataset_batch.shape[0]
         generator = self.generator
@@ -391,16 +397,19 @@ class GAN(pl.LightningModule):
         criterion_label = criterion_label(reduction="mean")
 
         # labels
-        real_label = torch.unsqueeze(torch.ones(batch_size), 1).float().to(device)
-        fake_label = torch.unsqueeze(torch.zeros(batch_size), 1).float().to(device)
-
+        real_label = (
+            torch.unsqueeze(torch.ones(batch_size), 1).float().type_as(dataset_batch)
+        )
+        fake_label = (
+            torch.unsqueeze(torch.zeros(batch_size), 1).float().type_as(dataset_batch)
+        )
         if optimizer_idx == 0:
             ############
             #   generator
             ############
 
             z = (
-                torch.randn(batch_size, config.z_size).float().to(device)
+                torch.randn(batch_size, config.z_size).float().type_as(dataset_batch)
             )  # 128-d noise vector
             tree_fake = F.sigmoid(self.generator(z))
 
@@ -423,7 +432,7 @@ class GAN(pl.LightningModule):
             ############
 
             z = (
-                torch.randn(batch_size, config.z_size).float().to(device)
+                torch.randn(batch_size, config.z_size).float().type_as(dataset_batch)
             )  # 128-d noise vector
             tree_fake = F.sigmoid(self.generator(z))
 
@@ -450,7 +459,7 @@ class GAN(pl.LightningModule):
 
     def generate_tree(self, num_trees=1):
         config = self.config
-        generator = self.generator.to(device)
+        generator = self.generator
 
         return generate_tree(generator, config.array_size, num_trees=num_trees)
 
@@ -460,14 +469,12 @@ class VAEGAN_Wloss_GP(VAEGAN):
         batch_size = real_tree.shape[0]
 
         # Calculate interpolation
-        alpha = (
-            torch.rand(batch_size).reshape((batch_size, 1, 1, 1, 1)).float().to(device)
-        )
+        alpha = torch.rand(batch_size).reshape((batch_size, 1, 1, 1, 1)).float()
         # alpha = alpha.expand_as(real_data)
         # if self.use_cuda:
         #     alpha = alpha.cuda()
         interpolated = alpha * real_tree + (1 - alpha) * generated_tree
-        interpolated = interpolated.requires_grad_().float().to(device)
+        interpolated = interpolated.requires_grad_().float()
 
         # calculate prob of interpolated trees
         prob_interpolated = self.discriminator(interpolated)
@@ -476,7 +483,7 @@ class VAEGAN_Wloss_GP(VAEGAN):
         grad = torch.autograd.grad(
             outputs=prob_interpolated,
             inputs=interpolated,
-            grad_outputs=torch.ones(prob_interpolated.size()).to(device),
+            grad_outputs=torch.ones(prob_interpolated.size()),
             create_graph=True,
             retain_graph=True,
         )[0]
@@ -497,7 +504,7 @@ class VAEGAN_Wloss_GP(VAEGAN):
         dataset_batch = dataset_batch[
             0
         ]  # dataset_batch was a list: [array], so just take the array inside
-        dataset_batch = dataset_batch.float().to(device)
+        dataset_batch = dataset_batch.float()
 
         batch_size = dataset_batch.shape[0]
         vae = self.vae
@@ -509,8 +516,8 @@ class VAEGAN_Wloss_GP(VAEGAN):
         criterion_label = criterion_label(reduction="mean")
 
         # labels
-        # real_label = torch.unsqueeze(torch.ones(batch_size),1).float().to(device)
-        # fake_label = torch.unsqueeze(torch.zeros(batch_size),1).float().to(device)
+        # real_label = torch.unsqueeze(torch.ones(batch_size),1).float()
+        # fake_label = torch.unsqueeze(torch.zeros(batch_size),1).float()
 
         if optimizer_idx == 0:
             ############
@@ -547,7 +554,9 @@ class VAEGAN_Wloss_GP(VAEGAN):
 
             # generate fake trees
             latent_size = vae.decoder_z_size
-            z = torch.randn(batch_size, latent_size).float().to(device)  # noise vector
+            z = (
+                torch.randn(batch_size, latent_size).float().type_as(dataset_batch)
+            )  # noise vector
             tree_fake = F.sigmoid(vae.generate_sample(z))
             tree_fake = tree_fake.clone().detach()
 
@@ -796,7 +805,7 @@ class VAE(nn.Module):
 
     # reference: https://github.com/YixinChen-AI/CVAE-GAN-zoos-PyTorch-Beginner/blob/master/CVAE-GAN/CVAE-GAN.py
     def noise_reparameterize(self, mean, logvar):
-        eps = torch.randn(mean.shape).to(device)
+        eps = torch.randn(mean.shape).type_as(mean)
         z = mean + eps * torch.exp(logvar / 2.0)
         return z
 
@@ -833,7 +842,7 @@ class CVAE(nn.Module):
 
     # reference: https://github.com/YixinChen-AI/CVAE-GAN-zoos-PyTorch-Beginner/blob/master/CVAE-GAN/CVAE-GAN.py
     def noise_reparameterize(self, mean, logvar):
-        eps = torch.randn(mean.shape).to(device)
+        eps = torch.randn(mean.shape).type_as(mean)
         z = mean + eps * torch.exp(logvar / 2.0)
         return z
 
@@ -847,7 +856,7 @@ class CVAE(nn.Module):
         # convert c to one-hot
         batch_size = x.shape[0]
         c = c.reshape((-1, 1))
-        c_onehot = torch.zeros([batch_size, self.num_classes]).to(device)
+        c_onehot = torch.zeros([batch_size, self.num_classes])
         c_onehot = c_onehot.scatter(1, c, 1)
 
         # merge with x to be decoder input
@@ -863,7 +872,7 @@ class CVAE(nn.Module):
         # convert c to one-hot
         batch_size = z.shape[0]
         c = c.reshape((-1, 1))
-        c_onehot = torch.zeros([batch_size, self.num_classes]).to(device)
+        c_onehot = torch.zeros([batch_size, self.num_classes])
         c_onehot = c_onehot.scatter(1, c, 1)
 
         # merge with z to be decoder input
@@ -888,11 +897,7 @@ def generate_tree(generator, array_size, num_trees=1, batch_size=-1):
     # ignore discriminator
     for i in range(num_runs):
         # generate noise vector
-        z = (
-            torch.randn(batch_size, generator.z_size)
-            .type_as(generator.gen_fc.weight)
-            .to(device)
-        )
+        z = torch.randn(batch_size, generator.z_size).type_as(generator.gen_fc.weight)
 
         tree_fake = generator(z)[:, 0, :, :, :]
         selected_trees = tree_fake.detach().cpu().numpy()
