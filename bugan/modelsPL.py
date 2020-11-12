@@ -61,7 +61,7 @@ class VAE_train(pl.LightningModule):
         # set model to train
         self.vae.train()
 
-    def on_train_epoch_end(self):
+    def on_train_epoch_end(self, epoch_output):
         self.vae_ep_loss = self.vae_ep_loss / self.config.num_data
 
         # save model if necessary
@@ -112,9 +112,7 @@ class VAE_train(pl.LightningModule):
         # record loss
         self.vae_ep_loss += vae_loss.detach()
 
-        result = pl.TrainResult(minimize=vae_loss, checkpoint_on=vae_loss)
-        result.log("vae_loss", vae_loss, on_epoch=True, prog_bar=True)
-        return result
+        return vae_loss
 
     def generate_tree(self, num_trees=1):
         config = self.config
@@ -188,7 +186,7 @@ class VAEGAN(pl.LightningModule):
         self.vae.train()
         self.discriminator.train()
 
-    def on_train_epoch_end(self):
+    def on_train_epoch_end(self, epoch_output):
         self.d_ep_loss = self.d_ep_loss / self.config.num_data
         self.vae_ep_loss = self.vae_ep_loss / self.config.num_data
 
@@ -256,9 +254,7 @@ class VAEGAN(pl.LightningModule):
             # record loss
             self.vae_ep_loss += vae_loss.detach()
 
-            result = pl.TrainResult(minimize=vae_loss, checkpoint_on=vae_loss)
-            result.log("vae_loss", vae_loss, on_epoch=True, prog_bar=True)
-            return result
+            return vae_loss
 
         if optimizer_idx == 1:
 
@@ -285,9 +281,7 @@ class VAEGAN(pl.LightningModule):
             # record loss
             self.d_ep_loss += dloss.detach()
 
-            result = pl.TrainResult(minimize=dloss)
-            result.log("dloss", dloss, on_epoch=True, prog_bar=True)
-            return result
+            return dloss
 
     def generate_tree(self, num_trees=1):
         config = self.config
@@ -351,7 +345,7 @@ class GAN(pl.LightningModule):
         self.generator.train()
         self.discriminator.train()
 
-    def on_train_epoch_end(self):
+    def on_train_epoch_end(self, epoch_output):
         self.d_ep_loss = self.d_ep_loss / self.config.num_data
         self.g_ep_loss = self.g_ep_loss / self.config.num_data
 
@@ -412,9 +406,7 @@ class GAN(pl.LightningModule):
             # record loss
             self.g_ep_loss += gloss.detach()
 
-            result = pl.TrainResult(minimize=gloss, checkpoint_on=gloss)
-            result.log("g_loss", gloss, on_epoch=True, prog_bar=True)
-            return result
+            return gloss
 
         if optimizer_idx == 1:
 
@@ -444,9 +436,7 @@ class GAN(pl.LightningModule):
             # record loss
             self.d_ep_loss += dloss.detach()
 
-            result = pl.TrainResult(minimize=dloss)
-            result.log("dloss", dloss, on_epoch=True, prog_bar=True)
-            return result
+            return dloss
 
     def generate_tree(self, num_trees=1):
         config = self.config
@@ -535,9 +525,7 @@ class VAEGAN_Wloss_GP(VAEGAN):
             # record loss
             self.vae_ep_loss += vae_loss.detach()
 
-            result = pl.TrainResult(minimize=vae_loss)
-            result.log("vae_loss", vae_loss, on_epoch=True, prog_bar=True)
-            return result
+            return vae_loss
 
         if optimizer_idx == 1:
 
@@ -569,9 +557,7 @@ class VAEGAN_Wloss_GP(VAEGAN):
             # record loss
             self.d_ep_loss += dloss.detach()
 
-            result = pl.TrainResult(minimize=dloss)
-            result.log("dloss", dloss, on_epoch=True, prog_bar=True)
-            return result
+            return dloss
 
     def configure_optimizers(self):
         config = self.config

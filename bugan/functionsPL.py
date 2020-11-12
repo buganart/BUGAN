@@ -340,7 +340,7 @@ class SaveWandbCallback(Callback):
         self.log_interval = log_interval
         self.save_model_path = save_model_path
 
-    def on_train_epoch_end(self, trainer, pl_module):
+    def on_train_epoch_end(self, trainer, pl_module, outputs):
         if self.epoch % self.log_interval == 0:
             # log
             trainer.save_checkpoint(self.save_model_path)
