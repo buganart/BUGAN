@@ -28,6 +28,14 @@ Or to run it on all files
 A convenient way to keep the code formatted is to configure the editor/IDE
 to format with `black` on save.
 
+Run the tests
+
+    pytest
+
+Or with a file watcher to re-run when saving files
+
+    ptw
+
 ## Training
 
     wandb login  # Only if not yet logged in.
