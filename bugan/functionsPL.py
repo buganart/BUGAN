@@ -18,6 +18,10 @@ from pytorch_lightning.callbacks.base import Callback
 from disjoint_set import DisjointSet
 
 
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+device
+
+
 #################
 #       datamodule that modify data on-the-fly
 #       data are processed in __getitem__() func defined in AugmentationDataset in the module
@@ -155,7 +159,6 @@ class DataModule_process(pl.LightningDataModule):
 
     # setup() should contains code that will be run once per run.
     def setup(self, stage=None):
-
         if self.config.data_augmentation:
             dataset, failed = self._read_mesh_array_from_directory(
                 process_to_array=False
