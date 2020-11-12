@@ -17,6 +17,7 @@ setup(
         "torchsummary",
         "tqdm",
         "trimesh",
+        "scipy",
         "wandb==0.9.7",
     ],
 )
