@@ -2,7 +2,6 @@ from setuptools import setup, find_packages
 
 setup(
     name="bugan",
-    version="0.0.1",
     url="https://github.com/buganart/BUGAN",
     author="buganart",
     description="3D GANs and more.",
@@ -20,4 +19,6 @@ setup(
         "scipy",
         "wandb",
     ],
+    version_format="{tag}.dev{commitcount}+{gitsha}",
+    setup_requires=["setuptools-git-version"],
 )
