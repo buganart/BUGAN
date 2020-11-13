@@ -9,6 +9,7 @@ import torch.optim as optim
 
 import pytorch_lightning as pl
 
+from argparse import Namespace, ArgumentParser
 from torch.utils.data import DataLoader, TensorDataset
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -18,23 +19,59 @@ device
 #   models for training
 #####
 class VAE_train(pl.LightningModule):
-    def __init__(self, config):
+    @staticmethod
+    def add_model_specific_args(parent_parser, array_size=32):
+        parser = ArgumentParser(parents=[parent_parser], add_help=False)
+        # log argument
+        parser.add_argument("--log_interval", type=int, default=10)
+        parser.add_argument("--log_num_samples", type=int, default=1)
+
+        # model specific argument (VAE)
+        parser.add_argument("--z_size", type=int, default=128)
+        parser.add_argument("--array_size", type=int, default=array_size)
+        # number of layer per block
+        parser.add_argument("--vae_decoder_layer", type=int, default=2)
+        parser.add_argument("--vae_encoder_layer", type=int, default=1)
+        # optimizer in {"Adam", "SGD"}
+        parser.add_argument("--vae_opt", type=str, default="Adam")
+        # learning rate
+        parser.add_argument("--vae_lr", type=float, default=0.0025)
+        # number of unit per layer
+        if array_size == 32:
+            decoder_num_layer_unit = [1024, 512, 256, 128]
+            encoder_num_layer_unit = [32, 64, 128, 128]
+        else:
+            decoder_num_layer_unit = [1024, 512, 256, 128, 128]
+            encoder_num_layer_unit = [32, 64, 64, 128, 128]
+        parser.add_argument("--decoder_num_layer_unit", default=decoder_num_layer_unit)
+        parser.add_argument("--encoder_num_layer_unit", default=encoder_num_layer_unit)
+
+        return parser
+
+    def __init__(self, hparam):
         super(VAE_train, self).__init__()
         # assert(vae.sample_size == discriminator.input_size)
+        self.hparam = hparam
+        # self.save_hyperparameters("hparam")
+        # add missing default parameters
+        parser = self.add_model_specific_args(
+            ArgumentParser(), array_size=hparam.array_size
+        )
+        args = parser.parse_args([])
+        config = combine_namespace(args, hparam)
         self.config = config
-        self.save_hyperparameters("config")
         # create components
         decoder = Generator(
             config.vae_decoder_layer,
             config.z_size,
             config.array_size,
-            config.gen_num_layer_unit,
+            config.decoder_num_layer_unit,
         )
         encoder = Discriminator(
             config.vae_encoder_layer,
             config.z_size,
             config.array_size,
-            config.dis_num_layer_unit,
+            config.encoder_num_layer_unit,
         )
         vae = VAE(encoder=encoder, decoder=decoder)
 
@@ -122,23 +159,65 @@ class VAE_train(pl.LightningModule):
 
 
 class VAEGAN(pl.LightningModule):
-    def __init__(self, config):
+    @staticmethod
+    def add_model_specific_args(parent_parser, array_size=32):
+        parser = ArgumentParser(parents=[parent_parser], add_help=False)
+        # log argument
+        parser.add_argument("--log_interval", type=int, default=10)
+        parser.add_argument("--log_num_samples", type=int, default=1)
+
+        # model specific argument (VAE, discriminator)
+        parser.add_argument("--z_size", type=int, default=128)
+        parser.add_argument("--array_size", type=int, default=array_size)
+        # number of layer per block
+        parser.add_argument("--vae_decoder_layer", type=int, default=2)
+        parser.add_argument("--vae_encoder_layer", type=int, default=1)
+        parser.add_argument("--d_layer", type=int, default=1)
+        # optimizer in {"Adam", "SGD"}
+        parser.add_argument("--vae_opt", type=str, default="Adam")
+        parser.add_argument("--dis_opt", type=str, default="Adam")
+        # learning rate
+        parser.add_argument("--vae_lr", type=float, default=0.0025)
+        parser.add_argument("--d_lr", type=float, default=0.00005)
+        # number of unit per layer
+        if array_size == 32:
+            decoder_num_layer_unit = [1024, 512, 256, 128]
+            encoder_num_layer_unit = [32, 64, 128, 128]
+            dis_num_layer_unit = [32, 64, 128, 128]
+        else:
+            decoder_num_layer_unit = [1024, 512, 256, 128, 128]
+            encoder_num_layer_unit = [32, 64, 64, 128, 128]
+            dis_num_layer_unit = [32, 64, 64, 128, 128]
+        parser.add_argument("--decoder_num_layer_unit", default=decoder_num_layer_unit)
+        parser.add_argument("--encoder_num_layer_unit", default=encoder_num_layer_unit)
+        parser.add_argument("--dis_num_layer_unit", default=dis_num_layer_unit)
+
+        return parser
+
+    def __init__(self, hparam):
         super(VAEGAN, self).__init__()
         # assert(vae.sample_size == discriminator.input_size)
+        self.hparam = hparam
+        # self.save_hyperparameters("hparam")
+        # add missing default parameters
+        parser = self.add_model_specific_args(
+            ArgumentParser(), array_size=hparam.array_size
+        )
+        args = parser.parse_args([])
+        config = combine_namespace(args, hparam)
         self.config = config
-        self.save_hyperparameters("config")
         # create components
         decoder = Generator(
             config.vae_decoder_layer,
             config.z_size,
             config.array_size,
-            config.gen_num_layer_unit,
+            config.decoder_num_layer_unit,
         )
         encoder = Discriminator(
             config.vae_encoder_layer,
             config.z_size,
             config.array_size,
-            config.dis_num_layer_unit,
+            config.encoder_num_layer_unit,
         )
         vae = VAE(encoder=encoder, decoder=decoder)
 
@@ -208,7 +287,6 @@ class VAEGAN(pl.LightningModule):
 
     def training_step(self, dataset_batch, batch_idx, optimizer_idx):
         config = self.config
-        vae_recon_loss_factor = config.vae_recon_loss_factor
 
         dataset_batch = dataset_batch[
             0
@@ -251,9 +329,7 @@ class VAEGAN(pl.LightningModule):
             vae_out_d = discriminator(F.sigmoid(reconstructed_data))
             vae_d_loss = criterion_label(vae_out_d, real_label)
 
-            vae_loss = (vae_recon_loss_factor * vae_rec_loss + vae_d_loss) / (
-                vae_recon_loss_factor + 1
-            )  # scale the loss to one
+            vae_loss = (vae_rec_loss + vae_d_loss) / 2
 
             # record loss
             self.vae_ep_loss += vae_loss.detach()
@@ -297,11 +373,50 @@ class VAEGAN(pl.LightningModule):
 
 
 class GAN(pl.LightningModule):
-    def __init__(self, config):
+    @staticmethod
+    def add_model_specific_args(parent_parser, array_size=32):
+        parser = ArgumentParser(parents=[parent_parser], add_help=False)
+        # log argument
+        parser.add_argument("--log_interval", type=int, default=10)
+        parser.add_argument("--log_num_samples", type=int, default=1)
+
+        # model specific argument (Generator, discriminator)
+        parser.add_argument("--z_size", type=int, default=128)
+        parser.add_argument("--array_size", type=int, default=array_size)
+        # number of layer per block
+        parser.add_argument("--g_layer", type=int, default=2)
+        parser.add_argument("--d_layer", type=int, default=1)
+        # optimizer in {"Adam", "SGD"}
+        parser.add_argument("--gen_opt", type=str, default="Adam")
+        parser.add_argument("--dis_opt", type=str, default="Adam")
+        # learning rate
+        parser.add_argument("--g_lr", type=float, default=0.0025)
+        parser.add_argument("--d_lr", type=float, default=0.00005)
+        # number of unit per layer
+        if array_size == 32:
+            gen_num_layer_unit = [1024, 512, 256, 128]
+            dis_num_layer_unit = [32, 64, 128, 128]
+        else:
+            gen_num_layer_unit = [1024, 512, 256, 128, 128]
+            dis_num_layer_unit = [32, 64, 64, 128, 128]
+        parser.add_argument("--gen_num_layer_unit", default=gen_num_layer_unit)
+        parser.add_argument("--dis_num_layer_unit", default=dis_num_layer_unit)
+
+        return parser
+
+    def __init__(self, hparam):
         super(GAN, self).__init__()
 
+        self.hparam = hparam
+        # self.save_hyperparameters("hparam")
+        # add missing default parameters
+        parser = self.add_model_specific_args(
+            ArgumentParser(), array_size=hparam.array_size
+        )
+        args = parser.parse_args([])
+        config = combine_namespace(args, hparam)
         self.config = config
-        self.save_hyperparameters("config")
+
         # create components
         generator = Generator(
             config.g_layer, config.z_size, config.array_size, config.gen_num_layer_unit
@@ -455,6 +570,14 @@ class GAN(pl.LightningModule):
 
 
 class VAEGAN_Wloss_GP(VAEGAN):
+    @staticmethod
+    def add_model_specific_args(parent_parser, array_size=32):
+        parser = ArgumentParser(parents=[parent_parser], add_help=False)
+        # important argument
+        parser.add_argument("--gp_epsilon", type=int, default=128)
+
+        return super().add_model_specific_args(parser, array_size)
+
     def gradient_penalty(self, real_tree, generated_tree):
         batch_size = real_tree.shape[0]
 
@@ -489,7 +612,6 @@ class VAEGAN_Wloss_GP(VAEGAN):
 
     def training_step(self, dataset_batch, batch_idx, optimizer_idx):
         config = self.config
-        vae_recon_loss_factor = config.vae_recon_loss_factor
 
         dataset_batch = dataset_batch[
             0
@@ -525,9 +647,7 @@ class VAEGAN_Wloss_GP(VAEGAN):
             vae_out_d = discriminator(F.sigmoid(reconstructed_data))
             vae_d_loss = -vae_out_d.mean()  # vae/generator should maximize vae_out_d
 
-            vae_loss = (vae_recon_loss_factor * vae_rec_loss + vae_d_loss) / (
-                vae_recon_loss_factor + 1
-            )  # scale the loss to one
+            vae_loss = (vae_rec_loss + vae_d_loss) / 2
 
             # record loss
             self.vae_ep_loss += vae_loss.detach()
@@ -909,3 +1029,9 @@ def get_model_optimizer(model, optimizer_option, lr):
     else:
         optimizer = optim.SGD
     return optimizer(model.parameters(), lr=lr)
+
+
+def combine_namespace(base, update):
+    base = vars(base)
+    base.update(vars(update))
+    return Namespace(**base)
