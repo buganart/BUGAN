@@ -1295,18 +1295,23 @@ def generate_tree(
     num_runs = int(np.ceil(num_trees / batch_size))
     # ignore discriminator
     for i in range(num_runs):
-        # generate noise vector
-        z = torch.randn(batch_size, generator.z_size - num_classes).type_as(
-            generator.gen_fc.weight
-        )
 
         if c is not None:
+            # generate noise vector
+            z = torch.randn(batch_size, generator.z_size - num_classes).type_as(
+                generator.gen_fc.weight
+            )
             # convert c to one-hot
             batch_size = z.shape[0]
             c_onehot = torch.zeros([batch_size, num_classes]).type_as(z)
             c_onehot[:, c] = 1
             # merge with z to be generator input
             z = torch.cat((z, c_onehot), 1)
+        else:
+            # generate noise vector
+            z = torch.randn(batch_size, generator.z_size).type_as(
+                generator.gen_fc.weight
+            )
 
         # no sigmoid so hasvoxel means >0
         tree_fake = generator(z)[:, 0, :, :, :]
