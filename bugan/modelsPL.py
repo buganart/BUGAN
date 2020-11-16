@@ -16,6 +16,295 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 device
 
 #####
+#   conditional models for training
+#####
+class CGAN(GAN):
+    @staticmethod
+    def add_model_specific_args(parent_parser, array_size=32):
+        parser = ArgumentParser(parents=[parent_parser], add_help=False)
+        # log argument
+        parser.add_argument("--num_classes", type=int, default=10)
+
+        return GAN.add_model_specific_args(parser, array_size)
+
+    def __init__(self, hparam):
+        super(GAN, self).__init__()
+
+        self.hparam = hparam
+        self.save_hyperparameters("hparam")
+        # add missing default parameters
+        parser = self.add_model_specific_args(
+            ArgumentParser(), array_size=hparam.array_size
+        )
+        args = parser.parse_args([])
+        config = combine_namespace(args, hparam)
+        self.config = config
+
+        # create components
+        generator = Generator(
+            config.g_layer,
+            config.z_size + config.num_classes,
+            config.array_size,
+            config.gen_num_layer_unit,
+        )
+
+        discriminator = Discriminator(
+            config.d_layer, config.z_size, config.array_size, config.dis_num_layer_unit
+        )
+
+        classifier = Discriminator(
+            config.d_layer,
+            config.z_size,
+            config.array_size,
+            config.dis_num_layer_unit,
+            output_size=config.num_classes,
+        )
+
+        # GAN
+        self.generator = generator
+        self.discriminator = discriminator
+        self.classifier = classifier
+
+        # for logging
+        self.d_ep_loss = 0.0
+        self.c_ep_loss = 0.0
+        self.g_ep_loss = 0.0
+        self.epoch = 0
+
+    def forward(self, x):
+        # classifier and discriminator
+        x = self.generator(x)
+        x = F.sigmoid(x)
+        x = self.discriminator(x)
+        c = self.classifier(x)
+        return x, c
+
+    def configure_optimizers(self):
+        config = self.config
+        generator = self.generator
+        discriminator = self.discriminator
+        classifier = self.classifier
+
+        # optimizer
+        self.generator_optimizer = get_model_optimizer(
+            generator, config.gen_opt, config.g_lr
+        )
+        self.discriminator_optimizer = get_model_optimizer(
+            discriminator, config.dis_opt, config.d_lr
+        )
+        self.classifier_optimizer = get_model_optimizer(
+            classifier, config.dis_opt, config.d_lr
+        )
+
+        return (
+            self.generator_optimizer,
+            self.discriminator_optimizer,
+            self.classifier_optimizer,
+        )
+
+    def on_train_epoch_start(self):
+        # reset ep_loss
+        self.d_ep_loss = 0.0
+        self.g_ep_loss = 0.0
+        self.c_ep_loss = 0.0
+
+        # set model to train
+        self.generator.train()
+        self.discriminator.train()
+        self.classifier.train()
+
+    def on_train_epoch_end(self, epoch_output):
+        self.d_ep_loss = self.d_ep_loss / self.config.num_data
+        self.g_ep_loss = self.g_ep_loss / self.config.num_data
+        self.c_ep_loss = self.c_ep_loss / self.config.num_data
+
+        # save model if necessary
+        log_dict = {
+            "classifier loss": self.c_ep_loss,
+            "discriminator loss": self.d_ep_loss,
+            "generator loss": self.g_ep_loss,
+        }
+
+        log_media = (
+            self.epoch % self.config.log_interval == 0
+        )  # boolean whether to log image/3D object
+
+        wandbLog_cond(
+            self,
+            self.config.num_classes,
+            log_dict,
+            log_media=log_media,
+            log_num_samples=self.config.log_num_samples,
+        )
+
+        self.epoch += 1
+
+    def training_step(self, dataset_batch, batch_idx, optimizer_idx):
+        config = self.config
+
+        dataset_batch, dataset_indices = dataset_batch
+        dataset_batch = dataset_batch.float()
+        dataset_indices = dataset_indices.to(torch.int64)
+
+        batch_size = dataset_batch.shape[0]
+        generator = self.generator
+        discriminator = self.discriminator
+        classifier = self.classifier
+
+        # loss function
+        criterion_label = nn.BCEWithLogitsLoss
+        criterion_label = criterion_label(reduction="mean")
+        criterion_class = nn.CrossEntropyLoss(reduction="mean")
+
+        # labels
+        real_label = (
+            torch.unsqueeze(torch.ones(batch_size), 1).float().type_as(dataset_batch)
+        )
+        fake_label = (
+            torch.unsqueeze(torch.zeros(batch_size), 1).float().type_as(dataset_batch)
+        )
+        if optimizer_idx == 0:
+            ############
+            #   generator
+            ############
+
+            z = (
+                torch.randn(batch_size, config.z_size).float().type_as(dataset_batch)
+            )  # 128-d noise vector
+            c_fake = (
+                torch.randint(0, config.num_classes, (batch_size,))
+                .type_as(dataset_batch)
+                .to(torch.int64)
+            )  # class vector
+
+            # convert c to one-hot
+            batch_size = z.shape[0]
+            c = c_fake.reshape((-1, 1))
+            c_onehot = torch.zeros([batch_size, config.num_classes]).type_as(
+                dataset_batch
+            )
+            c_onehot = c_onehot.scatter(1, c, 1)
+
+            # merge with z to be generator input
+            z = torch.cat((z, c_onehot), 1)
+
+            tree_fake = F.sigmoid(self.generator(z))
+
+            # tree_fake on Dis
+            dout_fake = self.discriminator(tree_fake, output_all=False)
+            # generator should generate trees that discriminator think they are real
+            gloss_d = criterion_label(dout_fake, real_label)
+
+            # tree_fake on Cla
+            cout_fake = self.classifier(tree_fake, output_all=False)
+            gloss_c = criterion_class(cout_fake, c_fake)
+
+            gloss = (gloss_d + gloss_c) / 2
+            # record loss
+            self.g_ep_loss += gloss.detach()
+
+            return gloss
+
+        if optimizer_idx == 1:
+
+            ############
+            #   discriminator
+            ############
+
+            z = (
+                torch.randn(batch_size, config.z_size).float().type_as(dataset_batch)
+            )  # 128-d noise vector
+            c = (
+                torch.randint(0, config.num_classes, (batch_size,))
+                .type_as(dataset_batch)
+                .to(torch.int64)
+            )  # class vector
+
+            # convert c to one-hot
+            batch_size = z.shape[0]
+            c = c.reshape((-1, 1))
+            c_onehot = torch.zeros([batch_size, config.num_classes]).type_as(
+                dataset_batch
+            )
+            c_onehot = c_onehot.scatter(1, c, 1)
+
+            # merge with z to be decoder input
+            z = torch.cat((z, c_onehot), 1)
+
+            # detach so no update to generator
+            tree_fake = F.sigmoid(self.generator(z)).clone().detach()
+
+            # real data (data from dataloader)
+            dout_real = self.discriminator(dataset_batch, output_all=False)
+            dloss_real = criterion_label(dout_real, real_label)
+
+            # fake data (data from generator)
+            dout_fake = self.discriminator(tree_fake)
+            dloss_fake = criterion_label(dout_fake, fake_label)
+
+            # loss function (discriminator classify real data vs generated data)
+            dloss = (dloss_real + dloss_fake) / 2
+
+            # record loss
+            self.d_ep_loss += dloss.detach()
+
+            return dloss
+
+        if optimizer_idx == 2:
+
+            ############
+            #   classifier
+            ############
+
+            z = (
+                torch.randn(batch_size, config.z_size).float().type_as(dataset_batch)
+            )  # 128-d noise vector
+            c_fake = (
+                torch.randint(0, config.num_classes, (batch_size,))
+                .type_as(dataset_batch)
+                .to(torch.int64)
+            )  # class vector
+
+            # convert c to one-hot
+            batch_size = z.shape[0]
+            c = c_fake.reshape((-1, 1))
+            c_onehot = torch.zeros([batch_size, config.num_classes]).type_as(
+                dataset_batch
+            )
+            c_onehot = c_onehot.scatter(1, c, 1)
+
+            # merge with z to be generator input
+            z = torch.cat((z, c_onehot), 1)
+
+            # detach so no update to generator
+            tree_fake = F.sigmoid(self.generator(z)).clone().detach()
+
+            # fake data (data from generator)
+            cout_fake = self.classifier(tree_fake)
+            closs_fake = criterion_class(cout_fake, c_fake)
+
+            # real data (data from dataloader)
+            cout_real = self.classifier(dataset_batch, output_all=False)
+            closs_real = criterion_class(cout_real, dataset_indices)
+
+            # loss function (discriminator classify real data vs generated data)
+            closs = (closs_real + closs_fake) / 2
+
+            # record loss
+            self.c_ep_loss += closs.detach()
+
+            return closs
+
+    def generate_tree(self, c, num_trees=1):
+        config = self.config
+        generator = self.generator
+
+        return generate_tree(
+            generator, config.array_size, c, config.num_classes, num_trees=num_trees
+        )
+
+
+#####
 #   models for training
 #####
 class VAE_train(pl.LightningModule):
@@ -52,7 +341,7 @@ class VAE_train(pl.LightningModule):
         super(VAE_train, self).__init__()
         # assert(vae.sample_size == discriminator.input_size)
         self.hparam = hparam
-        # self.save_hyperparameters("hparam")
+        self.save_hyperparameters("hparam")
         # add missing default parameters
         parser = self.add_model_specific_args(
             ArgumentParser(), array_size=hparam.array_size
@@ -198,7 +487,7 @@ class VAEGAN(pl.LightningModule):
         super(VAEGAN, self).__init__()
         # assert(vae.sample_size == discriminator.input_size)
         self.hparam = hparam
-        # self.save_hyperparameters("hparam")
+        self.save_hyperparameters("hparam")
         # add missing default parameters
         parser = self.add_model_specific_args(
             ArgumentParser(), array_size=hparam.array_size
@@ -408,7 +697,7 @@ class GAN(pl.LightningModule):
         super(GAN, self).__init__()
 
         self.hparam = hparam
-        # self.save_hyperparameters("hparam")
+        self.save_hyperparameters("hparam")
         # add missing default parameters
         parser = self.add_model_specific_args(
             ArgumentParser(), array_size=hparam.array_size
@@ -576,7 +865,7 @@ class VAEGAN_Wloss_GP(VAEGAN):
         # important argument
         parser.add_argument("--gp_epsilon", type=int, default=128)
 
-        return super().add_model_specific_args(parser, array_size)
+        return VAEGAN.add_model_specific_args(parser, array_size)
 
     def gradient_penalty(self, real_tree, generated_tree):
         batch_size = real_tree.shape[0]
@@ -993,7 +1282,9 @@ class CVAE(nn.Module):
 ###
 
 
-def generate_tree(generator, array_size, num_trees=1, batch_size=-1):
+def generate_tree(
+    generator, array_size, c=None, num_classes=None, num_trees=1, batch_size=-1
+):
     if batch_size == -1:
         batch_size = 32
 
@@ -1003,8 +1294,19 @@ def generate_tree(generator, array_size, num_trees=1, batch_size=-1):
     # ignore discriminator
     for i in range(num_runs):
         # generate noise vector
-        z = torch.randn(batch_size, generator.z_size).type_as(generator.gen_fc.weight)
+        z = torch.randn(batch_size, generator.z_size - num_classes).type_as(
+            generator.gen_fc.weight
+        )
 
+        if c is not None:
+            # convert c to one-hot
+            batch_size = z.shape[0]
+            c_onehot = torch.zeros([batch_size, num_classes]).type_as(z)
+            c_onehot[:, c] = 1
+            # merge with z to be generator input
+            z = torch.cat((z, c_onehot), 1)
+
+        # no sigmoid so hasvoxel means >0
         tree_fake = generator(z)[:, 0, :, :, :]
         selected_trees = tree_fake.detach().cpu().numpy()
         if result is None:

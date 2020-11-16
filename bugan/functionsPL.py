@@ -226,7 +226,7 @@ class DataModule_custom_cond(pl.LightningDataModule):
         self.size = dataset.shape[0]
         self.dataset = torch.unsqueeze(torch.tensor(dataset), 1)
 
-        # process data index dict in the form {"double_trunk":[1,5,6], ....} to class index array [0, 1, 3, 1, 2, 0]
+        # process data index dict in the form {"double_trunk":[1,5,6], ....} to class index array [1, 0, 3, 1, 2, 0]
         data_index = np.zeros(self.size)
         data_index_dict = data_index_dict.item()
         for class_num, key in enumerate(data_index_dict.keys()):
@@ -508,31 +508,55 @@ def wandbLog(model, initial_log_dict={}, log_media=False, log_num_samples=1):
             sample_tree_voxelmesh.append(voxelmeshfile)
 
         # add list record to log_dict
-        initial_log_dict["sample_tree_numpoints"] = sample_tree_numpoints
-        initial_log_dict["eval_num_cluster"] = eval_num_cluster
+        initial_log_dict["sample_tree_numpoints"] = np.mean(sample_tree_numpoints)
+        initial_log_dict["eval_num_cluster"] = np.mean(eval_num_cluster)
         initial_log_dict["sample_tree_image"] = sample_tree_image
         initial_log_dict["sample_tree_voxelmesh"] = sample_tree_voxelmesh
 
     wandb.log(initial_log_dict)
 
 
-def wandbLog_cond(model, c, initial_log_dict={}, log_image=False, log_mesh=False):
+def wandbLog_cond(
+    model, num_classes, initial_log_dict={}, log_media=False, log_num_samples=1
+):
 
-    if log_image or log_mesh:
-        sample_tree_array = model.generate_tree(c)[0]  # only 1 tree
-        sample_tree_indices = netarray2indices(sample_tree_array)
-        # log number of points to wandb
-        initial_log_dict["sample_tree_class"] = c.detach().cpu().numpy()
-        initial_log_dict["sample_tree_numpoints"] = sample_tree_indices.shape[0]
-        voxelmesh = netarray2mesh(sample_tree_array)
+    if log_media:
 
-        if log_image:
-            image = mesh2wandbImage(voxelmesh)
-            initial_log_dict["sample_tree_image"] = image
+        for c in range(num_classes):
+            sample_trees = model.generate_tree(c, num_trees=log_num_samples)
+            # log_dict list record
+            sample_tree_numpoints = []
+            eval_num_cluster = []
+            sample_tree_image = []
+            sample_tree_voxelmesh = []
+            for n in range(log_num_samples):
+                sample_tree_array = sample_trees[n]
+                # log number of points to wandb
+                sample_tree_indices = netarray2indices(sample_tree_array)
+                sample_tree_numpoints.append(sample_tree_indices.shape[0])
+                # count number of cluster in the tree (grouped with dist_inf = 1)
+                num_cluster = eval_count_cluster(sample_tree_array)
+                eval_num_cluster.append(num_cluster)
 
-        if log_mesh:
-            voxelmeshfile = mesh2wandb3D(voxelmesh)
-            initial_log_dict["sample_tree_voxelmesh"] = voxelmeshfile
+                voxelmesh = netarray2mesh(sample_tree_array)
+
+                # image / 3D object to log_dict
+                image = mesh2wandbImage(voxelmesh)
+                sample_tree_image.append(image)
+                voxelmeshfile = mesh2wandb3D(voxelmesh)
+                sample_tree_voxelmesh.append(voxelmeshfile)
+
+            # add list record to log_dict
+            initial_log_dict["sample_tree_numpoints_class_" + str(c)] = np.mean(
+                sample_tree_numpoints
+            )
+            initial_log_dict["eval_num_cluster_class_" + str(c)] = np.mean(
+                eval_num_cluster
+            )
+            initial_log_dict["sample_tree_image_class_" + str(c)] = sample_tree_image
+            initial_log_dict[
+                "sample_tree_voxelmesh_class_" + str(c)
+            ] = sample_tree_voxelmesh
 
     wandb.log(initial_log_dict)
 
