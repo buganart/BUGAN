@@ -449,9 +449,9 @@ def make_npy_path(path: Path, res):
         raise ValueError(f"Cannot handle dataset path {path}")
 
 
-def eval_count_cluster(array):
-    def nearby_voxels(array, i, j, k):
-        bound = array.shape
+def eval_count_cluster(boolarray):
+    def nearby_voxels(boolarray, i, j, k):
+        bound = boolarray.shape
         low_i, high_i = np.clip([i - 1, i + 1], 0, bound[0] - 1)
         low_j, high_j = np.clip([j - 1, j + 1], 0, bound[1] - 1)
         low_k, high_k = np.clip([k - 1, k + 1], 0, bound[2] - 1)
@@ -460,7 +460,7 @@ def eval_count_cluster(array):
         for x in range(low_i, high_i + 1):
             for y in range(low_j, high_j + 1):
                 for z in range(low_k, high_k + 1):
-                    if array[x, y, z]:
+                    if boolarray[x, y, z]:
                         # voxel exists
                         retval.append((x, y, z))
         # remove the selected vox itself
@@ -468,13 +468,13 @@ def eval_count_cluster(array):
         return retval
 
     ds = DisjointSet()
-    for i in range(array.shape[0]):
-        for j in range(array.shape[1]):
-            for k in range(array.shape[2]):
-                vox = array[i, j, k]
+    for i in range(boolarray.shape[0]):
+        for j in range(boolarray.shape[1]):
+            for k in range(boolarray.shape[2]):
+                vox = boolarray[i, j, k]
                 if vox:
                     # voxel exists in coord (i,j,k)
-                    nearby_vox = nearby_voxels(array, i, j, k)
+                    nearby_vox = nearby_voxels(boolarray, i, j, k)
                     for v in nearby_vox:
                         ds.union(v, (i, j, k))
     return len(list(ds.itersets()))
@@ -491,15 +491,16 @@ def wandbLog(model, initial_log_dict={}, log_media=False, log_num_samples=1):
         sample_tree_image = []
         sample_tree_voxelmesh = []
         for n in range(log_num_samples):
-            sample_tree_array = sample_trees[n]
+            #sample_trees are before sigmoid
+            sample_tree_bool_array = sample_trees[n] > 0
             # log number of points to wandb
-            sample_tree_indices = netarray2indices(sample_tree_array)
+            sample_tree_indices = netarray2indices(sample_tree_bool_array)
             sample_tree_numpoints.append(sample_tree_indices.shape[0])
             # count number of cluster in the tree (grouped with dist_inf = 1)
-            num_cluster = eval_count_cluster(sample_tree_array)
+            num_cluster = eval_count_cluster(sample_tree_bool_array)
             eval_num_cluster.append(num_cluster)
 
-            voxelmesh = netarray2mesh(sample_tree_array)
+            voxelmesh = netarray2mesh(sample_tree_bool_array)
 
             # image / 3D object to log_dict
             image = mesh2wandbImage(voxelmesh)
@@ -530,15 +531,16 @@ def wandbLog_cond(
             sample_tree_image = []
             sample_tree_voxelmesh = []
             for n in range(log_num_samples):
-                sample_tree_array = sample_trees[n]
+                #sample_trees are before sigmoid
+                sample_tree_bool_array = sample_trees[n] > 0
                 # log number of points to wandb
-                sample_tree_indices = netarray2indices(sample_tree_array)
+                sample_tree_indices = netarray2indices(sample_tree_bool_array)
                 sample_tree_numpoints.append(sample_tree_indices.shape[0])
                 # count number of cluster in the tree (grouped with dist_inf = 1)
-                num_cluster = eval_count_cluster(sample_tree_array)
+                num_cluster = eval_count_cluster(sample_tree_bool_array)
                 eval_num_cluster.append(num_cluster)
 
-                voxelmesh = netarray2mesh(sample_tree_array)
+                voxelmesh = netarray2mesh(sample_tree_bool_array)
 
                 # image / 3D object to log_dict
                 image = mesh2wandbImage(voxelmesh)
@@ -573,17 +575,15 @@ def load_checkpoint_from_cloud(checkpoint_path="model_dict.pth"):
 #####
 #   helper function (array processing and log)
 #####
-def netarray2indices(array):
+def netarray2indices(boolarray):
     coord_list = []
-    if len(array.shape) == 5:
-        array = array[0][0]
-    x, y, z = array.shape
+    if len(boolarray.shape) == 5:
+        boolarray = boolarray[0][0]
+    x, y, z = boolarray.shape
     for i in range(x):
         for j in range(y):
             for k in range(z):
-                if (
-                    array[i, j, k] > 0.5
-                ):  # tanh: voxel representation [-1,1], sigmoid: [0,1]
+                if boolarray[i, j, k]:
                     coord_list.append([i, j, k])
     # print(len(coord_list))
     if len(coord_list) == 0:
@@ -594,12 +594,12 @@ def netarray2indices(array):
 
 
 # array should be 3d
-def netarray2mesh(array):
+def netarray2mesh(array, threshold = 0):
     if len(array.shape) != 3:
         raise Exception("netarray2mesh: input array should be 3d")
 
     # convert to bool dtype
-    array = array > 0.5
+    array = array > threshold
     # array all zero gives error
     if np.sum(array) == 0:
         array[0, 0, 0] = True
