@@ -103,7 +103,7 @@ class VAE_train(pl.LightningModule):
         self.vae_ep_loss = self.vae_ep_loss / self.config.num_data
 
         # save model if necessary
-        log_dict = {"VAE loss": self.vae_ep_loss}
+        log_dict = {"VAE loss": self.vae_ep_loss, "epoch": self.epoch}
 
         log_media = (
             self.epoch % self.config.log_interval == 0
@@ -271,7 +271,11 @@ class VAEGAN(pl.LightningModule):
         self.vae_ep_loss = self.vae_ep_loss / self.config.num_data
 
         # save model if necessary
-        log_dict = {"discriminator loss": self.d_ep_loss, "VAE loss": self.vae_ep_loss}
+        log_dict = {
+            "discriminator loss": self.d_ep_loss,
+            "VAE loss": self.vae_ep_loss,
+            "epoch": self.epoch,
+        }
 
         log_media = (
             self.epoch % self.config.log_interval == 0
@@ -475,6 +479,7 @@ class GAN(pl.LightningModule):
         log_dict = {
             "discriminator loss": self.d_ep_loss,
             "generator loss": self.g_ep_loss,
+            "epoch": self.epoch,
         }
 
         log_media = (
@@ -710,7 +715,6 @@ class VAEGAN_Wloss_GP(VAEGAN):
         return self.vae_optimizer, self.discriminator_optimizer
 
 
-
 #####
 #   conditional models for training
 #####
@@ -819,6 +823,7 @@ class CGAN(GAN):
             "classifier loss": self.c_ep_loss,
             "discriminator loss": self.d_ep_loss,
             "generator loss": self.g_ep_loss,
+            "epoch": self.epoch,
         }
 
         log_media = (
