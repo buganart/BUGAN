@@ -491,7 +491,7 @@ def wandbLog(model, initial_log_dict={}, log_media=False, log_num_samples=1):
         sample_tree_image = []
         sample_tree_voxelmesh = []
         for n in range(log_num_samples):
-            #sample_trees are before sigmoid
+            # sample_trees are before sigmoid
             sample_tree_bool_array = sample_trees[n] > 0
             # log number of points to wandb
             sample_tree_indices = netarray2indices(sample_tree_bool_array)
@@ -531,7 +531,7 @@ def wandbLog_cond(
             sample_tree_image = []
             sample_tree_voxelmesh = []
             for n in range(log_num_samples):
-                #sample_trees are before sigmoid
+                # sample_trees are before sigmoid
                 sample_tree_bool_array = sample_trees[n] > 0
                 # log number of points to wandb
                 sample_tree_indices = netarray2indices(sample_tree_bool_array)
@@ -594,7 +594,7 @@ def netarray2indices(boolarray):
 
 
 # array should be 3d
-def netarray2mesh(array, threshold = 0):
+def netarray2mesh(array, threshold=0):
     if len(array.shape) != 3:
         raise Exception("netarray2mesh: input array should be 3d")
 

@@ -35,6 +35,8 @@ class VAE_train(pl.LightningModule):
         parser.add_argument("--vae_encoder_layer", type=int, default=1)
         # optimizer in {"Adam", "SGD"}
         parser.add_argument("--vae_opt", type=str, default="Adam")
+        # loss function in {'BCELoss', 'MSELoss', 'CrossEntropyLoss'}
+        parser.add_argument("--rec_loss", type=str, default="BCELoss")
         # learning rate
         parser.add_argument("--vae_lr", type=float, default=0.0025)
         # number of unit per layer
@@ -100,7 +102,6 @@ class VAE_train(pl.LightningModule):
         self.vae.train()
 
     def on_train_epoch_end(self, epoch_output):
-        self.vae_ep_loss = self.vae_ep_loss / self.config.num_data
 
         # save model if necessary
         log_dict = {"VAE loss": self.vae_ep_loss, "epoch": self.epoch}
@@ -130,16 +131,14 @@ class VAE_train(pl.LightningModule):
         vae = self.vae
 
         # loss function
-        criterion_reconstruct = nn.BCEWithLogitsLoss
+        criterion_reconstruct = get_loss_function_with_logit(config.rec_loss)
 
         ############
         #   VAE
         ############
 
         reconstructed_data, mu, logVar = vae(dataset_batch, output_all=True)
-        vae_rec_loss = criterion_reconstruct(reduction="mean")(
-            reconstructed_data, dataset_batch
-        )  # loss is scaled to one
+        vae_rec_loss = criterion_reconstruct(reconstructed_data, dataset_batch)
 
         # add KL loss
         KL = 0.5 * torch.sum(mu ** 2 + torch.exp(logVar) - 1.0 - logVar)
@@ -177,6 +176,9 @@ class VAEGAN(pl.LightningModule):
         # optimizer in {"Adam", "SGD"}
         parser.add_argument("--vae_opt", type=str, default="Adam")
         parser.add_argument("--dis_opt", type=str, default="Adam")
+        # loss function in {'BCELoss', 'MSELoss', 'CrossEntropyLoss'}
+        parser.add_argument("--label_loss", type=str, default="BCELoss")
+        parser.add_argument("--rec_loss", type=str, default="BCELoss")
         # learning rate
         parser.add_argument("--vae_lr", type=float, default=0.0025)
         parser.add_argument("--d_lr", type=float, default=0.00005)
@@ -267,8 +269,6 @@ class VAEGAN(pl.LightningModule):
         self.discriminator.train()
 
     def on_train_epoch_end(self, epoch_output):
-        self.d_ep_loss = self.d_ep_loss / self.config.num_data
-        self.vae_ep_loss = self.vae_ep_loss / self.config.num_data
 
         # save model if necessary
         log_dict = {
@@ -303,9 +303,8 @@ class VAEGAN(pl.LightningModule):
         discriminator = self.discriminator
 
         # loss function
-        criterion_label = nn.BCEWithLogitsLoss
-        criterion_reconstruct = nn.BCEWithLogitsLoss
-        criterion_label = criterion_label(reduction="mean")
+        criterion_label = get_loss_function_with_logit(config.label_loss)
+        criterion_reconstruct = get_loss_function_with_logit(config.rec_loss)
 
         # labels
         real_label = (
@@ -322,9 +321,7 @@ class VAEGAN(pl.LightningModule):
 
             reconstructed_data, mu, logVar = vae(dataset_batch, output_all=True)
 
-            vae_rec_loss = criterion_reconstruct(reduction="mean")(
-                reconstructed_data, dataset_batch
-            )  # loss is scaled to one
+            vae_rec_loss = criterion_reconstruct(reconstructed_data, dataset_batch)
 
             # add KL loss
             KL = 0.5 * torch.sum(mu ** 2 + torch.exp(logVar) - 1.0 - logVar)
@@ -394,6 +391,8 @@ class GAN(pl.LightningModule):
         # optimizer in {"Adam", "SGD"}
         parser.add_argument("--gen_opt", type=str, default="Adam")
         parser.add_argument("--dis_opt", type=str, default="Adam")
+        # loss function in {'BCELoss', 'MSELoss', 'CrossEntropyLoss'}
+        parser.add_argument("--label_loss", type=str, default="BCELoss")
         # learning rate
         parser.add_argument("--g_lr", type=float, default=0.0025)
         parser.add_argument("--d_lr", type=float, default=0.00005)
@@ -472,8 +471,6 @@ class GAN(pl.LightningModule):
         self.discriminator.train()
 
     def on_train_epoch_end(self, epoch_output):
-        self.d_ep_loss = self.d_ep_loss / self.config.num_data
-        self.g_ep_loss = self.g_ep_loss / self.config.num_data
 
         # save model if necessary
         log_dict = {
@@ -508,8 +505,7 @@ class GAN(pl.LightningModule):
         discriminator = self.discriminator
 
         # loss function
-        criterion_label = nn.BCEWithLogitsLoss
-        criterion_label = criterion_label(reduction="mean")
+        criterion_label = get_loss_function_with_logit(config.label_loss)
 
         # labels
         real_label = (
@@ -629,9 +625,8 @@ class VAEGAN_Wloss_GP(VAEGAN):
         discriminator = self.discriminator
 
         # loss function
-        criterion_label = nn.MSELoss
-        criterion_reconstruct = nn.MSELoss
-        criterion_label = criterion_label(reduction="mean")
+        criterion_label = get_loss_function_with_logit(config.label_loss)
+        criterion_reconstruct = get_loss_function_with_logit(config.rec_loss)
 
         # labels
         # real_label = torch.unsqueeze(torch.ones(batch_size),1).float()
@@ -643,7 +638,7 @@ class VAEGAN_Wloss_GP(VAEGAN):
             ############
 
             reconstructed_data, mu, logVar = vae(dataset_batch, output_all=True)
-            vae_rec_loss = criterion_label(reconstructed_data, dataset_batch)
+            vae_rec_loss = criterion_reconstruct(reconstructed_data, dataset_batch)
 
             # add KL loss
             KL = 0.5 * torch.sum(mu ** 2 + torch.exp(logVar) - 1.0 - logVar)
@@ -724,6 +719,8 @@ class CGAN(GAN):
         parser = ArgumentParser(parents=[parent_parser], add_help=False)
         # log argument
         parser.add_argument("--num_classes", type=int, default=10)
+        # loss function in {'BCELoss', 'MSELoss', 'CrossEntropyLoss'}
+        parser.add_argument("--class_loss", type=str, default="CrossEntropyLoss")
 
         return GAN.add_model_specific_args(parser, array_size)
 
@@ -814,9 +811,6 @@ class CGAN(GAN):
         self.classifier.train()
 
     def on_train_epoch_end(self, epoch_output):
-        self.d_ep_loss = self.d_ep_loss / self.config.num_data
-        self.g_ep_loss = self.g_ep_loss / self.config.num_data
-        self.c_ep_loss = self.c_ep_loss / self.config.num_data
 
         # save model if necessary
         log_dict = {
@@ -853,9 +847,8 @@ class CGAN(GAN):
         classifier = self.classifier
 
         # loss function
-        criterion_label = nn.BCEWithLogitsLoss
-        criterion_label = criterion_label(reduction="mean")
-        criterion_class = nn.CrossEntropyLoss(reduction="mean")
+        criterion_label = get_loss_function_with_logit(config.label_loss)
+        criterion_class = get_loss_function_with_logit(config.class_loss)
 
         # labels
         real_label = (
@@ -1340,9 +1333,30 @@ def get_model_optimizer(model, optimizer_option, lr):
 
     if optimizer_option == "Adam":
         optimizer = optim.Adam
-    else:
+    elif optimizer_option == "SGD":
         optimizer = optim.SGD
+    else:
+        raise Exception(
+            "optimizer_option must be in ['Adam', 'SGD']. Current "
+            + str(optimizer_option)
+        )
     return optimizer(model.parameters(), lr=lr)
+
+
+def get_loss_function_with_logit(loss_option):
+
+    if loss_option == "BCELoss":
+        loss = nn.BCEWithLogitsLoss(reduction="sum")
+    elif loss_option == "MSELoss":
+        loss = lambda gen, data: nn.MSELoss(reduction="sum")(F.sigmoid(gen), data)
+    elif loss_option == "CrossEntropyLoss":
+        loss = nn.CrossEntropyLoss(reduction="sum")
+    else:
+        raise Exception(
+            "loss_option must be in ['BCELoss', 'MSELoss', 'CrossEntropyLoss']. Current "
+            + str(loss_option)
+        )
+    return loss
 
 
 def combine_namespace(base, update):
