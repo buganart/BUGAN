@@ -50,8 +50,7 @@ else:
     resume = True
 
 config_dict = dict(
-    aug_rotation_type = "random rotation",
-
+    aug_rotation_type="random rotation",
     batch_size=8,
     array_size=32,
     z_size=128,
