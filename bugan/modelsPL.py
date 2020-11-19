@@ -36,7 +36,7 @@ class VAE_train(pl.LightningModule):
         # optimizer in {"Adam", "SGD"}
         parser.add_argument("--vae_opt", type=str, default="Adam")
         # loss function in {'BCELoss', 'MSELoss', 'CrossEntropyLoss'}
-        parser.add_argument("--rec_loss", type=str, default="BCELoss")
+        parser.add_argument("--rec_loss", type=str, default="MSELoss")
         # learning rate
         parser.add_argument("--vae_lr", type=float, default=0.0025)
         # number of unit per layer
@@ -82,7 +82,6 @@ class VAE_train(pl.LightningModule):
         self.vae = vae
 
         # for logging
-        self.vae_ep_loss = 0.0
         self.epoch = 0
 
     def configure_optimizers(self):
@@ -96,7 +95,7 @@ class VAE_train(pl.LightningModule):
 
     def on_train_epoch_start(self):
         # reset ep_loss
-        self.vae_ep_loss = 0.0
+        self.vae_ep_loss = []
 
         # set model to train
         self.vae.train()
@@ -104,7 +103,7 @@ class VAE_train(pl.LightningModule):
     def on_train_epoch_end(self, epoch_output):
 
         # save model if necessary
-        log_dict = {"VAE loss": self.vae_ep_loss, "epoch": self.epoch}
+        log_dict = {"VAE loss": np.mean(self.vae_ep_loss), "epoch": self.epoch}
 
         log_media = (
             self.epoch % self.config.log_interval == 0
@@ -122,9 +121,8 @@ class VAE_train(pl.LightningModule):
     def training_step(self, dataset_batch, batch_idx):
         config = self.config
 
-        dataset_batch = dataset_batch[
-            0
-        ]  # dataset_batch was a list: [array], so just take the array inside
+        # dataset_batch was a list: [array], so just take the array inside
+        dataset_batch = dataset_batch[0]
         dataset_batch = dataset_batch.float()
 
         batch_size = dataset_batch.shape[0]
@@ -147,7 +145,7 @@ class VAE_train(pl.LightningModule):
         vae_loss = vae_rec_loss
 
         # record loss
-        self.vae_ep_loss += vae_loss.detach()
+        self.vae_ep_loss.append(vae_loss.detach().cpu().numpy())
 
         return vae_loss
 
@@ -178,7 +176,7 @@ class VAEGAN(pl.LightningModule):
         parser.add_argument("--dis_opt", type=str, default="Adam")
         # loss function in {'BCELoss', 'MSELoss', 'CrossEntropyLoss'}
         parser.add_argument("--label_loss", type=str, default="BCELoss")
-        parser.add_argument("--rec_loss", type=str, default="BCELoss")
+        parser.add_argument("--rec_loss", type=str, default="MSELoss")
         # learning rate
         parser.add_argument("--vae_lr", type=float, default=0.0025)
         parser.add_argument("--d_lr", type=float, default=0.00005)
@@ -234,8 +232,6 @@ class VAEGAN(pl.LightningModule):
         self.discriminator = discriminator
 
         # for logging
-        self.d_ep_loss = 0.0
-        self.vae_ep_loss = 0.0
         self.epoch = 0
 
     def forward(self, x):
@@ -261,8 +257,8 @@ class VAEGAN(pl.LightningModule):
 
     def on_train_epoch_start(self):
         # reset ep_loss
-        self.d_ep_loss = 0.0
-        self.vae_ep_loss = 0.0
+        self.d_ep_loss = []
+        self.vae_ep_loss = []
 
         # set model to train
         self.vae.train()
@@ -272,8 +268,8 @@ class VAEGAN(pl.LightningModule):
 
         # save model if necessary
         log_dict = {
-            "discriminator loss": self.d_ep_loss,
-            "VAE loss": self.vae_ep_loss,
+            "discriminator loss": np.mean(self.d_ep_loss),
+            "VAE loss": np.mean(self.vae_ep_loss),
             "epoch": self.epoch,
         }
 
@@ -293,9 +289,8 @@ class VAEGAN(pl.LightningModule):
     def training_step(self, dataset_batch, batch_idx, optimizer_idx):
         config = self.config
 
-        dataset_batch = dataset_batch[
-            0
-        ]  # dataset_batch was a list: [array], so just take the array inside
+        # dataset_batch was a list: [array], so just take the array inside
+        dataset_batch = dataset_batch[0]
         dataset_batch = dataset_batch.float()
 
         batch_size = dataset_batch.shape[0]
@@ -334,7 +329,7 @@ class VAEGAN(pl.LightningModule):
             vae_loss = (vae_rec_loss + vae_d_loss) / 2
 
             # record loss
-            self.vae_ep_loss += vae_loss.detach()
+            self.vae_ep_loss.append(vae_loss.detach().cpu().numpy())
 
             return vae_loss
 
@@ -363,7 +358,7 @@ class VAEGAN(pl.LightningModule):
             dloss = (dloss_fake + dloss_real) / 2  # scale the loss to one
 
             # record loss
-            self.d_ep_loss += dloss.detach()
+            self.d_ep_loss.append(dloss.detach().cpu().numpy())
 
             return dloss
 
@@ -435,8 +430,6 @@ class GAN(pl.LightningModule):
         self.discriminator = discriminator
 
         # for logging
-        self.d_ep_loss = 0.0
-        self.g_ep_loss = 0.0
         self.epoch = 0
 
     def forward(self, x):
@@ -463,8 +456,8 @@ class GAN(pl.LightningModule):
 
     def on_train_epoch_start(self):
         # reset ep_loss
-        self.d_ep_loss = 0.0
-        self.g_ep_loss = 0.0
+        self.d_ep_loss = []
+        self.g_ep_loss = []
 
         # set model to train
         self.generator.train()
@@ -474,8 +467,8 @@ class GAN(pl.LightningModule):
 
         # save model if necessary
         log_dict = {
-            "discriminator loss": self.d_ep_loss,
-            "generator loss": self.g_ep_loss,
+            "discriminator loss": np.mean(self.d_ep_loss),
+            "generator loss": np.mean(self.g_ep_loss),
             "epoch": self.epoch,
         }
 
@@ -495,9 +488,8 @@ class GAN(pl.LightningModule):
     def training_step(self, dataset_batch, batch_idx, optimizer_idx):
         config = self.config
 
-        dataset_batch = dataset_batch[
-            0
-        ]  # dataset_batch was a list: [array], so just take the array inside
+        # dataset_batch was a list: [array], so just take the array inside
+        dataset_batch = dataset_batch[0]
         dataset_batch = dataset_batch.float()
 
         batch_size = dataset_batch.shape[0]
@@ -530,7 +522,7 @@ class GAN(pl.LightningModule):
             gloss = criterion_label(dout_fake, real_label)
 
             # record loss
-            self.g_ep_loss += gloss.detach()
+            self.g_ep_loss.append(gloss.detach().cpu().numpy())
 
             return gloss
 
@@ -560,7 +552,7 @@ class GAN(pl.LightningModule):
             dloss = (dloss_real + dloss_fake) / 2
 
             # record loss
-            self.d_ep_loss += dloss.detach()
+            self.d_ep_loss.append(dloss.detach().cpu().numpy())
 
             return dloss
 
@@ -614,10 +606,8 @@ class VAEGAN_Wloss_GP(VAEGAN):
 
     def training_step(self, dataset_batch, batch_idx, optimizer_idx):
         config = self.config
-
-        dataset_batch = dataset_batch[
-            0
-        ]  # dataset_batch was a list: [array], so just take the array inside
+        # dataset_batch was a list: [array], so just take the array inside
+        dataset_batch = dataset_batch[0]
         dataset_batch = dataset_batch.float()
 
         batch_size = dataset_batch.shape[0]
@@ -651,7 +641,7 @@ class VAEGAN_Wloss_GP(VAEGAN):
             vae_loss = (vae_rec_loss + vae_d_loss) / 2
 
             # record loss
-            self.vae_ep_loss += vae_loss.detach()
+            self.vae_ep_loss.append(vae_loss.detach().cpu().numpy())
 
             return vae_loss
 
@@ -685,7 +675,7 @@ class VAEGAN_Wloss_GP(VAEGAN):
             ) + gp  # d should maximize diff of real vs fake (dout_real - dout_fake)
 
             # record loss
-            self.d_ep_loss += dloss.detach()
+            self.d_ep_loss.append(dloss.detach().cpu().numpy())
 
             return dloss
 
@@ -763,9 +753,6 @@ class CGAN(GAN):
         self.classifier = classifier
 
         # for logging
-        self.d_ep_loss = 0.0
-        self.c_ep_loss = 0.0
-        self.g_ep_loss = 0.0
         self.epoch = 0
 
     def forward(self, x):
@@ -801,9 +788,9 @@ class CGAN(GAN):
 
     def on_train_epoch_start(self):
         # reset ep_loss
-        self.d_ep_loss = 0.0
-        self.g_ep_loss = 0.0
-        self.c_ep_loss = 0.0
+        self.d_ep_loss = []
+        self.g_ep_loss = []
+        self.c_ep_loss = []
 
         # set model to train
         self.generator.train()
@@ -814,9 +801,9 @@ class CGAN(GAN):
 
         # save model if necessary
         log_dict = {
-            "classifier loss": self.c_ep_loss,
-            "discriminator loss": self.d_ep_loss,
-            "generator loss": self.g_ep_loss,
+            "classifier loss": np.mean(self.c_ep_loss),
+            "discriminator loss": np.mean(self.d_ep_loss),
+            "generator loss": np.mean(self.g_ep_loss),
             "epoch": self.epoch,
         }
 
@@ -895,7 +882,7 @@ class CGAN(GAN):
 
             gloss = (gloss_d + gloss_c) / 2
             # record loss
-            self.g_ep_loss += gloss.detach()
+            self.g_ep_loss.append(gloss.detach().cpu().numpy())
 
             return gloss
 
@@ -940,7 +927,7 @@ class CGAN(GAN):
             dloss = (dloss_real + dloss_fake) / 2
 
             # record loss
-            self.d_ep_loss += dloss.detach()
+            self.d_ep_loss.append(dloss.detach().cpu().numpy())
 
             return dloss
 
@@ -985,7 +972,7 @@ class CGAN(GAN):
             closs = (closs_real + closs_fake) / 2
 
             # record loss
-            self.c_ep_loss += closs.detach()
+            self.c_ep_loss.append(closs.detach().cpu().numpy())
 
             return closs
 
@@ -1346,11 +1333,11 @@ def get_model_optimizer(model, optimizer_option, lr):
 def get_loss_function_with_logit(loss_option):
 
     if loss_option == "BCELoss":
-        loss = nn.BCEWithLogitsLoss(reduction="sum")
+        loss = nn.BCEWithLogitsLoss(reduction="mean")
     elif loss_option == "MSELoss":
-        loss = lambda gen, data: nn.MSELoss(reduction="sum")(F.sigmoid(gen), data)
+        loss = lambda gen, data: nn.MSELoss(reduction="mean")(F.sigmoid(gen), data)
     elif loss_option == "CrossEntropyLoss":
-        loss = nn.CrossEntropyLoss(reduction="sum")
+        loss = nn.CrossEntropyLoss(reduction="mean")
     else:
         raise Exception(
             "loss_option must be in ['BCELoss', 'MSELoss', 'CrossEntropyLoss']. Current "
