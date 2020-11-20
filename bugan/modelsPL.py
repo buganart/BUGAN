@@ -81,9 +81,6 @@ class VAE_train(pl.LightningModule):
         # VAE
         self.vae = vae
 
-        # for logging
-        self.epoch = 0
-
     def configure_optimizers(self):
         config = self.config
         vae = self.vae
@@ -103,10 +100,10 @@ class VAE_train(pl.LightningModule):
     def on_train_epoch_end(self, epoch_output):
 
         # save model if necessary
-        log_dict = {"VAE loss": np.mean(self.vae_ep_loss), "epoch": self.epoch}
+        log_dict = {"VAE loss": np.mean(self.vae_ep_loss), "epoch": self.current_epoch}
 
         log_media = (
-            self.epoch % self.config.log_interval == 0
+            self.current_epoch % self.config.log_interval == 0
         )  # boolean whether to log image/3D object
 
         wandbLog(
@@ -115,8 +112,6 @@ class VAE_train(pl.LightningModule):
             log_media=log_media,
             log_num_samples=self.config.log_num_samples,
         )
-
-        self.epoch += 1
 
     def training_step(self, dataset_batch, batch_idx):
         config = self.config
@@ -231,9 +226,6 @@ class VAEGAN(pl.LightningModule):
         # GAN
         self.discriminator = discriminator
 
-        # for logging
-        self.epoch = 0
-
     def forward(self, x):
         # VAE
         x = self.vae(x)
@@ -270,11 +262,11 @@ class VAEGAN(pl.LightningModule):
         log_dict = {
             "discriminator loss": np.mean(self.d_ep_loss),
             "VAE loss": np.mean(self.vae_ep_loss),
-            "epoch": self.epoch,
+            "epoch": self.current_epoch,
         }
 
         log_media = (
-            self.epoch % self.config.log_interval == 0
+            self.current_epoch % self.config.log_interval == 0
         )  # boolean whether to log image/3D object
 
         wandbLog(
@@ -283,8 +275,6 @@ class VAEGAN(pl.LightningModule):
             log_media=log_media,
             log_num_samples=self.config.log_num_samples,
         )
-
-        self.epoch += 1
 
     def training_step(self, dataset_batch, batch_idx, optimizer_idx):
         config = self.config
@@ -429,9 +419,6 @@ class GAN(pl.LightningModule):
         self.generator = generator
         self.discriminator = discriminator
 
-        # for logging
-        self.epoch = 0
-
     def forward(self, x):
         # classifier and discriminator
         x = self.generator(x)
@@ -469,11 +456,11 @@ class GAN(pl.LightningModule):
         log_dict = {
             "discriminator loss": np.mean(self.d_ep_loss),
             "generator loss": np.mean(self.g_ep_loss),
-            "epoch": self.epoch,
+            "epoch": self.current_epoch,
         }
 
         log_media = (
-            self.epoch % self.config.log_interval == 0
+            self.current_epoch % self.config.log_interval == 0
         )  # boolean whether to log image/3D object
 
         wandbLog(
@@ -482,8 +469,6 @@ class GAN(pl.LightningModule):
             log_media=log_media,
             log_num_samples=self.config.log_num_samples,
         )
-
-        self.epoch += 1
 
     def training_step(self, dataset_batch, batch_idx, optimizer_idx):
         config = self.config
@@ -752,9 +737,6 @@ class CGAN(GAN):
         self.discriminator = discriminator
         self.classifier = classifier
 
-        # for logging
-        self.epoch = 0
-
     def forward(self, x):
         # classifier and discriminator
         x = self.generator(x)
@@ -804,11 +786,11 @@ class CGAN(GAN):
             "classifier loss": np.mean(self.c_ep_loss),
             "discriminator loss": np.mean(self.d_ep_loss),
             "generator loss": np.mean(self.g_ep_loss),
-            "epoch": self.epoch,
+            "epoch": self.current_epoch,
         }
 
         log_media = (
-            self.epoch % self.config.log_interval == 0
+            self.current_epoch % self.config.log_interval == 0
         )  # boolean whether to log image/3D object
 
         wandbLog_cond(
@@ -818,8 +800,6 @@ class CGAN(GAN):
             log_media=log_media,
             log_num_samples=self.config.log_num_samples,
         )
-
-        self.epoch += 1
 
     def training_step(self, dataset_batch, batch_idx, optimizer_idx):
         config = self.config
