@@ -37,6 +37,10 @@ class VAE_train(pl.LightningModule):
         parser.add_argument("--vae_opt", type=str, default="Adam")
         # loss function in {'BCELoss', 'MSELoss', 'CrossEntropyLoss'}
         parser.add_argument("--rec_loss", type=str, default="MSELoss")
+        # activation default leakyReLU
+        parser.add_argument("--activation_leakyReLU_slope", type=float, default=0.0)
+        # Dropout probability
+        parser.add_argument("--dropout_prob", type=float, default=0.0)
         # learning rate
         parser.add_argument("--vae_lr", type=float, default=0.0025)
         # number of unit per layer
@@ -69,12 +73,15 @@ class VAE_train(pl.LightningModule):
             config.z_size,
             config.array_size,
             config.decoder_num_layer_unit,
+            dropout_prob=config.dropout_prob,
+            activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
         )
         encoder = Discriminator(
             config.vae_encoder_layer,
             config.z_size,
             config.array_size,
             config.encoder_num_layer_unit,
+            activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
         )
         vae = VAE(encoder=encoder, decoder=decoder)
 
@@ -118,6 +125,8 @@ class VAE_train(pl.LightningModule):
 
         # dataset_batch was a list: [array], so just take the array inside
         dataset_batch = dataset_batch[0]
+        # scale to [-1,1]
+        dataset_batch = dataset_batch * 2 - 1
         dataset_batch = dataset_batch.float()
 
         batch_size = dataset_batch.shape[0]
@@ -172,6 +181,14 @@ class VAEGAN(pl.LightningModule):
         # loss function in {'BCELoss', 'MSELoss', 'CrossEntropyLoss'}
         parser.add_argument("--label_loss", type=str, default="BCELoss")
         parser.add_argument("--rec_loss", type=str, default="MSELoss")
+        # activation default leakyReLU
+        parser.add_argument("--activation_leakyReLU_slope", type=float, default=0.0)
+        # Dropout probability
+        parser.add_argument("--dropout_prob", type=float, default=0.0)
+        # real/fake label flip probability
+        parser.add_argument("--label_flip_prob", type=float, default=0.0)
+        # real/fake label noise magnitude
+        parser.add_argument("--label_noise", type=float, default=0.0)
         # learning rate
         parser.add_argument("--vae_lr", type=float, default=0.0025)
         parser.add_argument("--d_lr", type=float, default=0.00005)
@@ -208,17 +225,24 @@ class VAEGAN(pl.LightningModule):
             config.z_size,
             config.array_size,
             config.decoder_num_layer_unit,
+            dropout_prob=config.dropout_prob,
+            activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
         )
         encoder = Discriminator(
             config.vae_encoder_layer,
             config.z_size,
             config.array_size,
             config.encoder_num_layer_unit,
+            activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
         )
         vae = VAE(encoder=encoder, decoder=decoder)
 
         discriminator = Discriminator(
-            config.d_layer, config.z_size, config.array_size, config.dis_num_layer_unit
+            config.d_layer,
+            config.z_size,
+            config.array_size,
+            config.dis_num_layer_unit,
+            activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
         )
 
         # VAE
@@ -229,7 +253,7 @@ class VAEGAN(pl.LightningModule):
     def forward(self, x):
         # VAE
         x = self.vae(x)
-        x = F.sigmoid(x)
+        x = F.tanh(x)
         # classifier and discriminator
         x = self.discriminator(x)
         return x
@@ -281,6 +305,8 @@ class VAEGAN(pl.LightningModule):
 
         # dataset_batch was a list: [array], so just take the array inside
         dataset_batch = dataset_batch[0]
+        # scale to [-1,1]
+        dataset_batch = dataset_batch * 2 - 1
         dataset_batch = dataset_batch.float()
 
         batch_size = dataset_batch.shape[0]
@@ -292,12 +318,25 @@ class VAEGAN(pl.LightningModule):
         criterion_reconstruct = get_loss_function_with_logit(config.rec_loss)
 
         # labels
-        real_label = (
-            torch.unsqueeze(torch.ones(batch_size), 1).float().type_as(dataset_batch)
+        # soft label
+        # modified scale to [1-label_noise,1]
+        # modified scale to [0,label_noise]
+        real_label = 1 - (torch.rand(batch_size) * config.label_noise)
+        fake_label = torch.rand(batch_size) * config.label_noise
+        # add noise to label
+        # P(label_flip_prob) label flipped
+        label_flip_mask = torch.bernoulli(
+            torch.ones(batch_size) * config.label_flip_prob
         )
-        fake_label = (
-            torch.unsqueeze(torch.zeros(batch_size), 1).float().type_as(dataset_batch)
+        real_label = (1 - label_flip_mask) * real_label + label_flip_mask * (
+            1 - real_label
         )
+        fake_label = (1 - label_flip_mask) * fake_label + label_flip_mask * (
+            1 - fake_label
+        )
+
+        real_label = torch.unsqueeze(real_label, 1).float().type_as(dataset_batch)
+        fake_label = torch.unsqueeze(fake_label, 1).float().type_as(dataset_batch)
 
         if optimizer_idx == 0:
             ############
@@ -313,7 +352,7 @@ class VAEGAN(pl.LightningModule):
             vae_rec_loss += KL
 
             # output of the vae should fool discriminator
-            vae_out_d = discriminator(F.sigmoid(reconstructed_data))
+            vae_out_d = discriminator(F.tanh(reconstructed_data))
             vae_d_loss = criterion_label(vae_out_d, real_label)
 
             vae_loss = (vae_rec_loss + vae_d_loss) / 2
@@ -334,7 +373,7 @@ class VAEGAN(pl.LightningModule):
             z = (
                 torch.randn(batch_size, latent_size).float().type_as(dataset_batch)
             )  # noise vector
-            tree_fake = F.sigmoid(vae.generate_sample(z))
+            tree_fake = F.tanh(vae.generate_sample(z))
 
             # fake data (data from generator)
             dout_fake = discriminator(
@@ -378,6 +417,14 @@ class GAN(pl.LightningModule):
         parser.add_argument("--dis_opt", type=str, default="Adam")
         # loss function in {'BCELoss', 'MSELoss', 'CrossEntropyLoss'}
         parser.add_argument("--label_loss", type=str, default="BCELoss")
+        # activation default leakyReLU
+        parser.add_argument("--activation_leakyReLU_slope", type=float, default=0.0)
+        # Dropout probability
+        parser.add_argument("--dropout_prob", type=float, default=0.0)
+        # real/fake label flip probability
+        parser.add_argument("--label_flip_prob", type=float, default=0.0)
+        # real/fake label noise magnitude
+        parser.add_argument("--label_noise", type=float, default=0.0)
         # learning rate
         parser.add_argument("--g_lr", type=float, default=0.0025)
         parser.add_argument("--d_lr", type=float, default=0.00005)
@@ -408,11 +455,20 @@ class GAN(pl.LightningModule):
 
         # create components
         generator = Generator(
-            config.g_layer, config.z_size, config.array_size, config.gen_num_layer_unit
+            config.g_layer,
+            config.z_size,
+            config.array_size,
+            config.gen_num_layer_unit,
+            dropout_prob=config.dropout_prob,
+            activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
         )
 
         discriminator = Discriminator(
-            config.d_layer, config.z_size, config.array_size, config.dis_num_layer_unit
+            config.d_layer,
+            config.z_size,
+            config.array_size,
+            config.dis_num_layer_unit,
+            activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
         )
 
         # GAN
@@ -422,7 +478,7 @@ class GAN(pl.LightningModule):
     def forward(self, x):
         # classifier and discriminator
         x = self.generator(x)
-        x = F.sigmoid(x)
+        x = F.tanh(x)
         x = self.discriminator(x)
         return x
 
@@ -475,6 +531,8 @@ class GAN(pl.LightningModule):
 
         # dataset_batch was a list: [array], so just take the array inside
         dataset_batch = dataset_batch[0]
+        # scale to [-1,1]
+        dataset_batch = dataset_batch * 2 - 1
         dataset_batch = dataset_batch.float()
 
         batch_size = dataset_batch.shape[0]
@@ -485,12 +543,25 @@ class GAN(pl.LightningModule):
         criterion_label = get_loss_function_with_logit(config.label_loss)
 
         # labels
-        real_label = (
-            torch.unsqueeze(torch.ones(batch_size), 1).float().type_as(dataset_batch)
+        # soft label
+        # modified scale to [1-label_noise,1]
+        # modified scale to [0,label_noise]
+        real_label = 1 - (torch.rand(batch_size) * config.label_noise)
+        fake_label = torch.rand(batch_size) * config.label_noise
+        # add noise to label
+        # P(label_flip_prob) label flipped
+        label_flip_mask = torch.bernoulli(
+            torch.ones(batch_size) * config.label_flip_prob
         )
-        fake_label = (
-            torch.unsqueeze(torch.zeros(batch_size), 1).float().type_as(dataset_batch)
+        real_label = (1 - label_flip_mask) * real_label + label_flip_mask * (
+            1 - real_label
         )
+        fake_label = (1 - label_flip_mask) * fake_label + label_flip_mask * (
+            1 - fake_label
+        )
+
+        real_label = torch.unsqueeze(real_label, 1).float().type_as(dataset_batch)
+        fake_label = torch.unsqueeze(fake_label, 1).float().type_as(dataset_batch)
         if optimizer_idx == 0:
             ############
             #   generator
@@ -499,7 +570,7 @@ class GAN(pl.LightningModule):
             z = (
                 torch.randn(batch_size, config.z_size).float().type_as(dataset_batch)
             )  # 128-d noise vector
-            tree_fake = F.sigmoid(self.generator(z))
+            tree_fake = F.tanh(self.generator(z))
 
             # tree_fake is already computed above
             dout_fake = self.discriminator(tree_fake, output_all=False)
@@ -520,7 +591,7 @@ class GAN(pl.LightningModule):
             z = (
                 torch.randn(batch_size, config.z_size).float().type_as(dataset_batch)
             )  # 128-d noise vector
-            tree_fake = F.sigmoid(self.generator(z))
+            tree_fake = F.tanh(self.generator(z))
 
             # real data (data from dataloader)
             dout_real = self.discriminator(dataset_batch, output_all=False)
@@ -593,6 +664,8 @@ class VAEGAN_Wloss_GP(VAEGAN):
         config = self.config
         # dataset_batch was a list: [array], so just take the array inside
         dataset_batch = dataset_batch[0]
+        # scale to [-1,1]
+        dataset_batch = dataset_batch * 2 - 1
         dataset_batch = dataset_batch.float()
 
         batch_size = dataset_batch.shape[0]
@@ -620,7 +693,7 @@ class VAEGAN_Wloss_GP(VAEGAN):
             vae_rec_loss += KL
 
             # output of the vae should fool discriminator
-            vae_out_d = discriminator(F.sigmoid(reconstructed_data))
+            vae_out_d = discriminator(F.tanh(reconstructed_data))
             vae_d_loss = -vae_out_d.mean()  # vae/generator should maximize vae_out_d
 
             vae_loss = (vae_rec_loss + vae_d_loss) / 2
@@ -641,7 +714,7 @@ class VAEGAN_Wloss_GP(VAEGAN):
             z = (
                 torch.randn(batch_size, latent_size).float().type_as(dataset_batch)
             )  # noise vector
-            tree_fake = F.sigmoid(vae.generate_sample(z))
+            tree_fake = F.tanh(vae.generate_sample(z))
             tree_fake = tree_fake.clone().detach()
 
             # fake data (data from generator)
@@ -718,10 +791,16 @@ class CGAN(GAN):
             config.z_size + config.num_classes,
             config.array_size,
             config.gen_num_layer_unit,
+            dropout_prob=config.dropout_prob,
+            activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
         )
 
         discriminator = Discriminator(
-            config.d_layer, config.z_size, config.array_size, config.dis_num_layer_unit
+            config.d_layer,
+            config.z_size,
+            config.array_size,
+            config.dis_num_layer_unit,
+            activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
         )
 
         classifier = Discriminator(
@@ -730,6 +809,7 @@ class CGAN(GAN):
             config.array_size,
             config.dis_num_layer_unit,
             output_size=config.num_classes,
+            activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
         )
 
         # GAN
@@ -740,7 +820,7 @@ class CGAN(GAN):
     def forward(self, x):
         # classifier and discriminator
         x = self.generator(x)
-        x = F.sigmoid(x)
+        x = F.tanh(x)
         x = self.discriminator(x)
         c = self.classifier(x)
         return x, c
@@ -805,6 +885,9 @@ class CGAN(GAN):
         config = self.config
 
         dataset_batch, dataset_indices = dataset_batch
+        # scale to [-1,1]
+        dataset_batch = dataset_batch * 2 - 1
+
         dataset_batch = dataset_batch.float()
         dataset_indices = dataset_indices.to(torch.int64)
 
@@ -818,12 +901,25 @@ class CGAN(GAN):
         criterion_class = get_loss_function_with_logit(config.class_loss)
 
         # labels
-        real_label = (
-            torch.unsqueeze(torch.ones(batch_size), 1).float().type_as(dataset_batch)
+        # soft label
+        # modified scale to [1-label_noise,1]
+        # modified scale to [0,label_noise]
+        real_label = 1 - (torch.rand(batch_size) * config.label_noise)
+        fake_label = torch.rand(batch_size) * config.label_noise
+        # add noise to label
+        # P(label_flip_prob) label flipped
+        label_flip_mask = torch.bernoulli(
+            torch.ones(batch_size) * config.label_flip_prob
         )
-        fake_label = (
-            torch.unsqueeze(torch.zeros(batch_size), 1).float().type_as(dataset_batch)
+        real_label = (1 - label_flip_mask) * real_label + label_flip_mask * (
+            1 - real_label
         )
+        fake_label = (1 - label_flip_mask) * fake_label + label_flip_mask * (
+            1 - fake_label
+        )
+
+        real_label = torch.unsqueeze(real_label, 1).float().type_as(dataset_batch)
+        fake_label = torch.unsqueeze(fake_label, 1).float().type_as(dataset_batch)
         if optimizer_idx == 0:
             ############
             #   generator
@@ -849,7 +945,7 @@ class CGAN(GAN):
             # merge with z to be generator input
             z = torch.cat((z, c_onehot), 1)
 
-            tree_fake = F.sigmoid(self.generator(z))
+            tree_fake = F.tanh(self.generator(z))
 
             # tree_fake on Dis
             dout_fake = self.discriminator(tree_fake, output_all=False)
@@ -893,7 +989,7 @@ class CGAN(GAN):
             z = torch.cat((z, c_onehot), 1)
 
             # detach so no update to generator
-            tree_fake = F.sigmoid(self.generator(z)).clone().detach()
+            tree_fake = F.tanh(self.generator(z)).clone().detach()
 
             # real data (data from dataloader)
             dout_real = self.discriminator(dataset_batch, output_all=False)
@@ -938,7 +1034,7 @@ class CGAN(GAN):
             z = torch.cat((z, c_onehot), 1)
 
             # detach so no update to generator
-            tree_fake = F.sigmoid(self.generator(z)).clone().detach()
+            tree_fake = F.tanh(self.generator(z)).clone().detach()
 
             # fake data (data from generator)
             cout_fake = self.classifier(tree_fake)
@@ -977,6 +1073,7 @@ class Generator(nn.Module):
         z_size=128,
         output_size=64,
         num_layer_unit=32,
+        dropout_prob=0.0,
         activations=nn.ReLU(True),
     ):
         super(Generator, self).__init__()
@@ -1023,6 +1120,7 @@ class Generator(nn.Module):
             )
             gen_module.append(nn.BatchNorm3d(num_layer_unit2))
             gen_module.append(activations)
+            gen_module.append(nn.Dropout3d(dropout_prob))
 
             for _ in range(layer_per_block - 1):
                 gen_module.append(
@@ -1032,17 +1130,18 @@ class Generator(nn.Module):
                 )
                 gen_module.append(nn.BatchNorm3d(num_layer_unit2))
                 gen_module.append(activations)
+                gen_module.append(nn.Dropout3d(dropout_prob))
 
             gen_module.append(nn.Upsample(scale_factor=2, mode="trilinear"))
 
         # remove extra pool layer
         gen_module = gen_module[:-1]
 
-        # remove sigmoid for loss with logit
+        # remove tanh for loss with logit
         gen_module.append(
             nn.ConvTranspose3d(num_layer_unit_list[-1], 1, 3, 1, padding=1)
         )
-        # gen_module.append(nn.Sigmoid())
+        # gen_module.append(nn.tanh())
 
         self.gen_fc = nn.Linear(
             self.z_size, self.fc_channel * self.fc_size * self.fc_size * self.fc_size
@@ -1065,8 +1164,9 @@ class Discriminator(nn.Module):
         z_size=128,
         input_size=64,
         num_layer_unit=16,
+        dropout_prob=0.0,
         output_size=1,
-        activations=nn.ReLU(True),
+        activations=nn.LeakyReLU(0.0, True),
     ):
         super(Discriminator, self).__init__()
 
@@ -1137,7 +1237,7 @@ class Discriminator(nn.Module):
         )
         self.dis_fc2 = nn.Sequential(
             nn.Linear(z_size, self.output_size),
-            # nn.Sigmoid()  #remove sigmoid for loss with logit
+            # nn.tanh()  #remove tanh for loss with logit
         )
 
     def forward(self, x, output_all=False):
@@ -1278,7 +1378,7 @@ def generate_tree(
                 generator.gen_fc.weight
             )
 
-        # no sigmoid so hasvoxel means >0
+        # no tanh so hasvoxel means >0
         tree_fake = generator(z)[:, 0, :, :, :]
         selected_trees = tree_fake.detach().cpu().numpy()
         if result is None:
@@ -1315,7 +1415,7 @@ def get_loss_function_with_logit(loss_option):
     if loss_option == "BCELoss":
         loss = nn.BCEWithLogitsLoss(reduction="mean")
     elif loss_option == "MSELoss":
-        loss = lambda gen, data: nn.MSELoss(reduction="mean")(F.sigmoid(gen), data)
+        loss = lambda gen, data: nn.MSELoss(reduction="mean")(F.tanh(gen), data)
     elif loss_option == "CrossEntropyLoss":
         loss = nn.CrossEntropyLoss(reduction="mean")
     else:
