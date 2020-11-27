@@ -58,8 +58,8 @@ class VAE_train(pl.LightningModule):
     def __init__(self, **config):
         super(VAE_train, self).__init__()
         # assert(vae.sample_size == discriminator.input_size)
+        self.save_hyperparameters()
         config = Namespace(**config)
-        self.hparams = config
         # add missing default parameters
         parser = self.add_model_specific_args(
             ArgumentParser(), resolution=config.resolution
@@ -210,8 +210,8 @@ class VAEGAN(pl.LightningModule):
     def __init__(self, **config):
         super(VAEGAN, self).__init__()
         # assert(vae.sample_size == discriminator.input_size)
+        self.save_hyperparameters()
         config = Namespace(**config)
-        self.hparams = config
         # add missing default parameters
         parser = self.add_model_specific_args(
             ArgumentParser(), resolution=config.resolution
@@ -442,8 +442,8 @@ class GAN(pl.LightningModule):
 
     def __init__(self, **config):
         super(GAN, self).__init__()
+        self.save_hyperparameters()
         config = Namespace(**config)
-        self.hparams = config
         # add missing default parameters
         parser = self.add_model_specific_args(
             ArgumentParser(), resolution=config.resolution
@@ -773,8 +773,8 @@ class CGAN(GAN):
 
     def __init__(self, **config):
         super(GAN, self).__init__()
+        self.save_hyperparameters()
         config = Namespace(**config)
-        self.hparams = config
         # add missing default parameters
         parser = self.add_model_specific_args(
             ArgumentParser(), resolution=config.resolution
