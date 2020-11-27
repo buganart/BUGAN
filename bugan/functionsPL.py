@@ -58,7 +58,7 @@ class DataModule_process(pl.LightningDataModule):
         is_zip = self.data_path.suffix == ".zip"
         self.zip_path = self.data_path if is_zip else None
         self.folder_path = Path(tmp_folder) if is_zip else self.data_path
-        self.npy_path = make_npy_path(self.data_path, self.config.array_size)
+        self.npy_path = make_npy_path(self.data_path, self.config.resolution)
 
     def _unzip_zip_file_to_directory(self):
         print(f"Unzipping {self.zip_path} to {self.folder_path}")
@@ -94,7 +94,7 @@ class DataModule_process(pl.LightningDataModule):
                     file_type=Path(path).suffix[1:],
                     force="mesh",
                 )
-                array = mesh2arrayCentered(m, array_length=self.config.array_size)
+                array = mesh2arrayCentered(m, array_length=self.config.resolution)
                 samples.append(array)
             except IndexError:
                 failed += 1
@@ -116,7 +116,7 @@ class DataModule_process(pl.LightningDataModule):
             try:
                 m = trimesh.load(path, force="mesh")
                 if process_to_array:
-                    m = mesh2arrayCentered(m, array_length=self.config.array_size)
+                    m = mesh2arrayCentered(m, array_length=self.config.resolution)
                 samples.append(m)
             except Exception as exc:
                 failed += 1
@@ -306,10 +306,10 @@ class DataModule(pl.LightningDataModule):
                     array = data_augmentation(
                         m,
                         num_augment_data=config.num_augment_data,
-                        array_length=config.array_size,
+                        array_length=config.resolution,
                     )
                 else:
-                    array = mesh2arrayCentered(m, array_length=config.array_size)[
+                    array = mesh2arrayCentered(m, array_length=config.resolution)[
                         np.newaxis, :, :, :
                     ]
                 dataset.append(array)
@@ -381,7 +381,7 @@ class AugmentationDataset(Dataset):
             )
 
         array = mesh2arrayCentered(
-            selectedItem, array_length=self.config.array_size
+            selectedItem, array_length=self.config.resolution
         )  # assume selectedItem is Trimesh object
         # print("mesh index:", index, "| rot radian:", angle)
         return torch.tensor(array[np.newaxis, np.newaxis, :, :, :])
@@ -416,10 +416,10 @@ def load_dataset(dataset_name, run, config):
                 array = data_augmentation(
                     m,
                     num_augment_data=config.num_augment_data,
-                    array_length=config.array_size,
+                    array_length=config.resolution,
                 )
             else:
-                array = mesh2arrayCentered(m, array_length=config.array_size)[
+                array = mesh2arrayCentered(m, array_length=config.resolution)[
                     np.newaxis, :, :, :
                 ]
             dataset.append(array)
@@ -652,11 +652,11 @@ def rotateMesh(voxelmesh, radians, axes):
 
 def mesh2arrayCentered(mesh, array_length, voxel_size=1):
     # given array length 64, voxel size 2, then output array size is [128,128,128]
-    array_size = np.ceil(
+    resolution = np.ceil(
         np.array([array_length, array_length, array_length]) / voxel_size
     ).astype(int)
     vox_array = np.zeros(
-        array_size, dtype=bool
+        resolution, dtype=bool
     )  # tanh: voxel representation [-1,1], sigmoid: [0,1]
     # scale mesh extent to fit array_length
     max_length = np.max(np.array(mesh.extents))
@@ -666,7 +666,7 @@ def mesh2arrayCentered(mesh, array_length, voxel_size=1):
     v = mesh.voxelized(voxel_size)  # max voxel array length = array_length / voxel_size
 
     # find indices in the v.matrix to center it in vox_array
-    indices = ((array_size - v.matrix.shape) / 2).astype(int)
+    indices = ((resolution - v.matrix.shape) / 2).astype(int)
     vox_array[
         indices[0] : indices[0] + v.matrix.shape[0],
         indices[1] : indices[1] + v.matrix.shape[1],

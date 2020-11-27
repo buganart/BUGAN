@@ -21,7 +21,7 @@ device
 #####
 class VAE_train(pl.LightningModule):
     @staticmethod
-    def add_model_specific_args(parent_parser, array_size=32):
+    def add_model_specific_args(parent_parser, resolution=32):
         parser = ArgumentParser(parents=[parent_parser], add_help=False)
         # log argument
         parser.add_argument("--log_interval", type=int, default=10)
@@ -29,7 +29,7 @@ class VAE_train(pl.LightningModule):
 
         # model specific argument (VAE)
         parser.add_argument("--z_size", type=int, default=128)
-        parser.add_argument("--array_size", type=int, default=array_size)
+        parser.add_argument("--resolution", type=int, default=resolution)
         # number of layer per block
         parser.add_argument("--vae_decoder_layer", type=int, default=2)
         parser.add_argument("--vae_encoder_layer", type=int, default=1)
@@ -44,7 +44,7 @@ class VAE_train(pl.LightningModule):
         # learning rate
         parser.add_argument("--vae_lr", type=float, default=0.0025)
         # number of unit per layer
-        if array_size == 32:
+        if resolution == 32:
             decoder_num_layer_unit = [1024, 512, 256, 128]
             encoder_num_layer_unit = [32, 64, 128, 128]
         else:
@@ -55,23 +55,23 @@ class VAE_train(pl.LightningModule):
 
         return parser
 
-    def __init__(self, hparam):
+    def __init__(self, **config):
         super(VAE_train, self).__init__()
         # assert(vae.sample_size == discriminator.input_size)
-        self.hparam = hparam
-        self.save_hyperparameters("hparam")
+        self.save_hyperparameters()
+        config = Namespace(**config)
         # add missing default parameters
         parser = self.add_model_specific_args(
-            ArgumentParser(), array_size=hparam.array_size
+            ArgumentParser(), resolution=config.resolution
         )
         args = parser.parse_args([])
-        config = combine_namespace(args, hparam)
+        config = combine_namespace(args, config)
         self.config = config
         # create components
         decoder = Generator(
             config.vae_decoder_layer,
             config.z_size,
-            config.array_size,
+            config.resolution,
             config.decoder_num_layer_unit,
             dropout_prob=config.dropout_prob,
             activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
@@ -79,7 +79,7 @@ class VAE_train(pl.LightningModule):
         encoder = Discriminator(
             config.vae_encoder_layer,
             config.z_size,
-            config.array_size,
+            config.resolution,
             config.encoder_num_layer_unit,
             activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
         )
@@ -157,12 +157,12 @@ class VAE_train(pl.LightningModule):
         config = self.config
         generator = self.vae.vae_decoder
 
-        return generate_tree(generator, config.array_size, num_trees=num_trees)
+        return generate_tree(generator, config.resolution, num_trees=num_trees)
 
 
 class VAEGAN(pl.LightningModule):
     @staticmethod
-    def add_model_specific_args(parent_parser, array_size=32):
+    def add_model_specific_args(parent_parser, resolution=32):
         parser = ArgumentParser(parents=[parent_parser], add_help=False)
         # log argument
         parser.add_argument("--log_interval", type=int, default=10)
@@ -170,7 +170,7 @@ class VAEGAN(pl.LightningModule):
 
         # model specific argument (VAE, discriminator)
         parser.add_argument("--z_size", type=int, default=128)
-        parser.add_argument("--array_size", type=int, default=array_size)
+        parser.add_argument("--resolution", type=int, default=resolution)
         # number of layer per block
         parser.add_argument("--vae_decoder_layer", type=int, default=2)
         parser.add_argument("--vae_encoder_layer", type=int, default=1)
@@ -193,7 +193,7 @@ class VAEGAN(pl.LightningModule):
         parser.add_argument("--vae_lr", type=float, default=0.0025)
         parser.add_argument("--d_lr", type=float, default=0.00005)
         # number of unit per layer
-        if array_size == 32:
+        if resolution == 32:
             decoder_num_layer_unit = [1024, 512, 256, 128]
             encoder_num_layer_unit = [32, 64, 128, 128]
             dis_num_layer_unit = [32, 64, 128, 128]
@@ -207,23 +207,23 @@ class VAEGAN(pl.LightningModule):
 
         return parser
 
-    def __init__(self, hparam):
+    def __init__(self, **config):
         super(VAEGAN, self).__init__()
         # assert(vae.sample_size == discriminator.input_size)
-        self.hparam = hparam
-        self.save_hyperparameters("hparam")
+        self.save_hyperparameters()
+        config = Namespace(**config)
         # add missing default parameters
         parser = self.add_model_specific_args(
-            ArgumentParser(), array_size=hparam.array_size
+            ArgumentParser(), resolution=config.resolution
         )
         args = parser.parse_args([])
-        config = combine_namespace(args, hparam)
+        config = combine_namespace(args, config)
         self.config = config
         # create components
         decoder = Generator(
             config.vae_decoder_layer,
             config.z_size,
-            config.array_size,
+            config.resolution,
             config.decoder_num_layer_unit,
             dropout_prob=config.dropout_prob,
             activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
@@ -231,7 +231,7 @@ class VAEGAN(pl.LightningModule):
         encoder = Discriminator(
             config.vae_encoder_layer,
             config.z_size,
-            config.array_size,
+            config.resolution,
             config.encoder_num_layer_unit,
             activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
         )
@@ -240,7 +240,7 @@ class VAEGAN(pl.LightningModule):
         discriminator = Discriminator(
             config.d_layer,
             config.z_size,
-            config.array_size,
+            config.resolution,
             config.dis_num_layer_unit,
             activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
         )
@@ -395,12 +395,12 @@ class VAEGAN(pl.LightningModule):
         config = self.config
         generator = self.vae.vae_decoder
 
-        return generate_tree(generator, config.array_size, num_trees=num_trees)
+        return generate_tree(generator, config.resolution, num_trees=num_trees)
 
 
 class GAN(pl.LightningModule):
     @staticmethod
-    def add_model_specific_args(parent_parser, array_size=32):
+    def add_model_specific_args(parent_parser, resolution=32):
         parser = ArgumentParser(parents=[parent_parser], add_help=False)
         # log argument
         parser.add_argument("--log_interval", type=int, default=10)
@@ -408,7 +408,7 @@ class GAN(pl.LightningModule):
 
         # model specific argument (Generator, discriminator)
         parser.add_argument("--z_size", type=int, default=128)
-        parser.add_argument("--array_size", type=int, default=array_size)
+        parser.add_argument("--resolution", type=int, default=resolution)
         # number of layer per block
         parser.add_argument("--g_layer", type=int, default=2)
         parser.add_argument("--d_layer", type=int, default=1)
@@ -429,7 +429,7 @@ class GAN(pl.LightningModule):
         parser.add_argument("--g_lr", type=float, default=0.0025)
         parser.add_argument("--d_lr", type=float, default=0.00005)
         # number of unit per layer
-        if array_size == 32:
+        if resolution == 32:
             gen_num_layer_unit = [1024, 512, 256, 128]
             dis_num_layer_unit = [32, 64, 128, 128]
         else:
@@ -440,24 +440,23 @@ class GAN(pl.LightningModule):
 
         return parser
 
-    def __init__(self, hparam):
+    def __init__(self, **config):
         super(GAN, self).__init__()
-
-        self.hparam = hparam
-        self.save_hyperparameters("hparam")
+        self.save_hyperparameters()
+        config = Namespace(**config)
         # add missing default parameters
         parser = self.add_model_specific_args(
-            ArgumentParser(), array_size=hparam.array_size
+            ArgumentParser(), resolution=config.resolution
         )
         args = parser.parse_args([])
-        config = combine_namespace(args, hparam)
+        config = combine_namespace(args, config)
         self.config = config
 
         # create components
         generator = Generator(
             config.g_layer,
             config.z_size,
-            config.array_size,
+            config.resolution,
             config.gen_num_layer_unit,
             dropout_prob=config.dropout_prob,
             activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
@@ -466,7 +465,7 @@ class GAN(pl.LightningModule):
         discriminator = Discriminator(
             config.d_layer,
             config.z_size,
-            config.array_size,
+            config.resolution,
             config.dis_num_layer_unit,
             activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
         )
@@ -616,17 +615,17 @@ class GAN(pl.LightningModule):
         config = self.config
         generator = self.generator
 
-        return generate_tree(generator, config.array_size, num_trees=num_trees)
+        return generate_tree(generator, config.resolution, num_trees=num_trees)
 
 
 class VAEGAN_Wloss_GP(VAEGAN):
     @staticmethod
-    def add_model_specific_args(parent_parser, array_size=32):
+    def add_model_specific_args(parent_parser, resolution=32):
         parser = ArgumentParser(parents=[parent_parser], add_help=False)
         # important argument
         parser.add_argument("--gp_epsilon", type=int, default=128)
 
-        return VAEGAN.add_model_specific_args(parser, array_size)
+        return VAEGAN.add_model_specific_args(parser, resolution)
 
     def gradient_penalty(self, real_tree, generated_tree):
         batch_size = real_tree.shape[0]
@@ -763,33 +762,32 @@ class VAEGAN_Wloss_GP(VAEGAN):
 #####
 class CGAN(GAN):
     @staticmethod
-    def add_model_specific_args(parent_parser, array_size=32):
+    def add_model_specific_args(parent_parser, resolution=32):
         parser = ArgumentParser(parents=[parent_parser], add_help=False)
         # log argument
         parser.add_argument("--num_classes", type=int, default=10)
         # loss function in {'BCELoss', 'MSELoss', 'CrossEntropyLoss'}
         parser.add_argument("--class_loss", type=str, default="CrossEntropyLoss")
 
-        return GAN.add_model_specific_args(parser, array_size)
+        return GAN.add_model_specific_args(parser, resolution)
 
-    def __init__(self, hparam):
+    def __init__(self, **config):
         super(GAN, self).__init__()
-
-        self.hparam = hparam
-        self.save_hyperparameters("hparam")
+        self.save_hyperparameters()
+        config = Namespace(**config)
         # add missing default parameters
         parser = self.add_model_specific_args(
-            ArgumentParser(), array_size=hparam.array_size
+            ArgumentParser(), resolution=config.resolution
         )
         args = parser.parse_args([])
-        config = combine_namespace(args, hparam)
+        config = combine_namespace(args, config)
         self.config = config
 
         # create components
         generator = Generator(
             config.g_layer,
             config.z_size + config.num_classes,
-            config.array_size,
+            config.resolution,
             config.gen_num_layer_unit,
             dropout_prob=config.dropout_prob,
             activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
@@ -798,7 +796,7 @@ class CGAN(GAN):
         discriminator = Discriminator(
             config.d_layer,
             config.z_size,
-            config.array_size,
+            config.resolution,
             config.dis_num_layer_unit,
             activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
         )
@@ -806,7 +804,7 @@ class CGAN(GAN):
         classifier = Discriminator(
             config.d_layer,
             config.z_size,
-            config.array_size,
+            config.resolution,
             config.dis_num_layer_unit,
             output_size=config.num_classes,
             activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
@@ -1057,7 +1055,7 @@ class CGAN(GAN):
         generator = self.generator
 
         return generate_tree(
-            generator, config.array_size, c, config.num_classes, num_trees=num_trees
+            generator, config.resolution, c, config.num_classes, num_trees=num_trees
         )
 
 
@@ -1350,7 +1348,7 @@ class CVAE(nn.Module):
 
 
 def generate_tree(
-    generator, array_size, c=None, num_classes=None, num_trees=1, batch_size=-1
+    generator, resolution, c=None, num_classes=None, num_trees=1, batch_size=-1
 ):
     if batch_size == -1:
         batch_size = 32
@@ -1391,7 +1389,7 @@ def generate_tree(
         result = result[:num_trees]
     # in case no good result
     if result.shape[0] <= 0:
-        result = np.zeros((1, array_size, array_size, array_size))
+        result = np.zeros((1, resolution, resolution, resolution))
         result[:, 0, 0, 0] = 1
     return result
 
