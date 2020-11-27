@@ -55,21 +55,18 @@ class VAE_train(pl.LightningModule):
 
         return parser
 
-    def __init__(self, **config):
+    def __init__(self, config):
         super(VAE_train, self).__init__()
         # assert(vae.sample_size == discriminator.input_size)
-        for k, v in config.items():
-            setattr(self, k, v)
-
-        self.save_hyperparameters()
+        self.config = config
+        self.save_hyperparameters("config")
         # add missing default parameters
         parser = self.add_model_specific_args(
-            ArgumentParser(), resolution=self.resolution
+            ArgumentParser(), resolution=config.resolution
         )
         args = parser.parse_args([])
         config = combine_namespace(args, config)
-        self.config = self
-        config = self
+        self.config = config
         # create components
         decoder = Generator(
             config.vae_decoder_layer,
@@ -210,21 +207,18 @@ class VAEGAN(pl.LightningModule):
 
         return parser
 
-    def __init__(self, **config):
+    def __init__(self, config):
         super(VAEGAN, self).__init__()
         # assert(vae.sample_size == discriminator.input_size)
-        for k, v in config.items():
-            setattr(self, k, v)
-
-        self.save_hyperparameters()
+        self.config = config
+        self.save_hyperparameters("config")
         # add missing default parameters
         parser = self.add_model_specific_args(
-            ArgumentParser(), resolution=self.resolution
+            ArgumentParser(), resolution=config.resolution
         )
         args = parser.parse_args([])
         config = combine_namespace(args, config)
-        self.config = self
-        config = self
+        self.config = config
         # create components
         decoder = Generator(
             config.vae_decoder_layer,
@@ -446,20 +440,17 @@ class GAN(pl.LightningModule):
 
         return parser
 
-    def __init__(self, **config):
+    def __init__(self, config):
         super(GAN, self).__init__()
-        for k, v in config.items():
-            setattr(self, k, v)
-
-        self.save_hyperparameters()
+        self.config = config
+        self.save_hyperparameters("config")
         # add missing default parameters
         parser = self.add_model_specific_args(
-            ArgumentParser(), resolution=self.resolution
+            ArgumentParser(), resolution=config.resolution
         )
         args = parser.parse_args([])
         config = combine_namespace(args, config)
-        self.config = self
-        config = self
+        self.config = config
 
         # create components
         generator = Generator(
@@ -780,20 +771,17 @@ class CGAN(GAN):
 
         return GAN.add_model_specific_args(parser, resolution)
 
-    def __init__(self, **config):
+    def __init__(self, config):
         super(GAN, self).__init__()
-        for k, v in config.items():
-            setattr(self, k, v)
-
-        self.save_hyperparameters()
+        self.config = config
+        self.save_hyperparameters("config")
         # add missing default parameters
         parser = self.add_model_specific_args(
-            ArgumentParser(), resolution=self.resolution
+            ArgumentParser(), resolution=config.resolution
         )
         args = parser.parse_args([])
         config = combine_namespace(args, config)
-        self.config = self
-        config = self
+        self.config = config
 
         # create components
         generator = Generator(
