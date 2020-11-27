@@ -58,7 +58,7 @@ class VAE_train(pl.LightningModule):
     def __init__(self, **config):
         super(VAE_train, self).__init__()
         # assert(vae.sample_size == discriminator.input_size)
-        for k, v in config.iteritems():
+        for k, v in config.items():
             setattr(self, k, v)
 
         self.save_hyperparameters()
@@ -213,7 +213,7 @@ class VAEGAN(pl.LightningModule):
     def __init__(self, **config):
         super(VAEGAN, self).__init__()
         # assert(vae.sample_size == discriminator.input_size)
-        for k, v in config.iteritems():
+        for k, v in config.items():
             setattr(self, k, v)
 
         self.save_hyperparameters()
@@ -448,7 +448,7 @@ class GAN(pl.LightningModule):
 
     def __init__(self, **config):
         super(GAN, self).__init__()
-        for k, v in config.iteritems():
+        for k, v in config.items():
             setattr(self, k, v)
 
         self.save_hyperparameters()
@@ -782,7 +782,7 @@ class CGAN(GAN):
 
     def __init__(self, **config):
         super(GAN, self).__init__()
-        for k, v in config.iteritems():
+        for k, v in config.items():
             setattr(self, k, v)
 
         self.save_hyperparameters()
