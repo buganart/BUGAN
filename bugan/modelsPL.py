@@ -930,7 +930,7 @@ class GAN_Wloss(GAN):
 
     def configure_optimizers(self):
         config = self.config
-        vae = self.vae
+        generator = self.generator
         discriminator = self.discriminator
 
         # optimizer
