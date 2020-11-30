@@ -890,7 +890,7 @@ class GAN_Wloss(GAN):
             dout_fake = self.discriminator(tree_fake, output_all=False)
 
             # generator should maximize dout_fake
-            gloss = -gloss.mean()
+            gloss = -dout_fake.mean()
 
             # record loss
             self.g_ep_loss.append(gloss.detach().cpu().numpy())
