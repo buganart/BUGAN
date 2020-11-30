@@ -912,13 +912,11 @@ class GAN_Wloss(GAN):
 
             # real data (data from dataloader)
             dout_real = self.discriminator(dataset_batch, output_all=False)
-            dloss_real = criterion_label(dout_real, real_label)
 
             # fake data (data from generator)
             dout_fake = self.discriminator(
                 tree_fake.clone().detach()
             )  # detach so no update to generator
-            dloss_fake = criterion_label(dout_fake, fake_label)
 
             # d should maximize diff of real vs fake (dout_real - dout_fake)
             dloss = dout_fake.mean() - dout_real.mean()
