@@ -163,14 +163,14 @@ class VAE_train(pl.LightningModule):
         return vae_loss
 
     def add_noise_to_samples(self, data):
-        if self.linear_annealed_instance_noise_epoch - self.current_epoch <= 0:
+        if self.config.linear_annealed_instance_noise_epoch - self.current_epoch <= 0:
             # noise_rate = 0, return data
             return data
         # linear annealed noise
         noise_rate = (
-            self.linear_annealed_instance_noise_epoch - self.current_epoch
-        ) / self.linear_annealed_instance_noise_epoch
-        noise_magnitude = self.instance_noise * noise_rate
+            self.config.linear_annealed_instance_noise_epoch - self.current_epoch
+        ) / self.config.linear_annealed_instance_noise_epoch
+        noise_magnitude = self.config.instance_noise * noise_rate
         # create uniform noise
         noise = torch.rand(data.shape) * 2 - 1
         noise = noise_magnitude * noise  # noise in [-magn, magn]
@@ -430,14 +430,14 @@ class VAEGAN(pl.LightningModule):
             return dloss
 
     def add_noise_to_samples(self, data):
-        if self.linear_annealed_instance_noise_epoch - self.current_epoch <= 0:
+        if self.config.linear_annealed_instance_noise_epoch - self.current_epoch <= 0:
             # noise_rate = 0, return data
             return data
         # linear annealed noise
         noise_rate = (
-            self.linear_annealed_instance_noise_epoch - self.current_epoch
-        ) / self.linear_annealed_instance_noise_epoch
-        noise_magnitude = self.instance_noise * noise_rate
+            self.config.linear_annealed_instance_noise_epoch - self.current_epoch
+        ) / self.config.linear_annealed_instance_noise_epoch
+        noise_magnitude = self.config.instance_noise * noise_rate
         # create uniform noise
         noise = torch.rand(data.shape) * 2 - 1
         noise = noise_magnitude * noise  # noise in [-magn, magn]
@@ -1252,14 +1252,14 @@ class CGAN(GAN):
             return closs
 
     def add_noise_to_samples(self, data):
-        if self.linear_annealed_instance_noise_epoch - self.current_epoch <= 0:
+        if self.config.linear_annealed_instance_noise_epoch - self.current_epoch <= 0:
             # noise_rate = 0, return data
             return data
         # linear annealed noise
         noise_rate = (
-            self.linear_annealed_instance_noise_epoch - self.current_epoch
-        ) / self.linear_annealed_instance_noise_epoch
-        noise_magnitude = self.instance_noise * noise_rate
+            self.config.linear_annealed_instance_noise_epoch - self.current_epoch
+        ) / self.config.linear_annealed_instance_noise_epoch
+        noise_magnitude = self.config.instance_noise * noise_rate
         # create uniform noise
         noise = torch.rand(data.shape) * 2 - 1
         noise = noise_magnitude * noise  # noise in [-magn, magn]
