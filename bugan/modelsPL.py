@@ -933,10 +933,12 @@ class GAN_Wloss(GAN):
         vae = self.vae
         discriminator = self.discriminator
 
-        self.vae_optimizer = optim.Adam(vae.parameters(), lr=config.vae_lr)
-
-        self.discriminator_optimizer = optim.Adam(
-            discriminator.parameters(), lr=config.d_lr
+        # optimizer
+        self.generator_optimizer = get_model_optimizer(
+            generator, config.gen_opt, config.g_lr
+        )
+        self.discriminator_optimizer = get_model_optimizer(
+            discriminator, config.dis_opt, config.d_lr
         )
 
         # clip critic (discriminator) gradient
@@ -946,7 +948,7 @@ class GAN_Wloss(GAN):
         for p in discriminator.parameters():
             p.register_hook(lambda grad: torch.clamp(grad, -clip_value, clip_value))
 
-        return self.vae_optimizer, self.discriminator_optimizer
+        return self.generator_optimizer, self.discriminator_optimizer
 
 
 #####
