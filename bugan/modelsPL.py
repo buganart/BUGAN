@@ -853,7 +853,7 @@ class GAN_Wloss(GAN):
         # important argument
         parser.add_argument("--clip_value", type=float, default=0.01)
 
-        return VAEGAN.add_model_specific_args(parser, resolution)
+        return GAN.add_model_specific_args(parser, resolution)
 
     def training_step(self, dataset_batch, batch_idx, optimizer_idx):
         config = self.config
