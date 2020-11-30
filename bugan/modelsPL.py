@@ -174,7 +174,7 @@ class VAE_train(pl.LightningModule):
         # create uniform noise
         noise = torch.rand(data.shape) * 2 - 1
         noise = noise_magnitude * noise  # noise in [-magn, magn]
-        noise = noise.float().type_as(dataset_batch).detach()
+        noise = noise.float().type_as(data).detach()
         # add noise to data
         data = data * (1 - noise_magnitude)  # now batch in [-1+magn, 1-magn]
         data = data + noise
@@ -441,7 +441,7 @@ class VAEGAN(pl.LightningModule):
         # create uniform noise
         noise = torch.rand(data.shape) * 2 - 1
         noise = noise_magnitude * noise  # noise in [-magn, magn]
-        noise = noise.float().type_as(dataset_batch).detach()
+        noise = noise.float().type_as(data).detach()
         # add noise to data
         data = data * (1 - noise_magnitude)  # now batch in [-1+magn, 1-magn]
         data = data + noise
@@ -688,7 +688,7 @@ class GAN(pl.LightningModule):
         # create uniform noise
         noise = torch.rand(data.shape) * 2 - 1
         noise = noise_magnitude * noise  # noise in [-magn, magn]
-        noise = noise.float().type_as(dataset_batch).detach()
+        noise = noise.float().type_as(data).detach()
         # add noise to data
         data = data * (1 - noise_magnitude)  # now batch in [-1+magn, 1-magn]
         data = data + noise
