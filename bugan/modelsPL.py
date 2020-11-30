@@ -852,9 +852,6 @@ class GAN_Wloss(GAN):
         parser = ArgumentParser(parents=[parent_parser], add_help=False)
         # important argument
         parser.add_argument("--clip_value", type=float, default=0.01)
-        # optimizer in {"Adam", "SGD"}
-        parser.add_argument("--gen_opt", type=str, default="SGD")
-        parser.add_argument("--dis_opt", type=str, default="SGD")
 
         return VAEGAN.add_model_specific_args(parser, resolution)
 
