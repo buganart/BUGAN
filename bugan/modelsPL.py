@@ -133,7 +133,13 @@ class VAE_train(pl.LightningModule):
         # scale to [-1,1]
         dataset_batch = dataset_batch * 2 - 1
         # add instance noise
-        dataset_batch = self.add_noise_to_samples(dataset_batch)
+        instance_noise, noise_magnitude = self.generate_noise_for_samples(dataset_batch)
+        # add noise to data
+        dataset_batch = dataset_batch * (
+            1 - noise_magnitude
+        )  # now batch in [-1+magn, 1-magn]
+        dataset_batch = dataset_batch + instance_noise
+
         dataset_batch = dataset_batch.float()
 
         batch_size = dataset_batch.shape[0]
@@ -148,7 +154,10 @@ class VAE_train(pl.LightningModule):
 
         reconstructed_data, mu, logVar = vae(dataset_batch, output_all=True)
         # add instance noise
-        reconstructed_data = self.add_noise_to_samples(reconstructed_data)
+        reconstructed_data = reconstructed_data * (
+            1 - noise_magnitude
+        )  # now batch in [-1+magn, 1-magn]
+        reconstructed_data = reconstructed_data + instance_noise
         vae_rec_loss = criterion_reconstruct(reconstructed_data, dataset_batch)
 
         # add KL loss
@@ -162,7 +171,7 @@ class VAE_train(pl.LightningModule):
 
         return vae_loss
 
-    def add_noise_to_samples(self, data):
+    def generate_noise_for_samples(self, data):
         if self.config.linear_annealed_instance_noise_epoch - self.current_epoch <= 0:
             # noise_rate = 0, return data
             return data
@@ -175,10 +184,8 @@ class VAE_train(pl.LightningModule):
         noise = torch.rand(data.shape) * 2 - 1
         noise = noise_magnitude * noise  # noise in [-magn, magn]
         noise = noise.float().type_as(data).detach()
-        # add noise to data
-        data = data * (1 - noise_magnitude)  # now batch in [-1+magn, 1-magn]
-        data = data + noise
-        return data
+
+        return noise, noise_magnitude
 
     def generate_tree(self, num_trees=1):
         config = self.config
@@ -340,7 +347,13 @@ class VAEGAN(pl.LightningModule):
         # scale to [-1,1]
         dataset_batch = dataset_batch * 2 - 1
         # add instance noise
-        dataset_batch = self.add_noise_to_samples(dataset_batch)
+        instance_noise, noise_magnitude = self.generate_noise_for_samples(dataset_batch)
+        # add noise to data
+        dataset_batch = dataset_batch * (
+            1 - noise_magnitude
+        )  # now batch in [-1+magn, 1-magn]
+        dataset_batch = dataset_batch + instance_noise
+
         dataset_batch = dataset_batch.float()
 
         batch_size = dataset_batch.shape[0]
@@ -378,8 +391,11 @@ class VAEGAN(pl.LightningModule):
             ############
 
             reconstructed_data, mu, logVar = vae(dataset_batch, output_all=True)
-            # add instance noise
-            reconstructed_data = self.add_noise_to_samples(reconstructed_data)
+            # add noise to data
+            reconstructed_data = reconstructed_data * (
+                1 - noise_magnitude
+            )  # now batch in [-1+magn, 1-magn]
+            reconstructed_data = reconstructed_data + instance_noise
 
             vae_rec_loss = criterion_reconstruct(reconstructed_data, dataset_batch)
 
@@ -410,8 +426,11 @@ class VAEGAN(pl.LightningModule):
                 torch.randn(batch_size, latent_size).float().type_as(dataset_batch)
             )  # noise vector
             tree_fake = F.tanh(vae.generate_sample(z))
-            # add instance noise
-            tree_fake = self.add_noise_to_samples(tree_fake)
+            # add noise to data
+            tree_fake = tree_fake * (
+                1 - noise_magnitude
+            )  # now batch in [-1+magn, 1-magn]
+            tree_fake = tree_fake + instance_noise
 
             # fake data (data from generator)
             dout_fake = discriminator(
@@ -429,7 +448,7 @@ class VAEGAN(pl.LightningModule):
 
             return dloss
 
-    def add_noise_to_samples(self, data):
+    def generate_noise_for_samples(self, data):
         if self.config.linear_annealed_instance_noise_epoch - self.current_epoch <= 0:
             # noise_rate = 0, return data
             return data
@@ -442,10 +461,8 @@ class VAEGAN(pl.LightningModule):
         noise = torch.rand(data.shape) * 2 - 1
         noise = noise_magnitude * noise  # noise in [-magn, magn]
         noise = noise.float().type_as(data).detach()
-        # add noise to data
-        data = data * (1 - noise_magnitude)  # now batch in [-1+magn, 1-magn]
-        data = data + noise
-        return data
+
+        return noise, noise_magnitude
 
     def generate_tree(self, num_trees=1):
         config = self.config
@@ -593,7 +610,14 @@ class GAN(pl.LightningModule):
         dataset_batch = dataset_batch[0]
         # scale to [-1,1]
         dataset_batch = dataset_batch * 2 - 1
-        dataset_batch = self.add_noise_to_samples(dataset_batch)
+        # add instance noise
+        instance_noise, noise_magnitude = self.generate_noise_for_samples(dataset_batch)
+        # add noise to data
+        dataset_batch = dataset_batch * (
+            1 - noise_magnitude
+        )  # now batch in [-1+magn, 1-magn]
+        dataset_batch = dataset_batch + instance_noise
+
         dataset_batch = dataset_batch.float()
 
         batch_size = dataset_batch.shape[0]
@@ -633,7 +657,11 @@ class GAN(pl.LightningModule):
             )  # 128-d noise vector
             tree_fake = F.tanh(self.generator(z))
 
-            tree_fake = self.add_noise_to_samples(tree_fake)
+            # add noise to data
+            tree_fake = tree_fake * (
+                1 - noise_magnitude
+            )  # now batch in [-1+magn, 1-magn]
+            tree_fake = tree_fake + instance_noise
 
             # tree_fake is already computed above
             dout_fake = self.discriminator(tree_fake, output_all=False)
@@ -656,7 +684,11 @@ class GAN(pl.LightningModule):
             )  # 128-d noise vector
             tree_fake = F.tanh(self.generator(z))
 
-            tree_fake = self.add_noise_to_samples(tree_fake)
+            # add noise to data
+            tree_fake = tree_fake * (
+                1 - noise_magnitude
+            )  # now batch in [-1+magn, 1-magn]
+            tree_fake = tree_fake + instance_noise
 
             # real data (data from dataloader)
             dout_real = self.discriminator(dataset_batch, output_all=False)
@@ -676,7 +708,7 @@ class GAN(pl.LightningModule):
 
             return dloss
 
-    def add_noise_to_samples(self, data):
+    def generate_noise_for_samples(self, data):
         if self.config.linear_annealed_instance_noise_epoch - self.current_epoch <= 0:
             # noise_rate = 0, return data
             return data
@@ -689,10 +721,8 @@ class GAN(pl.LightningModule):
         noise = torch.rand(data.shape) * 2 - 1
         noise = noise_magnitude * noise  # noise in [-magn, magn]
         noise = noise.float().type_as(data).detach()
-        # add noise to data
-        data = data * (1 - noise_magnitude)  # now batch in [-1+magn, 1-magn]
-        data = data + noise
-        return data
+
+        return noise, noise_magnitude
 
     def generate_tree(self, num_trees=1):
         config = self.config
@@ -748,7 +778,14 @@ class VAEGAN_Wloss_GP(VAEGAN):
         dataset_batch = dataset_batch[0]
         # scale to [-1,1]
         dataset_batch = dataset_batch * 2 - 1
-        dataset_batch = self.add_noise_to_samples(dataset_batch)
+        # add instance noise
+        instance_noise, noise_magnitude = self.generate_noise_for_samples(dataset_batch)
+        # add noise to data
+        dataset_batch = dataset_batch * (
+            1 - noise_magnitude
+        )  # now batch in [-1+magn, 1-magn]
+        dataset_batch = dataset_batch + instance_noise
+
         dataset_batch = dataset_batch.float()
 
         batch_size = dataset_batch.shape[0]
@@ -770,7 +807,10 @@ class VAEGAN_Wloss_GP(VAEGAN):
 
             reconstructed_data, mu, logVar = vae(dataset_batch, output_all=True)
             # add instance noise
-            reconstructed_data = self.add_noise_to_samples(reconstructed_data)
+            reconstructed_data = reconstructed_data * (
+                1 - noise_magnitude
+            )  # now batch in [-1+magn, 1-magn]
+            reconstructed_data = reconstructed_data + instance_noise
 
             vae_rec_loss = criterion_reconstruct(reconstructed_data, dataset_batch)
 
@@ -801,8 +841,12 @@ class VAEGAN_Wloss_GP(VAEGAN):
                 torch.randn(batch_size, latent_size).float().type_as(dataset_batch)
             )  # noise vector
             tree_fake = F.tanh(vae.generate_sample(z))
-            # add instance noise
-            tree_fake = self.add_noise_to_samples(tree_fake)
+            # add noise to data
+            tree_fake = tree_fake * (
+                1 - noise_magnitude
+            )  # now batch in [-1+magn, 1-magn]
+            tree_fake = tree_fake + instance_noise
+
             tree_fake = tree_fake.clone().detach()
 
             # fake data (data from generator)
@@ -863,7 +907,13 @@ class GAN_Wloss(GAN):
         # scale to [-1,1]
         dataset_batch = dataset_batch * 2 - 1
         # add instance noise
-        dataset_batch = self.add_noise_to_samples(dataset_batch)
+        instance_noise, noise_magnitude = self.generate_noise_for_samples(dataset_batch)
+        # add noise to data
+        dataset_batch = dataset_batch * (
+            1 - noise_magnitude
+        )  # now batch in [-1+magn, 1-magn]
+        dataset_batch = dataset_batch + instance_noise
+
         dataset_batch = dataset_batch.float()
 
         batch_size = dataset_batch.shape[0]
@@ -883,8 +933,11 @@ class GAN_Wloss(GAN):
                 torch.randn(batch_size, config.z_size).float().type_as(dataset_batch)
             )  # 128-d noise vector
             tree_fake = F.tanh(self.generator(z))
-            # add instance noise
-            tree_fake = self.add_noise_to_samples(tree_fake)
+            # add noise to data
+            tree_fake = tree_fake * (
+                1 - noise_magnitude
+            )  # now batch in [-1+magn, 1-magn]
+            tree_fake = tree_fake + instance_noise
 
             # tree_fake is already computed above
             dout_fake = self.discriminator(tree_fake, output_all=False)
@@ -907,8 +960,11 @@ class GAN_Wloss(GAN):
                 torch.randn(batch_size, config.z_size).float().type_as(dataset_batch)
             )  # 128-d noise vector
             tree_fake = F.tanh(self.generator(z))
-            # add instance noise
-            tree_fake = self.add_noise_to_samples(tree_fake)
+            # add noise to data
+            tree_fake = tree_fake * (
+                1 - noise_magnitude
+            )  # now batch in [-1+magn, 1-magn]
+            tree_fake = tree_fake + instance_noise
 
             # real data (data from dataloader)
             dout_real = self.discriminator(dataset_batch, output_all=False)
@@ -1078,7 +1134,13 @@ class CGAN(GAN):
         # scale to [-1,1]
         dataset_batch = dataset_batch * 2 - 1
         # add instance noise
-        dataset_batch = self.add_noise_to_samples(dataset_batch)
+        instance_noise, noise_magnitude = self.generate_noise_for_samples(dataset_batch)
+        # add noise to data
+        dataset_batch = dataset_batch * (
+            1 - noise_magnitude
+        )  # now batch in [-1+magn, 1-magn]
+        dataset_batch = dataset_batch + instance_noise
+
         dataset_batch = dataset_batch.float()
         dataset_indices = dataset_indices.to(torch.int64)
 
@@ -1137,8 +1199,11 @@ class CGAN(GAN):
             z = torch.cat((z, c_onehot), 1)
 
             tree_fake = F.tanh(self.generator(z))
-            # add instance noise
-            tree_fake = self.add_noise_to_samples(tree_fake)
+            # add noise to data
+            tree_fake = tree_fake * (
+                1 - noise_magnitude
+            )  # now batch in [-1+magn, 1-magn]
+            tree_fake = tree_fake + instance_noise
 
             # tree_fake on Dis
             dout_fake = self.discriminator(tree_fake, output_all=False)
@@ -1183,8 +1248,11 @@ class CGAN(GAN):
 
             # detach so no update to generator
             tree_fake = F.tanh(self.generator(z)).clone().detach()
-            # add instance noise
-            tree_fake = self.add_noise_to_samples(tree_fake)
+            # add noise to data
+            tree_fake = tree_fake * (
+                1 - noise_magnitude
+            )  # now batch in [-1+magn, 1-magn]
+            tree_fake = tree_fake + instance_noise
 
             # real data (data from dataloader)
             dout_real = self.discriminator(dataset_batch, output_all=False)
@@ -1230,8 +1298,11 @@ class CGAN(GAN):
 
             # detach so no update to generator
             tree_fake = F.tanh(self.generator(z)).clone().detach()
-            # add instance noise
-            tree_fake = self.add_noise_to_samples(tree_fake)
+            # add noise to data
+            tree_fake = tree_fake * (
+                1 - noise_magnitude
+            )  # now batch in [-1+magn, 1-magn]
+            tree_fake = tree_fake + instance_noise
 
             # fake data (data from generator)
             cout_fake = self.classifier(tree_fake)
@@ -1248,7 +1319,6 @@ class CGAN(GAN):
             self.c_ep_loss.append(closs.detach().cpu().numpy())
 
             return closs
-
 
     def generate_tree(self, c, num_trees=1):
         config = self.config
