@@ -504,7 +504,8 @@ def wandbLog(model, initial_log_dict={}, log_media=False, log_num_samples=1):
 
             # image / 3D object to log_dict
             image = mesh2wandbImage(voxelmesh)
-            sample_tree_image.append(image)
+            if image is not None:
+                sample_tree_image.append(image)
             voxelmeshfile = mesh2wandb3D(voxelmesh)
             sample_tree_voxelmesh.append(voxelmeshfile)
 
@@ -544,7 +545,8 @@ def wandbLog_cond(
 
                 # image / 3D object to log_dict
                 image = mesh2wandbImage(voxelmesh)
-                sample_tree_image.append(image)
+                if image is not None:
+                    sample_tree_image.append(image)
                 voxelmeshfile = mesh2wandb3D(voxelmesh)
                 sample_tree_voxelmesh.append(voxelmeshfile)
 
@@ -619,6 +621,8 @@ def mesh2wandbImage(voxelmesh, wandb_format=True):
         print(
             "NoSuchDisplayException. Renderer not found! Please check configuation so trimesh scene.save_image() can run successfully"
         )
+        return None
+    
     png = io.BytesIO(png)
     image = Image.open(png)
     if wandb_format:
