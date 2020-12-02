@@ -14,7 +14,7 @@ def device():
 
 def test_vaegan_forward(device):
     config = Namespace(
-        array_size=32,
+        resolution=32,
         d_layer=1,
         g_layer=1,
         gen_num_layer_unit=[2, 2, 2, 2],

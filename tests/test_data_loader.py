@@ -25,7 +25,7 @@ def test_data_module_folder(data_path, data_augmentation, rotation_type):
 
     config = Namespace(
         batch_size=1,
-        array_size=32,
+        resolution=32,
         data_augmentation=data_augmentation,
         aug_rotation_type="random rotation",
     )
