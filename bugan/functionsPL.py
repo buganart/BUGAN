@@ -504,9 +504,9 @@ def wandbLog(model, initial_log_dict={}, log_media=False, log_num_samples=1):
 
             # image / 3D object to log_dict
             image = mesh2wandbImage(voxelmesh)
-            sample_tree_image.append(image)
             if image is not None:
-                voxelmeshfile = mesh2wandb3D(voxelmesh)
+                sample_tree_image.append(image)
+            voxelmeshfile = mesh2wandb3D(voxelmesh)
             sample_tree_voxelmesh.append(voxelmeshfile)
 
         # add list record to log_dict
