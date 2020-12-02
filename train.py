@@ -99,7 +99,7 @@ config.num_data = dataModule.size
 torch.manual_seed(config.seed)
 torch.autograd.set_detect_anomaly(True)
 
-wandb_logger = WandbLogger(experiment=run, log_model=True)
+wandb_logger = WandbLogger(experiment=run, log_model=True, save_dir=wandb.run.dir)
 
 checkpoint_path = os.path.join(wandb.run.dir, "checkpoint.ckpt")
 
