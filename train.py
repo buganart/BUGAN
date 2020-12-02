@@ -52,7 +52,7 @@ else:
 config_dict = dict(
     aug_rotation_type="random rotation",
     batch_size=8,
-    array_size=32,
+    resolution=32,
     z_size=128,
     gen_num_layer_unit=[256, 1024, 512, 128],
     dis_num_layer_unit=[32, 64, 128, 128],
