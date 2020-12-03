@@ -617,12 +617,12 @@ def mesh2wandbImage(voxelmesh, wandb_format=True):
         png = scene.save_image(
             resolution=[600, 600],
         )
-    except NoSuchDisplayException:
+    except:
         print(
             "NoSuchDisplayException. Renderer not found! Please check configuation so trimesh scene.save_image() can run successfully"
         )
         return None
-    
+
     png = io.BytesIO(png)
     image = Image.open(png)
     if wandb_format:
