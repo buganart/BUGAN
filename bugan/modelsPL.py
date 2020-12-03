@@ -93,7 +93,7 @@ class VAE_train(pl.LightningModule):
         # VAE
         self.vae = vae
 
-        #others
+        # others
         self.noise_magnitude = config.instance_noise
 
     def configure_optimizers(self):
@@ -109,7 +109,7 @@ class VAE_train(pl.LightningModule):
         # reset ep_loss
         self.vae_ep_loss = []
 
-        #calc instance noise
+        # calc instance noise
         if self.noise_magnitude > 0:
             # linear annealed noise
             noise_rate = (
@@ -164,7 +164,9 @@ class VAE_train(pl.LightningModule):
 
         reconstructed_data, mu, logVar = vae(dataset_batch, output_all=True)
         # add instance noise
-        reconstructed_data = self.add_noise_to_samples(reconstructed_data, instance_noise)
+        reconstructed_data = self.add_noise_to_samples(
+            reconstructed_data, instance_noise
+        )
 
         vae_rec_loss = criterion_reconstruct(reconstructed_data, dataset_batch)
 
@@ -193,11 +195,10 @@ class VAE_train(pl.LightningModule):
         if self.noise_magnitude <= 0:
             return data
         # add instance noise
-            # now batch in [-1+magn, 1-magn]
-        data = data * (1 - self.noise_magnitude)  
+        # now batch in [-1+magn, 1-magn]
+        data = data * (1 - self.noise_magnitude)
         data = data + noise
         return data
-
 
     def generate_tree(self, num_trees=1):
         config = self.config
@@ -301,7 +302,7 @@ class VAEGAN(pl.LightningModule):
         # GAN
         self.discriminator = discriminator
 
-        #others
+        # others
         self.noise_magnitude = config.instance_noise
 
     def forward(self, x):
@@ -330,7 +331,7 @@ class VAEGAN(pl.LightningModule):
         self.d_ep_loss = []
         self.vae_ep_loss = []
 
-        #calc instance noise
+        # calc instance noise
         if self.noise_magnitude > 0:
             # linear annealed noise
             noise_rate = (
@@ -414,7 +415,9 @@ class VAEGAN(pl.LightningModule):
 
             reconstructed_data, mu, logVar = vae(dataset_batch, output_all=True)
             # add noise to data
-            reconstructed_data = self.add_noise_to_samples(reconstructed_data, instance_noise)
+            reconstructed_data = self.add_noise_to_samples(
+                reconstructed_data, instance_noise
+            )
 
             vae_rec_loss = criterion_reconstruct(reconstructed_data, dataset_batch)
 
@@ -478,8 +481,8 @@ class VAEGAN(pl.LightningModule):
         if self.noise_magnitude <= 0:
             return data
         # add instance noise
-            # now batch in [-1+magn, 1-magn]
-        data = data * (1 - self.noise_magnitude)  
+        # now batch in [-1+magn, 1-magn]
+        data = data * (1 - self.noise_magnitude)
         data = data + noise
         return data
 
@@ -571,7 +574,7 @@ class GAN(pl.LightningModule):
         self.generator = generator
         self.discriminator = discriminator
 
-        #others
+        # others
         self.noise_magnitude = config.instance_noise
 
     def forward(self, x):
@@ -601,7 +604,7 @@ class GAN(pl.LightningModule):
         self.d_ep_loss = []
         self.g_ep_loss = []
 
-        #calc instance noise
+        # calc instance noise
         if self.noise_magnitude > 0:
             # linear annealed noise
             noise_rate = (
@@ -745,8 +748,8 @@ class GAN(pl.LightningModule):
         if self.noise_magnitude <= 0:
             return data
         # add instance noise
-            # now batch in [-1+magn, 1-magn]
-        data = data * (1 - self.noise_magnitude)  
+        # now batch in [-1+magn, 1-magn]
+        data = data * (1 - self.noise_magnitude)
         data = data + noise
         return data
 
@@ -830,7 +833,9 @@ class VAEGAN_Wloss_GP(VAEGAN):
 
             reconstructed_data, mu, logVar = vae(dataset_batch, output_all=True)
             # add instance noise
-            reconstructed_data = self.add_noise_to_samples(reconstructed_data, instance_noise)
+            reconstructed_data = self.add_noise_to_samples(
+                reconstructed_data, instance_noise
+            )
 
             vae_rec_loss = criterion_reconstruct(reconstructed_data, dataset_batch)
 
@@ -1071,7 +1076,7 @@ class CGAN(GAN):
         self.discriminator = discriminator
         self.classifier = classifier
 
-        #others
+        # others
         self.noise_magnitude = config.instance_noise
 
     def forward(self, x):
@@ -1111,7 +1116,7 @@ class CGAN(GAN):
         self.g_ep_loss = []
         self.c_ep_loss = []
 
-        #calc instance noise
+        # calc instance noise
         if self.noise_magnitude > 0:
             # linear annealed noise
             noise_rate = (
