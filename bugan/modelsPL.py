@@ -204,7 +204,12 @@ class VAE_train(pl.LightningModule):
         config = self.config
         generator = self.vae.vae_decoder
 
-        return generate_tree(generator, config.resolution, num_trees=num_trees)
+        return generate_tree(
+            generator,
+            config.resolution,
+            num_trees=num_trees,
+            batch_size=config.batch_size,
+        )
 
 
 class VAEGAN(pl.LightningModule):
@@ -490,7 +495,12 @@ class VAEGAN(pl.LightningModule):
         config = self.config
         generator = self.vae.vae_decoder
 
-        return generate_tree(generator, config.resolution, num_trees=num_trees)
+        return generate_tree(
+            generator,
+            config.resolution,
+            num_trees=num_trees,
+            batch_size=config.batch_size,
+        )
 
 
 class GAN(pl.LightningModule):
@@ -757,7 +767,12 @@ class GAN(pl.LightningModule):
         config = self.config
         generator = self.generator
 
-        return generate_tree(generator, config.resolution, num_trees=num_trees)
+        return generate_tree(
+            generator,
+            config.resolution,
+            num_trees=num_trees,
+            batch_size=config.batch_size,
+        )
 
 
 class VAEGAN_Wloss_GP(VAEGAN):
@@ -765,7 +780,7 @@ class VAEGAN_Wloss_GP(VAEGAN):
     def add_model_specific_args(parent_parser, resolution=32):
         parser = ArgumentParser(parents=[parent_parser], add_help=False)
         # important argument
-        parser.add_argument("--gp_epsilon", type=int, default=128)
+        parser.add_argument("--gp_epsilon", type=int, default=5)
 
         return VAEGAN.add_model_specific_args(parser, resolution)
 
@@ -1339,7 +1354,12 @@ class CGAN(GAN):
         generator = self.generator
 
         return generate_tree(
-            generator, config.resolution, c, config.num_classes, num_trees=num_trees
+            generator,
+            config.resolution,
+            c,
+            config.num_classes,
+            num_trees=num_trees,
+            batch_size=config.batch_size,
         )
 
 
@@ -1636,6 +1656,9 @@ def generate_tree(
 ):
     if batch_size == -1:
         batch_size = 32
+
+    if batch_size > num_trees:
+        batch_size = num_trees
 
     result = None
 
