@@ -103,7 +103,11 @@ class VAE_train(pl.LightningModule):
         # optimizer
         self.vae_optimizer = get_model_optimizer(vae, config.vae_opt, config.vae_lr)
 
-        return self.vae_optimizer
+        if hasattr(config,"cyclicLR_magnitude"):
+            vae_scheduler = torch.optim.lr_scheduler.CyclicLR(self.vae_optimizer, base_lr=config.vae_lr / config.cyclicLR_magnitude, max_lr=config.vae_lr * config.cyclicLR_magnitude, step_size_up=200)
+            return [self.vae_optimizer], [vae_scheduler]
+        else:
+            return self.vae_optimizer
 
     def on_train_epoch_start(self):
         # reset ep_loss
@@ -328,8 +332,12 @@ class VAEGAN(pl.LightningModule):
         self.discriminator_optimizer = get_model_optimizer(
             discriminator, config.dis_opt, config.d_lr
         )
-
-        return self.vae_optimizer, self.discriminator_optimizer
+        if hasattr(config,"cyclicLR_magnitude"):
+            vae_scheduler = torch.optim.lr_scheduler.CyclicLR(self.vae_optimizer, base_lr=config.vae_lr / config.cyclicLR_magnitude, max_lr=config.vae_lr * config.cyclicLR_magnitude, step_size_up=200)
+            d_scheduler = torch.optim.lr_scheduler.CyclicLR(self.discriminator_optimizer, base_lr=config.d_lr / config.cyclicLR_magnitude, max_lr=config.d_lr * config.cyclicLR_magnitude, step_size_up=200)
+            return [self.vae_optimizer, self.discriminator_optimizer], [vae_scheduler, d_scheduler]
+        else:
+            return self.vae_optimizer, self.discriminator_optimizer
 
     def on_train_epoch_start(self):
         # reset ep_loss
@@ -607,7 +615,12 @@ class GAN(pl.LightningModule):
             discriminator, config.dis_opt, config.d_lr
         )
 
-        return self.generator_optimizer, self.discriminator_optimizer
+        if hasattr(config,"cyclicLR_magnitude"):
+            g_scheduler = torch.optim.lr_scheduler.CyclicLR(self.generator_optimizer, base_lr=config.g_lr / config.cyclicLR_magnitude, max_lr=config.g_lr * config.cyclicLR_magnitude, step_size_up=200)
+            d_scheduler = torch.optim.lr_scheduler.CyclicLR(self.discriminator_optimizer, base_lr=config.d_lr / config.cyclicLR_magnitude, max_lr=config.d_lr * config.cyclicLR_magnitude, step_size_up=200)
+            return [self.generator_optimizer, self.discriminator_optimizer], [g_scheduler, d_scheduler]
+        else:
+            return self.generator_optimizer, self.discriminator_optimizer
 
     def on_train_epoch_start(self):
         # reset ep_loss
@@ -1030,9 +1043,132 @@ class GAN_Wloss(GAN):
         for p in discriminator.parameters():
             p.register_hook(lambda grad: torch.clamp(grad, -clip_value, clip_value))
 
-        return self.generator_optimizer, self.discriminator_optimizer
+        if hasattr(config,"cyclicLR_magnitude"):
+            g_scheduler = torch.optim.lr_scheduler.CyclicLR(self.generator_optimizer, base_lr=config.g_lr / config.cyclicLR_magnitude, max_lr=config.g_lr * config.cyclicLR_magnitude, step_size_up=200)
+            d_scheduler = torch.optim.lr_scheduler.CyclicLR(self.discriminator_optimizer, base_lr=config.d_lr / config.cyclicLR_magnitude, max_lr=config.d_lr * config.cyclicLR_magnitude, step_size_up=200)
+            return [self.generator_optimizer, self.discriminator_optimizer], [g_scheduler, d_scheduler]
+        else:
+            return self.generator_optimizer, self.discriminator_optimizer
 
 
+class GAN_Wloss_GP(GAN):
+    @staticmethod
+    def add_model_specific_args(parent_parser, resolution=32):
+        parser = ArgumentParser(parents=[parent_parser], add_help=False)
+        # important argument
+        parser.add_argument("--gp_epsilon", type=float, default=2.)
+
+        return GAN.add_model_specific_args(parser, resolution)
+
+    def gradient_penalty(self, real_tree, generated_tree):
+        batch_size = real_tree.shape[0]
+
+        # Calculate interpolation
+        alpha = torch.rand(batch_size).reshape((batch_size, 1, 1, 1, 1)).float().type_as(real_tree)
+        # alpha = alpha.expand_as(real_data)
+        # if self.use_cuda:
+        #     alpha = alpha.cuda()
+        interpolated = alpha * real_tree + (1 - alpha) * generated_tree
+        interpolated = interpolated.requires_grad_().float()
+
+        # calculate prob of interpolated trees
+        prob_interpolated = self.discriminator(interpolated)
+
+        #grad tensor (all 1 to backprop some values)
+        grad_tensor = torch.ones(prob_interpolated.size()).float().type_as(real_tree)
+
+        # calculate grad of prob
+        grad = torch.autograd.grad(
+            outputs=prob_interpolated,
+            inputs=interpolated,
+            grad_outputs=grad_tensor,
+            create_graph=True,
+            retain_graph=True,
+        )[0]
+
+        # grad have shape same as input (batch_size,1,h,w,d),
+        grad = grad.view(batch_size, -1)
+
+        # calculate norm and add epsilon to prevent sqrt(0)
+        grad_norm = torch.sqrt(torch.sum(grad ** 2, dim=1) + 1e-10)
+
+        # return gradient penalty
+        return self.config.gp_epsilon * ((grad_norm - 1) ** 2).mean()
+
+    def training_step(self, dataset_batch, batch_idx, optimizer_idx):
+        config = self.config
+
+        # dataset_batch was a list: [array], so just take the array inside
+        dataset_batch = dataset_batch[0]
+        # scale to [-1,1]
+        dataset_batch = dataset_batch * 2 - 1
+        # add instance noise
+        instance_noise = self.generate_noise_for_samples(dataset_batch)
+        # add noise to data
+        dataset_batch = self.add_noise_to_samples(dataset_batch, instance_noise)
+
+        dataset_batch = dataset_batch.float()
+
+        batch_size = dataset_batch.shape[0]
+        generator = self.generator
+        discriminator = self.discriminator
+
+        # loss function
+        criterion_label = get_loss_function_with_logit(config.label_loss)
+
+        # label not used in Wloss
+        if optimizer_idx == 0:
+            ############
+            #   generator
+            ############
+
+            z = (
+                torch.randn(batch_size, config.z_size).float().type_as(dataset_batch)
+            )  # 128-d noise vector
+            tree_fake = F.tanh(self.generator(z))
+            # add noise to data
+            tree_fake = self.add_noise_to_samples(tree_fake, instance_noise)
+
+            # tree_fake is already computed above
+            dout_fake = self.discriminator(tree_fake, output_all=False)
+
+            # generator should maximize dout_fake
+            gloss = -dout_fake.mean()
+
+            # record loss
+            self.g_ep_loss.append(gloss.detach().cpu().numpy())
+
+            return gloss
+
+        if optimizer_idx == 1:
+
+            ############
+            #   discriminator (and classifier if necessary)
+            ############
+
+            z = (
+                torch.randn(batch_size, config.z_size).float().type_as(dataset_batch)
+            )  # 128-d noise vector
+            tree_fake = F.tanh(self.generator(z))
+            # add noise to data
+            tree_fake = self.add_noise_to_samples(tree_fake, instance_noise)
+
+            # real data (data from dataloader)
+            dout_real = self.discriminator(dataset_batch, output_all=False)
+
+            # fake data (data from generator)
+            dout_fake = self.discriminator(
+                tree_fake.clone().detach()
+            )  # detach so no update to generator
+
+            gp = self.gradient_penalty(dataset_batch, tree_fake)
+            # d should maximize diff of real vs fake (dout_real - dout_fake)
+            dloss = dout_fake.mean() - dout_real.mean() + gp
+
+            # record loss
+            self.d_ep_loss.append(dloss.detach().cpu().numpy())
+
+            return dloss
 #####
 #   conditional models for training
 #####
@@ -1119,11 +1255,14 @@ class CGAN(GAN):
             classifier, config.dis_opt, config.d_lr
         )
 
-        return (
-            self.generator_optimizer,
-            self.discriminator_optimizer,
-            self.classifier_optimizer,
-        )
+        if hasattr(config,"cyclicLR_magnitude"):
+            g_scheduler = torch.optim.lr_scheduler.CyclicLR(self.generator_optimizer, base_lr=config.g_lr / config.cyclicLR_magnitude, max_lr=config.g_lr * config.cyclicLR_magnitude, step_size_up=200)
+            d_scheduler = torch.optim.lr_scheduler.CyclicLR(self.discriminator_optimizer, base_lr=config.d_lr / config.cyclicLR_magnitude, max_lr=config.d_lr * config.cyclicLR_magnitude, step_size_up=200)
+            c_scheduler = torch.optim.lr_scheduler.CyclicLR(self.classifier_optimizer, base_lr=config.d_lr / config.cyclicLR_magnitude, max_lr=config.d_lr * config.cyclicLR_magnitude, step_size_up=200)
+            return [self.generator_optimizer,self.discriminator_optimizer,self.classifier_optimizer], [g_scheduler, d_scheduler, c_scheduler]
+        else:
+            return self.generator_optimizer,self.discriminator_optimizer,self.classifier_optimizer
+
 
     def on_train_epoch_start(self):
         # reset ep_loss
