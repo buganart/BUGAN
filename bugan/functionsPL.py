@@ -516,7 +516,6 @@ def wandbLog(model, initial_log_dict={}, log_media=False, log_num_samples=1):
         initial_log_dict["sample_tree_voxelmesh"] = sample_tree_voxelmesh
 
         # log model variance
-        sample_trees = model.generate_tree(num_trees=32)
         mesh_bool_array = sample_trees > 0
         initial_log_dict["mesh_per_voxel_std"] = np.mean(np.std(mesh_bool_array, 0))
 
