@@ -103,8 +103,13 @@ class VAE_train(pl.LightningModule):
         # optimizer
         self.vae_optimizer = get_model_optimizer(vae, config.vae_opt, config.vae_lr)
 
-        if hasattr(config,"cyclicLR_magnitude"):
-            vae_scheduler = torch.optim.lr_scheduler.CyclicLR(self.vae_optimizer, base_lr=config.vae_lr / config.cyclicLR_magnitude, max_lr=config.vae_lr * config.cyclicLR_magnitude, step_size_up=200)
+        if hasattr(config, "cyclicLR_magnitude"):
+            vae_scheduler = torch.optim.lr_scheduler.CyclicLR(
+                self.vae_optimizer,
+                base_lr=config.vae_lr / config.cyclicLR_magnitude,
+                max_lr=config.vae_lr * config.cyclicLR_magnitude,
+                step_size_up=200,
+            )
             return [self.vae_optimizer], [vae_scheduler]
         else:
             return self.vae_optimizer
@@ -332,10 +337,23 @@ class VAEGAN(pl.LightningModule):
         self.discriminator_optimizer = get_model_optimizer(
             discriminator, config.dis_opt, config.d_lr
         )
-        if hasattr(config,"cyclicLR_magnitude"):
-            vae_scheduler = torch.optim.lr_scheduler.CyclicLR(self.vae_optimizer, base_lr=config.vae_lr / config.cyclicLR_magnitude, max_lr=config.vae_lr * config.cyclicLR_magnitude, step_size_up=200)
-            d_scheduler = torch.optim.lr_scheduler.CyclicLR(self.discriminator_optimizer, base_lr=config.d_lr / config.cyclicLR_magnitude, max_lr=config.d_lr * config.cyclicLR_magnitude, step_size_up=200)
-            return [self.vae_optimizer, self.discriminator_optimizer], [vae_scheduler, d_scheduler]
+        if hasattr(config, "cyclicLR_magnitude"):
+            vae_scheduler = torch.optim.lr_scheduler.CyclicLR(
+                self.vae_optimizer,
+                base_lr=config.vae_lr / config.cyclicLR_magnitude,
+                max_lr=config.vae_lr * config.cyclicLR_magnitude,
+                step_size_up=200,
+            )
+            d_scheduler = torch.optim.lr_scheduler.CyclicLR(
+                self.discriminator_optimizer,
+                base_lr=config.d_lr / config.cyclicLR_magnitude,
+                max_lr=config.d_lr * config.cyclicLR_magnitude,
+                step_size_up=200,
+            )
+            return [self.vae_optimizer, self.discriminator_optimizer], [
+                vae_scheduler,
+                d_scheduler,
+            ]
         else:
             return self.vae_optimizer, self.discriminator_optimizer
 
@@ -615,10 +633,23 @@ class GAN(pl.LightningModule):
             discriminator, config.dis_opt, config.d_lr
         )
 
-        if hasattr(config,"cyclicLR_magnitude"):
-            g_scheduler = torch.optim.lr_scheduler.CyclicLR(self.generator_optimizer, base_lr=config.g_lr / config.cyclicLR_magnitude, max_lr=config.g_lr * config.cyclicLR_magnitude, step_size_up=200)
-            d_scheduler = torch.optim.lr_scheduler.CyclicLR(self.discriminator_optimizer, base_lr=config.d_lr / config.cyclicLR_magnitude, max_lr=config.d_lr * config.cyclicLR_magnitude, step_size_up=200)
-            return [self.generator_optimizer, self.discriminator_optimizer], [g_scheduler, d_scheduler]
+        if hasattr(config, "cyclicLR_magnitude"):
+            g_scheduler = torch.optim.lr_scheduler.CyclicLR(
+                self.generator_optimizer,
+                base_lr=config.g_lr / config.cyclicLR_magnitude,
+                max_lr=config.g_lr * config.cyclicLR_magnitude,
+                step_size_up=200,
+            )
+            d_scheduler = torch.optim.lr_scheduler.CyclicLR(
+                self.discriminator_optimizer,
+                base_lr=config.d_lr / config.cyclicLR_magnitude,
+                max_lr=config.d_lr * config.cyclicLR_magnitude,
+                step_size_up=200,
+            )
+            return [self.generator_optimizer, self.discriminator_optimizer], [
+                g_scheduler,
+                d_scheduler,
+            ]
         else:
             return self.generator_optimizer, self.discriminator_optimizer
 
@@ -1043,10 +1074,23 @@ class GAN_Wloss(GAN):
         for p in discriminator.parameters():
             p.register_hook(lambda grad: torch.clamp(grad, -clip_value, clip_value))
 
-        if hasattr(config,"cyclicLR_magnitude"):
-            g_scheduler = torch.optim.lr_scheduler.CyclicLR(self.generator_optimizer, base_lr=config.g_lr / config.cyclicLR_magnitude, max_lr=config.g_lr * config.cyclicLR_magnitude, step_size_up=200)
-            d_scheduler = torch.optim.lr_scheduler.CyclicLR(self.discriminator_optimizer, base_lr=config.d_lr / config.cyclicLR_magnitude, max_lr=config.d_lr * config.cyclicLR_magnitude, step_size_up=200)
-            return [self.generator_optimizer, self.discriminator_optimizer], [g_scheduler, d_scheduler]
+        if hasattr(config, "cyclicLR_magnitude"):
+            g_scheduler = torch.optim.lr_scheduler.CyclicLR(
+                self.generator_optimizer,
+                base_lr=config.g_lr / config.cyclicLR_magnitude,
+                max_lr=config.g_lr * config.cyclicLR_magnitude,
+                step_size_up=200,
+            )
+            d_scheduler = torch.optim.lr_scheduler.CyclicLR(
+                self.discriminator_optimizer,
+                base_lr=config.d_lr / config.cyclicLR_magnitude,
+                max_lr=config.d_lr * config.cyclicLR_magnitude,
+                step_size_up=200,
+            )
+            return [self.generator_optimizer, self.discriminator_optimizer], [
+                g_scheduler,
+                d_scheduler,
+            ]
         else:
             return self.generator_optimizer, self.discriminator_optimizer
 
@@ -1056,7 +1100,7 @@ class GAN_Wloss_GP(GAN):
     def add_model_specific_args(parent_parser, resolution=32):
         parser = ArgumentParser(parents=[parent_parser], add_help=False)
         # important argument
-        parser.add_argument("--gp_epsilon", type=float, default=2.)
+        parser.add_argument("--gp_epsilon", type=float, default=2.0)
 
         return GAN.add_model_specific_args(parser, resolution)
 
@@ -1064,7 +1108,12 @@ class GAN_Wloss_GP(GAN):
         batch_size = real_tree.shape[0]
 
         # Calculate interpolation
-        alpha = torch.rand(batch_size).reshape((batch_size, 1, 1, 1, 1)).float().type_as(real_tree)
+        alpha = (
+            torch.rand(batch_size)
+            .reshape((batch_size, 1, 1, 1, 1))
+            .float()
+            .type_as(real_tree)
+        )
         # alpha = alpha.expand_as(real_data)
         # if self.use_cuda:
         #     alpha = alpha.cuda()
@@ -1074,7 +1123,7 @@ class GAN_Wloss_GP(GAN):
         # calculate prob of interpolated trees
         prob_interpolated = self.discriminator(interpolated)
 
-        #grad tensor (all 1 to backprop some values)
+        # grad tensor (all 1 to backprop some values)
         grad_tensor = torch.ones(prob_interpolated.size()).float().type_as(real_tree)
 
         # calculate grad of prob
@@ -1169,6 +1218,8 @@ class GAN_Wloss_GP(GAN):
             self.d_ep_loss.append(dloss.detach().cpu().numpy())
 
             return dloss
+
+
 #####
 #   conditional models for training
 #####
@@ -1255,14 +1306,36 @@ class CGAN(GAN):
             classifier, config.dis_opt, config.d_lr
         )
 
-        if hasattr(config,"cyclicLR_magnitude"):
-            g_scheduler = torch.optim.lr_scheduler.CyclicLR(self.generator_optimizer, base_lr=config.g_lr / config.cyclicLR_magnitude, max_lr=config.g_lr * config.cyclicLR_magnitude, step_size_up=200)
-            d_scheduler = torch.optim.lr_scheduler.CyclicLR(self.discriminator_optimizer, base_lr=config.d_lr / config.cyclicLR_magnitude, max_lr=config.d_lr * config.cyclicLR_magnitude, step_size_up=200)
-            c_scheduler = torch.optim.lr_scheduler.CyclicLR(self.classifier_optimizer, base_lr=config.d_lr / config.cyclicLR_magnitude, max_lr=config.d_lr * config.cyclicLR_magnitude, step_size_up=200)
-            return [self.generator_optimizer,self.discriminator_optimizer,self.classifier_optimizer], [g_scheduler, d_scheduler, c_scheduler]
+        if hasattr(config, "cyclicLR_magnitude"):
+            g_scheduler = torch.optim.lr_scheduler.CyclicLR(
+                self.generator_optimizer,
+                base_lr=config.g_lr / config.cyclicLR_magnitude,
+                max_lr=config.g_lr * config.cyclicLR_magnitude,
+                step_size_up=200,
+            )
+            d_scheduler = torch.optim.lr_scheduler.CyclicLR(
+                self.discriminator_optimizer,
+                base_lr=config.d_lr / config.cyclicLR_magnitude,
+                max_lr=config.d_lr * config.cyclicLR_magnitude,
+                step_size_up=200,
+            )
+            c_scheduler = torch.optim.lr_scheduler.CyclicLR(
+                self.classifier_optimizer,
+                base_lr=config.d_lr / config.cyclicLR_magnitude,
+                max_lr=config.d_lr * config.cyclicLR_magnitude,
+                step_size_up=200,
+            )
+            return [
+                self.generator_optimizer,
+                self.discriminator_optimizer,
+                self.classifier_optimizer,
+            ], [g_scheduler, d_scheduler, c_scheduler]
         else:
-            return self.generator_optimizer,self.discriminator_optimizer,self.classifier_optimizer
-
+            return (
+                self.generator_optimizer,
+                self.discriminator_optimizer,
+                self.classifier_optimizer,
+            )
 
     def on_train_epoch_start(self):
         # reset ep_loss
