@@ -38,14 +38,14 @@ class VAE_train(pl.LightningModule):
         # loss function in {'BCELoss', 'MSELoss', 'CrossEntropyLoss'}
         parser.add_argument("--rec_loss", type=str, default="MSELoss")
         # activation default leakyReLU
-        parser.add_argument("--activation_leakyReLU_slope", type=float, default=0.0)
+        parser.add_argument("--activation_leakyReLU_slope", type=float, default=0.01)
         # Dropout probability
-        parser.add_argument("--dropout_prob", type=float, default=0.0)
+        parser.add_argument("--dropout_prob", type=float, default=0.3)
         # instance noise (add noise to real data/generate data)
         parser.add_argument(
-            "--linear_annealed_instance_noise_epoch", type=int, default=0
+            "--linear_annealed_instance_noise_epoch", type=int, default=2000
         )
-        parser.add_argument("--instance_noise", type=float, default=0.0)
+        parser.add_argument("--instance_noise", type=float, default=0.1)
         # learning rate
         parser.add_argument("--vae_lr", type=float, default=0.0025)
         # number of unit per layer
@@ -243,18 +243,18 @@ class VAEGAN(pl.LightningModule):
         parser.add_argument("--label_loss", type=str, default="BCELoss")
         parser.add_argument("--rec_loss", type=str, default="MSELoss")
         # activation default leakyReLU
-        parser.add_argument("--activation_leakyReLU_slope", type=float, default=0.0)
+        parser.add_argument("--activation_leakyReLU_slope", type=float, default=0.01)
         # Dropout probability
-        parser.add_argument("--dropout_prob", type=float, default=0.0)
+        parser.add_argument("--dropout_prob", type=float, default=0.3)
         # real/fake label flip probability
-        parser.add_argument("--label_flip_prob", type=float, default=0.0)
+        parser.add_argument("--label_flip_prob", type=float, default=0.1)
         # real/fake label noise magnitude
-        parser.add_argument("--label_noise", type=float, default=0.0)
+        parser.add_argument("--label_noise", type=float, default=0.2)
         # instance noise (add noise to real data/generate data)
         parser.add_argument(
-            "--linear_annealed_instance_noise_epoch", type=int, default=0
+            "--linear_annealed_instance_noise_epoch", type=int, default=2000
         )
-        parser.add_argument("--instance_noise", type=float, default=0.0)
+        parser.add_argument("--instance_noise", type=float, default=0.1)
         # learning rate
         parser.add_argument("--vae_lr", type=float, default=0.0025)
         parser.add_argument("--d_lr", type=float, default=0.00005)
@@ -549,18 +549,18 @@ class GAN(pl.LightningModule):
         # loss function in {'BCELoss', 'MSELoss', 'CrossEntropyLoss'}
         parser.add_argument("--label_loss", type=str, default="BCELoss")
         # activation default leakyReLU
-        parser.add_argument("--activation_leakyReLU_slope", type=float, default=0.0)
+        parser.add_argument("--activation_leakyReLU_slope", type=float, default=0.01)
         # Dropout probability
-        parser.add_argument("--dropout_prob", type=float, default=0.0)
+        parser.add_argument("--dropout_prob", type=float, default=0.3)
         # real/fake label flip probability
-        parser.add_argument("--label_flip_prob", type=float, default=0.0)
+        parser.add_argument("--label_flip_prob", type=float, default=0.1)
         # real/fake label noise magnitude
-        parser.add_argument("--label_noise", type=float, default=0.0)
+        parser.add_argument("--label_noise", type=float, default=0.2)
         # instance noise (add noise to real data/generate data)
         parser.add_argument(
-            "--linear_annealed_instance_noise_epoch", type=int, default=0
+            "--linear_annealed_instance_noise_epoch", type=int, default=2000
         )
-        parser.add_argument("--instance_noise", type=float, default=0.0)
+        parser.add_argument("--instance_noise", type=float, default=0.1)
         # learning rate
         parser.add_argument("--g_lr", type=float, default=0.0025)
         parser.add_argument("--d_lr", type=float, default=0.00005)
@@ -1587,7 +1587,7 @@ class Generator(nn.Module):
         z_size=128,
         output_size=64,
         num_layer_unit=32,
-        dropout_prob=0.0,
+        dropout_prob=0.3,
         activations=nn.ReLU(True),
     ):
         super(Generator, self).__init__()
@@ -1678,7 +1678,7 @@ class Discriminator(nn.Module):
         z_size=128,
         input_size=64,
         num_layer_unit=16,
-        dropout_prob=0.0,
+        dropout_prob=0.3,
         output_size=1,
         activations=nn.LeakyReLU(0.0, True),
     ):
