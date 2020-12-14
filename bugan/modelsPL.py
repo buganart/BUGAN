@@ -262,6 +262,8 @@ class VAEGAN(pl.LightningModule):
         parser.add_argument("--instance_noise", type=float, default=0.1)
         # spectral_norm
         parser.add_argument("--spectral_norm", type=bool, default=False)
+        # accuracy_hack
+        parser.add_argument("--accuracy_hack", type=float, default=1.1)
         # learning rate
         parser.add_argument("--vae_lr", type=float, default=0.0025)
         parser.add_argument("--d_lr", type=float, default=0.00005)
@@ -508,6 +510,16 @@ class VAEGAN(pl.LightningModule):
             # record loss
             self.d_ep_loss.append(dloss.detach().cpu().numpy())
 
+            # accuracy hack
+            if config.accuracy_hack < 1.0:
+                # hack activated, calculate accuracy
+                # note that dout are before sigmoid
+                real_score = (dout_real >= 0).float()
+                fake_score = (dout_fake < 0).float()
+                accuracy = torch.cat((real_score, fake_score), 0).mean()
+                if accuracy > config.accuracy_hack:
+                    return dloss - dloss
+
             return dloss
 
     def generate_noise_for_samples(self, data):
@@ -575,6 +587,8 @@ class GAN(pl.LightningModule):
         parser.add_argument("--instance_noise", type=float, default=0.1)
         # spectral_norm
         parser.add_argument("--spectral_norm", type=bool, default=False)
+        # accuracy_hack
+        parser.add_argument("--accuracy_hack", type=float, default=1.1)
         # learning rate
         parser.add_argument("--g_lr", type=float, default=0.0025)
         parser.add_argument("--d_lr", type=float, default=0.00005)
@@ -803,6 +817,16 @@ class GAN(pl.LightningModule):
             # record loss
             self.d_ep_loss.append(dloss.detach().cpu().numpy())
 
+            # accuracy hack
+            if config.accuracy_hack < 1.0:
+                # hack activated, calculate accuracy
+                # note that dout are before sigmoid
+                real_score = (dout_real >= 0).float()
+                fake_score = (dout_fake < 0).float()
+                accuracy = torch.cat((real_score, fake_score), 0).mean()
+                if accuracy > config.accuracy_hack:
+                    return dloss - dloss
+
             return dloss
 
     def generate_noise_for_samples(self, data):
@@ -964,6 +988,16 @@ class VAEGAN_Wloss_GP(VAEGAN):
 
             # record loss
             self.d_ep_loss.append(dloss.detach().cpu().numpy())
+
+            # accuracy hack
+            if config.accuracy_hack < 1.0:
+                # hack activated, calculate accuracy
+                # note that dout are before sigmoid
+                real_score = (dout_real >= 0).float()
+                fake_score = (dout_fake < 0).float()
+                accuracy = torch.cat((real_score, fake_score), 0).mean()
+                if accuracy > config.accuracy_hack:
+                    return dloss - dloss
 
             return dloss
 
@@ -1533,6 +1567,16 @@ class CGAN(GAN):
 
             # record loss
             self.d_ep_loss.append(dloss.detach().cpu().numpy())
+
+            # accuracy hack
+            if config.accuracy_hack < 1.0:
+                # hack activated, calculate accuracy
+                # note that dout are before sigmoid
+                real_score = (dout_real >= 0).float()
+                fake_score = (dout_fake < 0).float()
+                accuracy = torch.cat((real_score, fake_score), 0).mean()
+                if accuracy > config.accuracy_hack:
+                    return dloss - dloss
 
             return dloss
 
