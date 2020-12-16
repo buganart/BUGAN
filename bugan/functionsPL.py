@@ -416,7 +416,7 @@ class DataModule_process_cond(pl.LightningDataModule):
             index = dataFile["index"]
 
             # now all the returned array contains multiple samples
-            self.size = dataset.shape[0]
+            self.size = data.shape[0]
             self.dataset = torch.unsqueeze(torch.tensor(data), 1)
             self.datalabel = torch.tensor(index)
 
