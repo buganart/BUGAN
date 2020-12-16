@@ -378,7 +378,7 @@ class DataModule_process_cond(pl.LightningDataModule):
             print(f"Final dataset_array shape: {len(data)}")
             print(f"Final number of classes: {self.max_num_classes}")
 
-            np.savez(self.npz_path, data=dataset, index=sample_class_index)
+            np.savez(self.npz_path, data=data, index=index)
             print(f"Saved processed dataset to {self.npz_path}")
 
     # setup() should contains code that will be run once per run.
