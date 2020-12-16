@@ -259,7 +259,7 @@ class DataModule_process_cond(pl.LightningDataModule):
 
         for path in tqdm.tqdm(supported_files, desc="Meshes"):
             # extract label
-            label = path.parent.stem
+            label = Path(path).parent.stem
             if label in class_list:
                 index = class_list.index(label)
             else:
