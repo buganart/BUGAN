@@ -191,6 +191,253 @@ class DataModule_process(pl.LightningDataModule):
             )
 
 
+#####
+#   DataModule cond
+#####
+class DataModule_process_cond(pl.LightningDataModule):
+    supported_extensions = set(
+        [
+            ".obj",
+            ".off",
+            ".ply",
+            ".stl",
+            ".dae",
+            ".misc",
+            ".gltf",
+            ".assimp",
+            ".threemf",
+            ".openctm",
+            ".xml_based",
+            ".binvox",
+            ".xyz",
+        ]
+    )
+
+    def __init__(self, config, run, data_path, tmp_folder="/tmp/"):
+        super().__init__()
+        self.config = config
+        self.run = run
+        self.dataset_artifact = None
+        self.dataset = None
+        self.size = 0
+        self.data_path = Path(data_path)
+        is_zip = self.data_path.suffix == ".zip"
+        self.zip_path = self.data_path if is_zip else None
+        self.folder_path = Path(tmp_folder) if is_zip else self.data_path
+        self.max_num_classes = config.max_num_classes
+        # change npy to npz
+        self.npz_path = make_npz_path(
+            self.data_path, self.config.resolution, self.max_num_classes
+        )
+
+    def _unzip_zip_file_to_directory(self):
+        print(f"Unzipping {self.zip_path} to {self.folder_path}")
+
+        failed = []
+        samples = []
+
+        zf = zipfile.ZipFile(self.zip_path, "r")
+        zf.extractall(path=self.folder_path)
+        zf.close()
+
+    def _read_mesh_array_from_zip_file(self):
+
+        failed = 0
+        samples = []
+        class_list = []
+        sample_class_index = []
+
+        zf = zipfile.ZipFile(self.zip_path, "r")
+        supported_files = [
+            path
+            for path in zf.namelist()
+            if (
+                Path(path).suffix in self.supported_extensions
+                and not path.startswith("__MACOSX")
+            )
+        ]
+
+        for path in tqdm.tqdm(supported_files, desc="Meshes"):
+            # extract label
+            label = path.parent.stem
+            if label in class_list:
+                index = class_list.index(label)
+            else:
+                class_list.append(label)
+                index = class_list.index(label)
+
+            # process mesh
+            try:
+                file = zf.open(path, "r")
+                file = BytesIO(file.read())
+                m = trimesh.load(
+                    file,
+                    file_type=Path(path).suffix[1:],
+                    force="mesh",
+                )
+                array = mesh2arrayCentered(m, array_length=self.config.resolution)
+                samples.append(array)
+                # also append index
+                sample_class_index.append(index)
+            except IndexError:
+                failed += 1
+                print("Failed to load {path}")
+        return samples, sample_class_index, failed
+
+    def _read_mesh_array_from_directory(self, process_to_array=True):
+
+        failed = 0
+        samples = []
+        class_list = []
+        sample_class_index = []
+
+        paths = [
+            path
+            for path in self.folder_path.rglob("*.*")
+            if path.suffix in self.supported_extensions
+        ]
+
+        for path in tqdm.tqdm(paths, desc="Meshes"):
+            # extract label
+            label = path.parent.stem
+            if label in class_list:
+                index = class_list.index(label)
+            else:
+                class_list.append(label)
+                index = class_list.index(label)
+
+            # process mesh
+            try:
+                m = trimesh.load(path, force="mesh")
+                if process_to_array:
+                    m = mesh2arrayCentered(m, array_length=self.config.resolution)
+                samples.append(m)
+                # also append index
+                sample_class_index.append(index)
+
+            except Exception as exc:
+                failed += 1
+                print(f"Failed to load {path}: {exc}")
+        return samples, sample_class_index, failed
+
+    def _trim_dataset(self, samples, sample_class_index):
+        # find class_index counts
+        indices, indices_count = np.unique(sample_class_index, return_counts=True)
+        # sort class_index with counts
+        count_list = [(indices[i], indices_count[i]) for i in range(len(indices))]
+        count_list.sort(key=lambda v: v[1], reverse=True)
+        # trim class_index list
+        selected_class_list = count_list[: self.max_num_classes]
+        selected_class_list = [index for (index, _) in selected_class_list]
+        # trim dataset
+        data = []
+        index = []
+        for i in range(len(sample_class_index)):
+            ind = sample_class_index[i]
+            if ind in selected_class_list:
+                data.append(samples[i])
+                index.append(ind)
+        return data, index
+
+    # prepare_data() should contains code that will be run once per dataset.
+    # most of the code will be skipped in subsequent run.
+    def prepare_data(self):
+
+        if self.config.data_augmentation:
+            # for data_augmentation:
+            # put/unzip all 3D objects to a directory. Ready for setup() to read
+            # after perpare_data(), the target should be a directory with all 3D object files
+            if self.zip_path:
+                self._unzip_zip_file_to_directory()
+        else:
+            # for normal:
+            # read all files and process the object array to .npy file
+            if self.npz_path.exists():
+                print(f"Processed dataset {self.npz_path} already exists.")
+                return
+
+            if self.data_path.suffix == ".zip":
+                loader = self._read_mesh_array_from_zip_file
+            else:
+                loader = self._read_mesh_array_from_directory
+
+            samples, sample_class_index, failed = loader()
+            print(f"Processed dataset_array shape: {len(samples)}")
+            print(f"Processed number of classes: {len(set(sample_class_index))}")
+            print(f"Number of failed file: {failed}")
+            if self.max_num_classes > len(set(sample_class_index)):
+                raise ValueError(
+                    f"max_num_classes ({self.max_num_classes}) should be <= Processed number of classes ({len(set(sample_class_index))})"
+                )
+            print(
+                f"select {self.max_num_classes} out of {len(set(sample_class_index))} classes:"
+            )
+
+            data, index = self._trim_dataset(samples, sample_class_index)
+
+            print(f"Final dataset_array shape: {len(data)}")
+            print(f"Final number of classes: {self.max_num_classes}")
+
+            np.savez(self.npz_path, data=dataset, index=sample_class_index)
+            print(f"Saved processed dataset to {self.npz_path}")
+
+    # setup() should contains code that will be run once per run.
+    def setup(self, stage=None):
+
+        if self.config.data_augmentation:
+            dataset, sample_class_index, failed = self._read_mesh_array_from_directory(
+                process_to_array=False
+            )
+
+            # now all the returned array contains multiple samples
+            print(f"Processed dataset size: {len(dataset)}")
+            print(f"Processed number of classes: {len(set(sample_class_index))}")
+            print(f"Number of failed file: {failed}")
+
+            if self.max_num_classes > len(set(sample_class_index)):
+                raise ValueError(
+                    f"max_num_classes ({self.max_num_classes}) should be <= Processed number of classes ({len(set(sample_class_index))})"
+                )
+            print(
+                f"select {self.max_num_classes} out of {len(set(sample_class_index))} classes:"
+            )
+
+            data, index = self._trim_dataset(dataset, sample_class_index)
+            self.size = len(data)
+            self.dataset = data
+            self.datalabel = index
+
+            print(f"Final dataset_array shape: {len(data)}")
+            print(f"Final number of classes: {self.max_num_classes}")
+
+        else:
+            dataFile = np.load(self.npz_path)
+            data = dataFile["data"]
+            index = dataFile["index"]
+
+            # now all the returned array contains multiple samples
+            self.size = dataset.shape[0]
+            self.dataset = torch.unsqueeze(torch.tensor(data), 1)
+            self.datalabel = torch.tensor(index)
+
+    def train_dataloader(self):
+        if self.config.data_augmentation:
+            config = self.config
+            aug_dataset = AugmentationDataset(self.config, self.dataset, self.datalabel)
+            return DataLoader(
+                aug_dataset, batch_size=config.batch_size, shuffle=True, num_workers=8
+            )
+        else:
+            config = self.config
+            tensor_dataset = TensorDataset(self.dataset, self.datalabel)
+            return DataLoader(
+                tensor_dataset,
+                batch_size=config.batch_size,
+                shuffle=True,
+                num_workers=8,
+            )
+
+
 ###
 #   Deprecated. will be removed
 ###
@@ -351,11 +598,12 @@ class SaveWandbCallback(Callback):
 
 
 class AugmentationDataset(Dataset):
-    def __init__(self, config, data_list):
+    def __init__(self, config, data_list, datalabel=None):
         assert isinstance(data_list, list)
         self.data_list = data_list
         self.config = config
         self.rotation_type = config.aug_rotation_type
+        self.datalabel = datalabel
 
         if self.rotation_type not in ["random rotation", "axis rotation"]:
             raise ValueError(
@@ -384,13 +632,24 @@ class AugmentationDataset(Dataset):
             selectedItem, array_length=self.config.resolution
         )  # assume selectedItem is Trimesh object
         # print("mesh index:", index, "| rot radian:", angle)
-        return torch.tensor(array[np.newaxis, np.newaxis, :, :, :])
+        if self.datalabel:
+            return torch.tensor(array[np.newaxis, :, :, :]), torch.tensor(
+                self.datalabel[index]
+            )
+        else:
+            return torch.tensor(array[np.newaxis, np.newaxis, :, :, :])
 
     def __len__(self):
         return len(self.data_list)
 
     def __add__(self, other):
-        return AugmentationDataset(self.config, self.data_list.append(other))
+        if self.datalabel:
+            data, label = other
+            return AugmentationDataset(
+                self.config, self.data_list.append(data), self.datalabel.append(label)
+            )
+        else:
+            return AugmentationDataset(self.config, self.data_list.append(other))
 
 
 #####
@@ -429,6 +688,7 @@ def load_dataset(dataset_name, run, config):
     return dataset
 
 
+# npy file for unconditional data
 def make_npy_path(path: Path, res):
     if path.is_dir():
         # TODO
@@ -444,6 +704,18 @@ def make_npy_path(path: Path, res):
     elif path.suffix == ".zip":
         return path.parent / f"{path.stem}_res{res}.npy"
     elif path.suffix == ".npy":
+        return path
+    else:
+        raise ValueError(f"Cannot handle dataset path {path}")
+
+
+# npz file for conditional data
+def make_npz_path(path: Path, res, max_num_classes):
+    if path.is_dir():
+        return path / (f"dataset_array_processed_res{res}_c{max_num_classes}.npz")
+    elif path.suffix == ".zip":
+        return path.parent / (f"{path.stem}_res{res}_c{max_num_classes}.npz")
+    elif path.suffix == ".npz":
         return path
     else:
         raise ValueError(f"Cannot handle dataset path {path}")
