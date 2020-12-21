@@ -1430,7 +1430,7 @@ class CGAN(GAN):
 
         wandbLog_cond(
             self,
-            self.config.num_classes,
+            self.trainer.datamodule.class_list,
             log_dict,
             log_media=log_media,
             log_num_samples=self.config.log_num_samples,

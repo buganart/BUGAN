@@ -224,10 +224,11 @@ class DataModule_process_cond(pl.LightningDataModule):
         is_zip = self.data_path.suffix == ".zip"
         self.zip_path = self.data_path if is_zip else None
         self.folder_path = Path(tmp_folder) if is_zip else self.data_path
-        self.max_num_classes = config.max_num_classes
+        self.num_classes = config.num_classes
+        self.class_list = None
         # change npy to npz
         self.npz_path = make_npz_path(
-            self.data_path, self.config.resolution, self.max_num_classes
+            self.data_path, self.config.resolution, self.num_classes
         )
 
     def _unzip_zip_file_to_directory(self):
@@ -282,7 +283,7 @@ class DataModule_process_cond(pl.LightningDataModule):
             except IndexError:
                 failed += 1
                 print("Failed to load {path}")
-        return samples, sample_class_index, failed
+        return samples, sample_class_index, failed, class_list
 
     def _read_mesh_array_from_directory(self, process_to_array=True):
 
@@ -318,17 +319,20 @@ class DataModule_process_cond(pl.LightningDataModule):
             except Exception as exc:
                 failed += 1
                 print(f"Failed to load {path}: {exc}")
-        return samples, sample_class_index, failed
+        return samples, sample_class_index, failed, class_list
 
-    def _trim_dataset(self, samples, sample_class_index):
+    def _trim_dataset(self, samples, sample_class_index, class_name_list):
         # find class_index counts
         indices, indices_count = np.unique(sample_class_index, return_counts=True)
         # sort class_index with counts
         count_list = [(indices[i], indices_count[i]) for i in range(len(indices))]
         count_list.sort(key=lambda v: v[1], reverse=True)
         # trim class_index list
-        selected_class_list = count_list[: self.max_num_classes]
+        selected_class_list = count_list[: self.num_classes]
         selected_class_list = [index for (index, _) in selected_class_list]
+        # shift class_name according to the selected_class_list
+        class_name_list = [class_name_list[index] for index in selected_class_list]
+
         # trim dataset
         data = []
         index = []
@@ -336,8 +340,13 @@ class DataModule_process_cond(pl.LightningDataModule):
             ind = sample_class_index[i]
             if ind in selected_class_list:
                 data.append(samples[i])
-                index.append(ind)
-        return data, index
+                # find the position of the index in selected_class_list
+                # Note that the index is based on the original processed dataset,
+                # not the trimmed one. So we use position of selected_class_list to
+                # make sure index not out of bound
+                pos = selected_class_list.index(ind)
+                index.append(pos)
+        return data, index, class_name_list
 
     # prepare_data() should contains code that will be run once per dataset.
     # most of the code will be skipped in subsequent run.
@@ -361,64 +370,76 @@ class DataModule_process_cond(pl.LightningDataModule):
             else:
                 loader = self._read_mesh_array_from_directory
 
-            samples, sample_class_index, failed = loader()
+            samples, sample_class_index, failed, class_list = loader()
             print(f"Processed dataset_array shape: {len(samples)}")
             print(f"Processed number of classes: {len(set(sample_class_index))}")
             print(f"Number of failed file: {failed}")
-            if self.max_num_classes > len(set(sample_class_index)):
+            if self.num_classes > len(set(sample_class_index)):
                 raise ValueError(
-                    f"max_num_classes ({self.max_num_classes}) should be <= Processed number of classes ({len(set(sample_class_index))})"
+                    f"max_num_classes ({self.num_classes}) should be <= Processed number of classes ({len(set(sample_class_index))})"
                 )
             print(
-                f"select {self.max_num_classes} out of {len(set(sample_class_index))} classes:"
+                f"select {self.num_classes} out of {len(set(sample_class_index))} classes:"
             )
 
-            data, index = self._trim_dataset(samples, sample_class_index)
+            data, index, class_list = self._trim_dataset(
+                samples, sample_class_index, class_list
+            )
 
             print(f"Final dataset_array shape: {len(data)}")
-            print(f"Final number of classes: {self.max_num_classes}")
+            print(f"Final number of classes: {self.num_classes}")
+            print("class_list:", class_list)
 
-            np.savez(self.npz_path, data=data, index=index)
+            np.savez(self.npz_path, data=data, index=index, class_list=class_list)
             print(f"Saved processed dataset to {self.npz_path}")
 
     # setup() should contains code that will be run once per run.
     def setup(self, stage=None):
 
         if self.config.data_augmentation:
-            dataset, sample_class_index, failed = self._read_mesh_array_from_directory(
-                process_to_array=False
-            )
+            (
+                dataset,
+                sample_class_index,
+                failed,
+                class_list,
+            ) = self._read_mesh_array_from_directory(process_to_array=False)
 
             # now all the returned array contains multiple samples
             print(f"Processed dataset size: {len(dataset)}")
             print(f"Processed number of classes: {len(set(sample_class_index))}")
             print(f"Number of failed file: {failed}")
 
-            if self.max_num_classes > len(set(sample_class_index)):
+            if self.num_classes > len(set(sample_class_index)):
                 raise ValueError(
-                    f"max_num_classes ({self.max_num_classes}) should be <= Processed number of classes ({len(set(sample_class_index))})"
+                    f"max_num_classes ({self.num_classes}) should be <= Processed number of classes ({len(set(sample_class_index))})"
                 )
             print(
-                f"select {self.max_num_classes} out of {len(set(sample_class_index))} classes:"
+                f"select {self.num_classes} out of {len(set(sample_class_index))} classes:"
             )
 
-            data, index = self._trim_dataset(dataset, sample_class_index)
+            data, index, class_list = self._trim_dataset(
+                dataset, sample_class_index, class_list
+            )
             self.size = len(data)
             self.dataset = data
             self.datalabel = index
 
             print(f"Final dataset_array shape: {len(data)}")
-            print(f"Final number of classes: {self.max_num_classes}")
+            print(f"Final number of classes: {self.num_classes}")
+            print("class_list:", class_list)
+            self.class_list = class_list
 
         else:
             dataFile = np.load(self.npz_path)
             data = dataFile["data"]
             index = dataFile["index"]
+            class_list = dataFile["class_list"]
 
             # now all the returned array contains multiple samples
             self.size = data.shape[0]
             self.dataset = torch.unsqueeze(torch.tensor(data), 1)
             self.datalabel = torch.tensor(index)
+            self.class_list = class_list
 
     def train_dataloader(self):
         if self.config.data_augmentation:
@@ -795,9 +816,9 @@ def wandbLog(model, initial_log_dict={}, log_media=False, log_num_samples=1):
 
 
 def wandbLog_cond(
-    model, num_classes, initial_log_dict={}, log_media=False, log_num_samples=1
+    model, class_list, initial_log_dict={}, log_media=False, log_num_samples=1
 ):
-
+    num_classes = len(class_list)
     if log_media:
 
         for c in range(num_classes):
@@ -827,15 +848,17 @@ def wandbLog_cond(
                 sample_tree_voxelmesh.append(voxelmeshfile)
 
             # add list record to log_dict
-            initial_log_dict["sample_tree_numpoints_class_" + str(c)] = np.mean(
-                sample_tree_numpoints
-            )
-            initial_log_dict["eval_num_cluster_class_" + str(c)] = np.mean(
-                eval_num_cluster
-            )
-            initial_log_dict["sample_tree_image_class_" + str(c)] = sample_tree_image
             initial_log_dict[
-                "sample_tree_voxelmesh_class_" + str(c)
+                "sample_tree_numpoints_class_" + str(c) + "_" + str(class_list[c])
+            ] = np.mean(sample_tree_numpoints)
+            initial_log_dict[
+                "eval_num_cluster_class_" + str(c) + "_" + str(class_list[c])
+            ] = np.mean(eval_num_cluster)
+            initial_log_dict[
+                "sample_tree_image_class_" + str(c) + "_" + str(class_list[c])
+            ] = sample_tree_image
+            initial_log_dict[
+                "sample_tree_voxelmesh_class_" + str(c) + "_" + str(class_list[c])
             ] = sample_tree_voxelmesh
 
     wandb.log(initial_log_dict)
