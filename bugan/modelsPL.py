@@ -1923,7 +1923,7 @@ class VAE(nn.Module):
         super(VAE, self).__init__()
         assert encoder.input_size == decoder.output_size
         self.sample_size = decoder.output_size
-        self.encoder_z_size = encoder.z_size
+        self.encoder_z_size = encoder.output_size
         self.decoder_z_size = decoder.z_size
         # VAE
         self.vae_encoder = encoder
@@ -1959,7 +1959,7 @@ class CVAE(nn.Module):
         super(CVAE, self).__init__()
         assert encoder.input_size == decoder.output_size
         self.sample_size = decoder.output_size
-        self.encoder_z_size = encoder.z_size
+        self.encoder_z_size = encoder.output_size
         self.decoder_z_size = decoder.z_size
         self.num_classes = self.decoder_z_size - self.encoder_z_size
         # CVAE
