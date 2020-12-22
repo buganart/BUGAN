@@ -31,7 +31,7 @@ class VAE_train(pl.LightningModule):
         parser.add_argument("--z_size", type=int, default=128)
         parser.add_argument("--resolution", type=int, default=resolution)
         # number of layer per block
-        parser.add_argument("--vae_decoder_layer", type=int, default=2)
+        parser.add_argument("--vae_decoder_layer", type=int, default=1)
         parser.add_argument("--vae_encoder_layer", type=int, default=1)
         # optimizer in {"Adam", "SGD"}
         parser.add_argument("--vae_opt", type=str, default="Adam")
@@ -48,6 +48,8 @@ class VAE_train(pl.LightningModule):
         parser.add_argument("--instance_noise", type=float, default=0.1)
         # spectral_norm
         parser.add_argument("--spectral_norm", type=bool, default=False)
+        # use_simple_3dgan_struct
+        parser.add_argument("--use_simple_3dgan_struct", type=bool, default=False)
         # learning rate
         parser.add_argument("--vae_lr", type=float, default=0.0025)
         # number of unit per layer
@@ -85,10 +87,10 @@ class VAE_train(pl.LightningModule):
             activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
         )
         encoder = Discriminator(
-            config.vae_encoder_layer,
-            config.z_size,
-            config.resolution,
-            config.encoder_num_layer_unit,
+            layer_per_block=config.vae_encoder_layer,
+            output_size=config.z_size,
+            input_size=config.resolution,
+            num_layer_unit=config.encoder_num_layer_unit,
             dropout_prob=config.dropout_prob,
             spectral_norm=config.spectral_norm,
             activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
@@ -238,7 +240,7 @@ class VAEGAN(pl.LightningModule):
         parser.add_argument("--z_size", type=int, default=128)
         parser.add_argument("--resolution", type=int, default=resolution)
         # number of layer per block
-        parser.add_argument("--vae_decoder_layer", type=int, default=2)
+        parser.add_argument("--vae_decoder_layer", type=int, default=1)
         parser.add_argument("--vae_encoder_layer", type=int, default=1)
         parser.add_argument("--d_layer", type=int, default=1)
         # optimizer in {"Adam", "SGD"}
@@ -262,6 +264,8 @@ class VAEGAN(pl.LightningModule):
         parser.add_argument("--instance_noise", type=float, default=0.1)
         # spectral_norm
         parser.add_argument("--spectral_norm", type=bool, default=False)
+        # use_simple_3dgan_struct
+        parser.add_argument("--use_simple_3dgan_struct", type=bool, default=False)
         # accuracy_hack
         parser.add_argument("--accuracy_hack", type=float, default=1.1)
         # learning rate
@@ -304,11 +308,12 @@ class VAEGAN(pl.LightningModule):
             spectral_norm=config.spectral_norm,
             activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
         )
+
         encoder = Discriminator(
-            config.vae_encoder_layer,
-            config.z_size,
-            config.resolution,
-            config.encoder_num_layer_unit,
+            layer_per_block=config.vae_encoder_layer,
+            output_size=config.z_size,
+            input_size=config.resolution,
+            num_layer_unit=config.encoder_num_layer_unit,
             dropout_prob=config.dropout_prob,
             spectral_norm=config.spectral_norm,
             activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
@@ -316,10 +321,10 @@ class VAEGAN(pl.LightningModule):
         vae = VAE(encoder=encoder, decoder=decoder)
 
         discriminator = Discriminator(
-            config.d_layer,
-            config.z_size,
-            config.resolution,
-            config.dis_num_layer_unit,
+            layer_per_block=config.d_layer,
+            output_size=1,
+            input_size=config.resolution,
+            num_layer_unit=config.dis_num_layer_unit,
             dropout_prob=config.dropout_prob,
             spectral_norm=config.spectral_norm,
             activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
@@ -565,7 +570,7 @@ class GAN(pl.LightningModule):
         parser.add_argument("--z_size", type=int, default=128)
         parser.add_argument("--resolution", type=int, default=resolution)
         # number of layer per block
-        parser.add_argument("--g_layer", type=int, default=2)
+        parser.add_argument("--g_layer", type=int, default=1)
         parser.add_argument("--d_layer", type=int, default=1)
         # optimizer in {"Adam", "SGD"}
         parser.add_argument("--gen_opt", type=str, default="Adam")
@@ -587,6 +592,8 @@ class GAN(pl.LightningModule):
         parser.add_argument("--instance_noise", type=float, default=0.1)
         # spectral_norm
         parser.add_argument("--spectral_norm", type=bool, default=False)
+        # use_simple_3dgan_struct
+        parser.add_argument("--use_simple_3dgan_struct", type=bool, default=False)
         # accuracy_hack
         parser.add_argument("--accuracy_hack", type=float, default=1.1)
         # learning rate
@@ -628,10 +635,10 @@ class GAN(pl.LightningModule):
         )
 
         discriminator = Discriminator(
-            config.d_layer,
-            config.z_size,
-            config.resolution,
-            config.dis_num_layer_unit,
+            layer_per_block=config.d_layer,
+            output_size=1,
+            input_size=config.resolution,
+            num_layer_unit=config.dis_num_layer_unit,
             dropout_prob=config.dropout_prob,
             spectral_norm=config.spectral_norm,
             activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
@@ -778,7 +785,7 @@ class GAN(pl.LightningModule):
             tree_fake = self.add_noise_to_samples(tree_fake, instance_noise)
 
             # tree_fake is already computed above
-            dout_fake = self.discriminator(tree_fake, output_all=False)
+            dout_fake = self.discriminator(tree_fake)
             # generator should generate trees that discriminator think they are real
             gloss = criterion_label(dout_fake, real_label)
 
@@ -802,7 +809,7 @@ class GAN(pl.LightningModule):
             tree_fake = self.add_noise_to_samples(tree_fake, instance_noise)
 
             # real data (data from dataloader)
-            dout_real = self.discriminator(dataset_batch, output_all=False)
+            dout_real = self.discriminator(dataset_batch)
             dloss_real = criterion_label(dout_real, real_label)
 
             # fake data (data from generator)
@@ -1066,7 +1073,7 @@ class GAN_Wloss(GAN):
             tree_fake = self.add_noise_to_samples(tree_fake, instance_noise)
 
             # tree_fake is already computed above
-            dout_fake = self.discriminator(tree_fake, output_all=False)
+            dout_fake = self.discriminator(tree_fake)
 
             # generator should maximize dout_fake
             gloss = -dout_fake.mean()
@@ -1090,7 +1097,7 @@ class GAN_Wloss(GAN):
             tree_fake = self.add_noise_to_samples(tree_fake, instance_noise)
 
             # real data (data from dataloader)
-            dout_real = self.discriminator(dataset_batch, output_all=False)
+            dout_real = self.discriminator(dataset_batch)
 
             # fake data (data from generator)
             dout_fake = self.discriminator(
@@ -1230,7 +1237,7 @@ class GAN_Wloss_GP(GAN):
             tree_fake = self.add_noise_to_samples(tree_fake, instance_noise)
 
             # tree_fake is already computed above
-            dout_fake = self.discriminator(tree_fake, output_all=False)
+            dout_fake = self.discriminator(tree_fake)
 
             # generator should maximize dout_fake
             gloss = -dout_fake.mean()
@@ -1254,7 +1261,7 @@ class GAN_Wloss_GP(GAN):
             tree_fake = self.add_noise_to_samples(tree_fake, instance_noise)
 
             # real data (data from dataloader)
-            dout_real = self.discriminator(dataset_batch, output_all=False)
+            dout_real = self.discriminator(dataset_batch)
 
             # fake data (data from generator)
             dout_fake = self.discriminator(
@@ -1310,7 +1317,7 @@ class CGAN(GAN):
 
         discriminator = Discriminator(
             config.d_layer,
-            config.z_size,
+            1,
             config.resolution,
             config.dis_num_layer_unit,
             dropout_prob=config.dropout_prob,
@@ -1320,10 +1327,9 @@ class CGAN(GAN):
 
         classifier = Discriminator(
             config.d_layer,
-            config.z_size,
+            config.num_classes,
             config.resolution,
             config.dis_num_layer_unit,
-            output_size=config.num_classes,
             dropout_prob=config.dropout_prob,
             spectral_norm=config.spectral_norm,
             activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
@@ -1509,12 +1515,12 @@ class CGAN(GAN):
             tree_fake = self.add_noise_to_samples(tree_fake, instance_noise)
 
             # tree_fake on Dis
-            dout_fake = self.discriminator(tree_fake, output_all=False)
+            dout_fake = self.discriminator(tree_fake)
             # generator should generate trees that discriminator think they are real
             gloss_d = criterion_label(dout_fake, real_label)
 
             # tree_fake on Cla
-            cout_fake = self.classifier(tree_fake, output_all=False)
+            cout_fake = self.classifier(tree_fake)
             gloss_c = criterion_class(cout_fake, c_fake)
 
             gloss = (gloss_d + gloss_c) / 2
@@ -1555,7 +1561,7 @@ class CGAN(GAN):
             tree_fake = self.add_noise_to_samples(tree_fake, instance_noise)
 
             # real data (data from dataloader)
-            dout_real = self.discriminator(dataset_batch, output_all=False)
+            dout_real = self.discriminator(dataset_batch)
             dloss_real = criterion_label(dout_real, real_label)
 
             # fake data (data from generator)
@@ -1616,7 +1622,7 @@ class CGAN(GAN):
             closs_fake = criterion_class(cout_fake, c_fake)
 
             # real data (data from dataloader)
-            cout_real = self.classifier(dataset_batch, output_all=False)
+            cout_real = self.classifier(dataset_batch)
             closs_real = criterion_class(cout_real, dataset_indices)
 
             # loss function (discriminator classify real data vs generated data)
@@ -1649,36 +1655,55 @@ class CGAN(GAN):
 class Generator(nn.Module):
     def __init__(
         self,
-        layer_per_block=2,
+        layer_per_block=1,
         z_size=128,
         output_size=64,
         num_layer_unit=32,
         dropout_prob=0.3,
         spectral_norm=False,
+        use_simple_3dgan_struct=False,
         activations=nn.ReLU(True),
     ):
         super(Generator, self).__init__()
         self.z_size = z_size
+        self.use_simple_3dgan_struct = use_simple_3dgan_struct
 
         # layer_per_block must be >= 1
         if layer_per_block < 1:
             layer_per_block = 1
 
-        self.fc_channel = 8  # 16
-        self.fc_size = 4
+        if use_simple_3dgan_struct:
+            self.fc_channel = z_size  # 16
+            self.fc_size = 1
+        else:
+            self.fc_channel = 8  # 16
+            self.fc_size = 4
 
         self.output_size = output_size
-        # need int(output_size / self.fc_size) upsampling to increase size, so we have int(output_size / self.fc_size) + 1 block
-        self.num_blocks = int(np.log2(output_size) - np.log2(self.fc_size)) + 1
+        # need int(output_size / self.fc_size) upsampling to increase size
+        self.num_blocks = int(np.log2(output_size) - np.log2(self.fc_size))
+        if use_simple_3dgan_struct:
+            # minus 1 as the final conv block also double the volume
+            self.num_blocks = self.num_blocks - 1
 
         if type(num_layer_unit) is list:
-            if len(num_layer_unit) != self.num_blocks:
+            if len(num_layer_unit) < self.num_blocks:
                 raise Exception(
                     "For output_size="
                     + str(output_size)
                     + ", the list of num_layer_unit should have "
                     + str(self.num_blocks)
                     + " elements."
+                )
+            if len(num_layer_unit) > self.num_blocks:
+                num_layer_unit = num_layer_unit[: self.num_blocks]
+                print(
+                    "For output_size="
+                    + str(output_size)
+                    + ", the list of num_layer_unit should have "
+                    + str(self.num_blocks)
+                    + " elements. Trimming num_layer_unit to "
+                    + str(num_layer_unit)
                 )
             num_layer_unit_list = num_layer_unit
         elif type(num_layer_unit) is int:
@@ -1697,50 +1722,59 @@ class Generator(nn.Module):
             )
 
             for _ in range(layer_per_block):
-                if spectral_norm:
-                    gen_module.append(
-                        SpectralNorm(
-                            nn.ConvTranspose3d(
-                                num_layer_unit1, num_layer_unit2, 3, 1, padding=1
-                            )
-                        )
+                if use_simple_3dgan_struct:
+                    conv_layer = nn.ConvTranspose3d(
+                        num_layer_unit1,
+                        num_layer_unit2,
+                        kernel_size=4,
+                        stride=2,
+                        padding=1,
                     )
                 else:
-                    gen_module.append(
-                        nn.ConvTranspose3d(
-                            num_layer_unit1, num_layer_unit2, 3, 1, padding=1
-                        )
+                    conv_layer = nn.ConvTranspose3d(
+                        num_layer_unit1, num_layer_unit2, 3, 1, padding=1
                     )
+
+                if spectral_norm:
+                    gen_module.append(SpectralNorm(conv_layer))
+                else:
+                    gen_module.append(conv_layer)
                 gen_module.append(nn.BatchNorm3d(num_layer_unit2))
                 gen_module.append(activations)
                 gen_module.append(nn.Dropout3d(dropout_prob))
                 num_layer_unit1 = num_layer_unit2
 
-            gen_module.append(nn.Upsample(scale_factor=2, mode="trilinear"))
-
-        # remove extra pool layer
-        gen_module = gen_module[:-1]
+            if not use_simple_3dgan_struct:
+                gen_module.append(nn.Upsample(scale_factor=2, mode="trilinear"))
 
         # remove tanh for loss with logit
-        if spectral_norm:
-            gen_module.append(
-                SpectralNorm(
-                    nn.ConvTranspose3d(num_layer_unit_list[-1], 1, 3, 1, padding=1)
-                )
+        if use_simple_3dgan_struct:
+            conv_layer = nn.ConvTranspose3d(
+                num_layer_unit1, 1, kernel_size=4, stride=2, padding=1
             )
         else:
-            gen_module.append(
-                nn.ConvTranspose3d(num_layer_unit_list[-1], 1, 3, 1, padding=1)
-            )
+            conv_layer = nn.ConvTranspose3d(num_layer_unit1, 1, 3, 1, padding=1)
+
+        if spectral_norm:
+            gen_module.append(SpectralNorm(conv_layer))
+        else:
+            gen_module.append(conv_layer)
         # gen_module.append(nn.tanh())
 
-        self.gen_fc = nn.Linear(
-            self.z_size, self.fc_channel * self.fc_size * self.fc_size * self.fc_size
-        )
+        if not self.use_simple_3dgan_struct:
+            self.gen_fc = nn.Linear(
+                self.z_size,
+                self.fc_channel * self.fc_size * self.fc_size * self.fc_size,
+            )
+        else:
+            # create simple layer (not used in training)
+            self.gen_fc = nn.Linear(1, 1)
+
         self.gen = nn.Sequential(*gen_module)
 
     def forward(self, x):
-        x = self.gen_fc(x)
+        if not self.use_simple_3dgan_struct:
+            x = self.gen_fc(x)
         x = x.view(
             x.shape[0], self.fc_channel, self.fc_size, self.fc_size, self.fc_size
         )
@@ -1751,38 +1785,56 @@ class Generator(nn.Module):
 class Discriminator(nn.Module):
     def __init__(
         self,
-        layer_per_block=2,
-        z_size=128,
+        layer_per_block=1,
+        output_size=1,
         input_size=64,
         num_layer_unit=16,
         dropout_prob=0.3,
-        output_size=1,
         spectral_norm=False,
+        use_simple_3dgan_struct=False,
         activations=nn.LeakyReLU(0.0, True),
     ):
         super(Discriminator, self).__init__()
 
         self.z_size = z_size
+        self.use_simple_3dgan_struct = use_simple_3dgan_struct
 
         # layer_per_block must be >= 1
         if layer_per_block < 1:
             layer_per_block = 1
 
-        self.fc_size = 4  # final height of the volume in conv layers before flatten
+        if use_simple_3dgan_struct:
+            self.fc_size = 1
+        else:
+            self.fc_size = 4  # final height of the volume in conv layers before flatten
 
         self.input_size = input_size
         self.output_size = output_size
-        # need int(input_size / self.fc_size) upsampling to increase size, so we have int(input_size / self.fc_size) + 1 block
-        self.num_blocks = int(np.log2(input_size) - np.log2(self.fc_size)) + 1
+        # need int(input_size / self.fc_size) upsampling to increase size
+        # minus 1 for the last conv layer (not in loop so batchnorm/dropout not applied after)
+        self.num_blocks = int(np.log2(input_size) - np.log2(self.fc_size))
+        if use_simple_3dgan_struct:
+            # minus 1 as the final conv block also cut the volume by half
+            self.num_blocks = self.num_blocks - 1
 
         if type(num_layer_unit) is list:
-            if len(num_layer_unit) != self.num_blocks:
+            if len(num_layer_unit) < self.num_blocks:
                 raise Exception(
                     "For input_size="
                     + str(input_size)
                     + ", the list of num_layer_unit should have "
                     + str(self.num_blocks)
                     + " elements."
+                )
+            if len(num_layer_unit) > self.num_blocks:
+                num_layer_unit = num_layer_unit[: self.num_blocks]
+                print(
+                    "For input_size="
+                    + str(input_size)
+                    + ", the list of num_layer_unit should have "
+                    + str(self.num_blocks)
+                    + " elements. Trimming num_layer_unit to "
+                    + str(num_layer_unit)
                 )
             num_layer_unit_list = num_layer_unit
         elif type(num_layer_unit) is int:
@@ -1793,7 +1845,7 @@ class Discriminator(nn.Module):
         # add initial num_unit to num_layer_unit_list
         num_layer_unit_list = [1] + num_layer_unit_list
         dis_module = []
-        # 5 blocks (need 4 pool to reduce size)
+        #
         for i in range(self.num_blocks):
             num_layer_unit1, num_layer_unit2 = (
                 num_layer_unit_list[i],
@@ -1801,50 +1853,60 @@ class Discriminator(nn.Module):
             )
 
             for _ in range(layer_per_block):
-                if spectral_norm:
-                    dis_module.append(
-                        SpectralNorm(
-                            nn.Conv3d(num_layer_unit1, num_layer_unit2, 3, 1, padding=1)
-                        )
+                if use_simple_3dgan_struct:
+                    conv_layer = nn.Conv3d(
+                        num_layer_unit1,
+                        num_layer_unit2,
+                        kernel_size=4,
+                        stride=2,
+                        padding=1,
                     )
                 else:
-                    dis_module.append(
-                        nn.Conv3d(num_layer_unit1, num_layer_unit2, 3, 1, padding=1)
+                    conv_layer = nn.Conv3d(
+                        num_layer_unit1, num_layer_unit2, 3, 1, padding=1
                     )
+
+                if spectral_norm:
+                    dis_module.append(SpectralNorm(conv_layer))
+                else:
+                    dis_module.append(conv_layer)
+
                 dis_module.append(nn.BatchNorm3d(num_layer_unit2))
                 dis_module.append(activations)
                 dis_module.append(nn.Dropout3d(dropout_prob))
                 num_layer_unit1 = num_layer_unit2
 
-            dis_module.append(nn.MaxPool3d((2, 2, 2)))
+            if not use_simple_3dgan_struct:
+                dis_module.append(nn.MaxPool3d((2, 2, 2)))
 
-        # remove extra pool layer
-        dis_module = dis_module[:-1]
+        # # remove extra pool layer
+        # dis_module = dis_module[:-1]
+
+        if use_simple_3dgan_struct:
+            conv_layer = nn.Conv3d(
+                num_layer_unit1, self.output_size, kernel_size=4, stride=2, padding=1
+            )
+        else:
+            conv_layer = nn.Conv3d(num_layer_unit1, num_layer_unit1, 3, 1, padding=1)
+        dis_module.append(conv_layer)
 
         self.dis = nn.Sequential(*dis_module)
 
-        self.dis_fc1 = nn.Sequential(
-            nn.Linear(
-                num_layer_unit_list[-1] * self.fc_size * self.fc_size * self.fc_size,
-                z_size,
-            ),
-            nn.ReLU(True),
-        )
-        self.dis_fc2 = nn.Sequential(
-            nn.Linear(z_size, self.output_size),
-            # nn.tanh()  #remove tanh for loss with logit
-        )
+        if not self.use_simple_3dgan_struct:
+            self.dis_fc = nn.Linear(
+                num_layer_unit1 * self.fc_size * self.fc_size * self.fc_size,
+                self.output_size,
+            )
+        else:
+            # create simple layer (not used in training)
+            self.dis_fc = nn.Linear(1, 1)
 
-    def forward(self, x, output_all=False):
-
+    def forward(self, x):
         x = self.dis(x)
         x = x.view(x.shape[0], -1)
-        fx = self.dis_fc1(x)
-        x = self.dis_fc2(fx)
-        if output_all:
-            return x, fx
-        else:
-            return x
+        if not self.use_simple_3dgan_struct:
+            x = self.dis_fc(x)
+        return x
 
 
 class VAE(nn.Module):
@@ -1868,7 +1930,7 @@ class VAE(nn.Module):
 
     def forward(self, x, output_all=False):
         # VAE
-        _, f = self.vae_encoder(x, output_all=True)
+        f = self.vae_encoder(x)
         x_mean = self.encoder_mean(f)
         x_logvar = self.encoder_logvar(f)
         x = self.noise_reparameterize(x_mean, x_logvar)
@@ -1905,7 +1967,7 @@ class CVAE(nn.Module):
 
     def forward(self, x, c, output_all=False):
         # CVAE
-        _, f = self.vae_encoder(x, output_all=True)
+        f = self.vae_encoder(x)
         x_mean = self.encoder_mean(f)
         x_logvar = self.encoder_logvar(f)
         x = self.noise_reparameterize(x_mean, x_logvar)
