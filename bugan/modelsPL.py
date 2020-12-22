@@ -84,6 +84,7 @@ class VAE_train(pl.LightningModule):
             config.decoder_num_layer_unit,
             dropout_prob=config.dropout_prob,
             spectral_norm=config.spectral_norm,
+            use_simple_3dgan_struct=config.use_simple_3dgan_struct,
             activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
         )
         encoder = Discriminator(
@@ -93,6 +94,7 @@ class VAE_train(pl.LightningModule):
             num_layer_unit=config.encoder_num_layer_unit,
             dropout_prob=config.dropout_prob,
             spectral_norm=config.spectral_norm,
+            use_simple_3dgan_struct=config.use_simple_3dgan_struct,
             activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
         )
         vae = VAE(encoder=encoder, decoder=decoder)
@@ -306,6 +308,7 @@ class VAEGAN(pl.LightningModule):
             config.decoder_num_layer_unit,
             dropout_prob=config.dropout_prob,
             spectral_norm=config.spectral_norm,
+            use_simple_3dgan_struct=config.use_simple_3dgan_struct,
             activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
         )
 
@@ -316,6 +319,7 @@ class VAEGAN(pl.LightningModule):
             num_layer_unit=config.encoder_num_layer_unit,
             dropout_prob=config.dropout_prob,
             spectral_norm=config.spectral_norm,
+            use_simple_3dgan_struct=config.use_simple_3dgan_struct,
             activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
         )
         vae = VAE(encoder=encoder, decoder=decoder)
@@ -327,6 +331,7 @@ class VAEGAN(pl.LightningModule):
             num_layer_unit=config.dis_num_layer_unit,
             dropout_prob=config.dropout_prob,
             spectral_norm=config.spectral_norm,
+            use_simple_3dgan_struct=config.use_simple_3dgan_struct,
             activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
         )
 
@@ -631,6 +636,7 @@ class GAN(pl.LightningModule):
             config.gen_num_layer_unit,
             dropout_prob=config.dropout_prob,
             spectral_norm=config.spectral_norm,
+            use_simple_3dgan_struct=config.use_simple_3dgan_struct,
             activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
         )
 
@@ -641,6 +647,7 @@ class GAN(pl.LightningModule):
             num_layer_unit=config.dis_num_layer_unit,
             dropout_prob=config.dropout_prob,
             spectral_norm=config.spectral_norm,
+            use_simple_3dgan_struct=config.use_simple_3dgan_struct,
             activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
         )
 
@@ -1312,6 +1319,7 @@ class CGAN(GAN):
             config.gen_num_layer_unit,
             dropout_prob=config.dropout_prob,
             spectral_norm=config.spectral_norm,
+            use_simple_3dgan_struct=config.use_simple_3dgan_struct,
             activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
         )
 
@@ -1322,6 +1330,7 @@ class CGAN(GAN):
             config.dis_num_layer_unit,
             dropout_prob=config.dropout_prob,
             spectral_norm=config.spectral_norm,
+            use_simple_3dgan_struct=config.use_simple_3dgan_struct,
             activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
         )
 
@@ -1332,6 +1341,7 @@ class CGAN(GAN):
             config.dis_num_layer_unit,
             dropout_prob=config.dropout_prob,
             spectral_norm=config.spectral_norm,
+            use_simple_3dgan_struct=config.use_simple_3dgan_struct,
             activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
         )
 
