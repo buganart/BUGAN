@@ -1796,7 +1796,6 @@ class Discriminator(nn.Module):
     ):
         super(Discriminator, self).__init__()
 
-        self.z_size = z_size
         self.use_simple_3dgan_struct = use_simple_3dgan_struct
 
         # layer_per_block must be >= 1
