@@ -105,6 +105,10 @@ class VAE_train(pl.LightningModule):
         # others
         self.noise_magnitude = config.instance_noise
 
+    def forward(self, x):
+        x = self.vae(x)
+        return x
+
     def configure_optimizers(self):
         config = self.config
         vae = self.vae
