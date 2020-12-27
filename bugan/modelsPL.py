@@ -1357,13 +1357,21 @@ class CGAN(GAN):
         # others
         self.noise_magnitude = config.instance_noise
 
-    def forward(self, x):
+    def forward(self, x, c):
+        # combine x and c into z
+        batch_size = c.shape[0]
+        c = c.reshape((-1, 1))
+        c_onehot = torch.zeros([batch_size, self.config.num_classes]).type_as(x)
+        c_onehot = c_onehot.scatter(1, c, 1)
+        # merge with z to be generator input
+        z = torch.cat((x, c_onehot), 1)
+
         # classifier and discriminator
-        x = self.generator(x)
+        x = self.generator(z)
         x = F.tanh(x)
-        x = self.discriminator(x)
-        c = self.classifier(x)
-        return x, c
+        d_predict = self.discriminator(x)
+        c_predict = self.classifier(x)
+        return d_predict, c_predict
 
     def configure_optimizers(self):
         config = self.config
