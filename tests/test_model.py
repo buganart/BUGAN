@@ -393,13 +393,13 @@ def test_cgan_training_loop_full(device, wandb_init_run, data_path_cond):
 
 
 ### TEST EXPERIMENT SCRIPT
-def test_trainPL_script():
-    data_location = "./data"
+@pytest.mark.parametrize("data_process_format", ["zip"])
+def test_trainPL_script(data_path):
     config_dict = dict(
         aug_rotation_type="random rotation",
         data_augmentation=True,
         aug_rotation_axis=(0, 1, 0),
-        data_location=data_location,
+        data_location=data_path,
         resume_id="",
         selected_model="GAN",
         log_interval=15,
