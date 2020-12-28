@@ -17,6 +17,7 @@ setup(
         "tqdm",
         "trimesh",
         "scipy",
+        "scikit-image",
         "wandb",
     ],
     use_scm_version=True,
