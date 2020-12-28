@@ -1,13 +1,16 @@
 from argparse import Namespace
 
+import os
 import numpy as np
 import pytest
 import torch
 import wandb
 import pytorch_lightning as pl
+from pathlib import Path
 
 from bugan.modelsPL import VAEGAN, VAE_train, GAN, GAN_Wloss, GAN_Wloss_GP, CGAN
-from bugan.functionsPL import DataModule_process, DataModule_process_cond
+from bugan.datamodulePL import DataModule_process, DataModule_process_cond
+from bugan.trainPL import init_wandb_run, setup_datamodule, setup_model, train
 from test_data_loader import data_path_cond, data_path
 
 
@@ -36,7 +39,8 @@ def test_vaegan_forward(device):
     config = Namespace(
         resolution=32,
         d_layer=1,
-        gen_num_layer_unit=[2, 2, 2, 2],
+        encoder_num_layer_unit=[2, 2, 2, 2],
+        decoder_num_layer_unit=[2, 2, 2, 2],
         dis_num_layer_unit=[2, 2, 2, 2],
         vae_decoder_layer=1,
         vae_encoder_layer=1,
@@ -51,8 +55,8 @@ def test_vaegan_forward(device):
 def test_vae_forward(device):
     config = Namespace(
         resolution=32,
-        gen_num_layer_unit=[2, 2, 2, 2],
-        dis_num_layer_unit=[2, 2, 2, 2],
+        encoder_num_layer_unit=[2, 2, 2, 2],
+        decoder_num_layer_unit=[2, 2, 2, 2],
         vae_decoder_layer=1,
         vae_encoder_layer=1,
         z_size=2,
@@ -133,7 +137,8 @@ def test_vaegan_training_step(device):
     config = Namespace(
         resolution=32,
         d_layer=1,
-        gen_num_layer_unit=[2, 2, 2, 2],
+        encoder_num_layer_unit=[2, 2, 2, 2],
+        decoder_num_layer_unit=[2, 2, 2, 2],
         dis_num_layer_unit=[2, 2, 2, 2],
         vae_decoder_layer=1,
         vae_encoder_layer=1,
@@ -152,8 +157,8 @@ def test_vaegan_training_step(device):
 def test_vae_training_step(device):
     config = Namespace(
         resolution=32,
-        gen_num_layer_unit=[2, 2, 2, 2],
-        dis_num_layer_unit=[2, 2, 2, 2],
+        encoder_num_layer_unit=[2, 2, 2, 2],
+        decoder_num_layer_unit=[2, 2, 2, 2],
         vae_decoder_layer=1,
         vae_encoder_layer=1,
         z_size=2,
@@ -256,12 +261,14 @@ def test_cgan_training_step(device):
 ### CHECK FULL TRAINING (with data_module, model, and trainer)
 
 
+@pytest.mark.parametrize("data_process_format", ["zip"])
 def test_vaegan_training_loop_full(device, wandb_init_run, data_path):
     config = Namespace(
         resolution=32,
         d_layer=1,
-        gen_num_layer_unit=[2, 2, 2, 2],
-        dis_num_layer_unit=[2, 2, 2, 2],
+        encoder_num_layer_unit=[1, 1, 1, 1],
+        decoder_num_layer_unit=[1, 1, 1, 1],
+        dis_num_layer_unit=[1, 1, 1, 1],
         vae_decoder_layer=1,
         vae_encoder_layer=1,
         z_size=2,
@@ -277,11 +284,12 @@ def test_vaegan_training_loop_full(device, wandb_init_run, data_path):
     trainer.fit(model, data_module)
 
 
+@pytest.mark.parametrize("data_process_format", ["zip"])
 def test_vae_training_loop_full(device, wandb_init_run, data_path):
     config = Namespace(
         resolution=32,
-        gen_num_layer_unit=[2, 2, 2, 2],
-        dis_num_layer_unit=[2, 2, 2, 2],
+        encoder_num_layer_unit=[1, 1, 1, 1],
+        decoder_num_layer_unit=[1, 1, 1, 1],
         vae_decoder_layer=1,
         vae_encoder_layer=1,
         z_size=2,
@@ -297,13 +305,14 @@ def test_vae_training_loop_full(device, wandb_init_run, data_path):
     trainer.fit(model, data_module)
 
 
+@pytest.mark.parametrize("data_process_format", ["zip"])
 def test_gan_training_loop_full(device, wandb_init_run, data_path):
     config = Namespace(
         resolution=32,
         d_layer=1,
         g_layer=1,
-        gen_num_layer_unit=[2, 2, 2, 2],
-        dis_num_layer_unit=[2, 2, 2, 2],
+        gen_num_layer_unit=[1, 1, 1, 1],
+        dis_num_layer_unit=[1, 1, 1, 1],
         z_size=2,
         # for dataloader
         batch_size=1,
@@ -317,13 +326,14 @@ def test_gan_training_loop_full(device, wandb_init_run, data_path):
     trainer.fit(model, data_module)
 
 
+@pytest.mark.parametrize("data_process_format", ["zip"])
 def test_gan_wloss_training_loop_full(device, wandb_init_run, data_path):
     config = Namespace(
         resolution=32,
         d_layer=1,
         g_layer=1,
-        gen_num_layer_unit=[2, 2, 2, 2],
-        dis_num_layer_unit=[2, 2, 2, 2],
+        gen_num_layer_unit=[1, 1, 1, 1],
+        dis_num_layer_unit=[1, 1, 1, 1],
         z_size=2,
         # for dataloader
         batch_size=1,
@@ -337,13 +347,14 @@ def test_gan_wloss_training_loop_full(device, wandb_init_run, data_path):
     trainer.fit(model, data_module)
 
 
+@pytest.mark.parametrize("data_process_format", ["zip"])
 def test_gan_wloss_gp_training_loop_full(device, wandb_init_run, data_path):
     config = Namespace(
         resolution=32,
         d_layer=1,
         g_layer=1,
-        gen_num_layer_unit=[2, 2, 2, 2],
-        dis_num_layer_unit=[2, 2, 2, 2],
+        gen_num_layer_unit=[1, 1, 1, 1],
+        dis_num_layer_unit=[1, 1, 1, 1],
         z_size=2,
         # for dataloader
         batch_size=1,
@@ -357,13 +368,14 @@ def test_gan_wloss_gp_training_loop_full(device, wandb_init_run, data_path):
     trainer.fit(model, data_module)
 
 
+@pytest.mark.parametrize("data_process_format", ["zip"])
 def test_cgan_training_loop_full(device, wandb_init_run, data_path_cond):
     config = Namespace(
         resolution=32,
         d_layer=1,
         g_layer=1,
-        gen_num_layer_unit=[2, 2, 2, 2],
-        dis_num_layer_unit=[2, 2, 2, 2],
+        gen_num_layer_unit=[1, 1, 1, 1],
+        dis_num_layer_unit=[1, 1, 1, 1],
         z_size=2,
         # for dataloader
         batch_size=1,
@@ -378,3 +390,39 @@ def test_cgan_training_loop_full(device, wandb_init_run, data_path_cond):
     )
     trainer = pl.Trainer(max_epochs=1)
     trainer.fit(model, data_module)
+
+
+### TEST EXPERIMENT SCRIPT
+def test_trainPL_script():
+    data_location = "./data"
+    config_dict = dict(
+        aug_rotation_type="random rotation",
+        data_augmentation=True,
+        aug_rotation_axis=(0, 1, 0),
+        data_location=data_location,
+        resume_id="",
+        selected_model="GAN",
+        log_interval=15,
+        log_num_samples=1,
+        project_name="tree-gan",
+        resolution=32,
+        num_classes=0,
+        seed=1234,
+        epochs=1,
+        batch_size=32,
+        gen_num_layer_unit=[1, 1, 1, 1],
+        dis_num_layer_unit=[1, 1, 1, 1],
+    )
+    config = Namespace(**config_dict)
+
+    # run offline
+    os.environ["WANDB_MODE"] = "dryrun"
+    run_dir = Path("./").absolute().parent
+    run, config = init_wandb_run(config, run_dir="../")
+    dataModule, config = setup_datamodule(config, run)
+    model, extra_trainer_args = setup_model(config, run)
+
+    if torch.cuda.is_available():
+        extra_trainer_args["gpus"] = -1
+
+    train(config, run, model, dataModule, extra_trainer_args)

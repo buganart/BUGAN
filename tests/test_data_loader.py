@@ -5,17 +5,33 @@ import zipfile
 
 import pytest
 
-from bugan.functionsPL import DataModule_process, DataModule_process_cond
+from bugan.datamodulePL import DataModule_process, DataModule_process_cond
 
 
 @pytest.fixture(params=["zip", "folder"])
-def data_path(request, tmp_path):
+def data_process_format(request):
+    return request.param
+
+
+@pytest.fixture
+def data_path(data_process_format, tmp_path):
     data_folder = Path(__file__).parent / "data"
-    if request.param == "folder":
+    if data_process_format == "folder":
         tmp_data_path = shutil.copytree(data_folder, tmp_path / "data")
         return tmp_data_path
     else:
         zip_path = shutil.make_archive(tmp_path / "dataset", "zip", data_folder)
+        return zip_path
+
+
+@pytest.fixture
+def data_path_cond(data_process_format, tmp_path):
+    data_folder = Path(__file__).parent / "data"
+    if data_process_format == "folder":
+        tmp_data_path = shutil.copytree(data_folder, tmp_path / "data/class_1")
+        return tmp_data_path
+    else:
+        zip_path = shutil.make_archive(tmp_path / "dataset/class_1", "zip", data_folder)
         return zip_path
 
 
@@ -44,17 +60,6 @@ def test_data_module_folder(data_path, data_augmentation, rotation_type):
         32,
     ]
     assert list(batch[0].shape) == expected_shape
-
-
-@pytest.fixture(params=["zip", "folder"])
-def data_path_cond(request, tmp_path):
-    data_folder = Path(__file__).parent / "data"
-    if request.param == "folder":
-        tmp_data_path = shutil.copytree(data_folder, tmp_path / "data/class_1")
-        return tmp_data_path
-    else:
-        zip_path = shutil.make_archive(tmp_path / "dataset/class_1", "zip", data_folder)
-        return zip_path
 
 
 @pytest.mark.parametrize("data_augmentation", [True, False])
