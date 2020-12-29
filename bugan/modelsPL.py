@@ -21,17 +21,284 @@ device
 #####
 #   models for training
 #####
-class VAE_train(pl.LightningModule):
+class BaseModel(pl.LightningModule):
     @staticmethod
     def add_model_specific_args(parent_parser, resolution=32):
         parser = ArgumentParser(parents=[parent_parser], add_help=False)
+
+        parser.add_argument("--batch_size", type=int, default=4)
+        parser.add_argument("--resolution", type=int, default=resolution)
         # log argument
         parser.add_argument("--log_interval", type=int, default=10)
         parser.add_argument("--log_num_samples", type=int, default=1)
 
-        # model specific argument (VAE)
+        # instance noise (add noise to real data/generate data)
+        parser.add_argument(
+            "--linear_annealed_instance_noise_epoch", type=int, default=1000
+        )
+        parser.add_argument("--instance_noise", type=float, default=0.3)
+
+        # default Generator/Discriminator parameters
+        # latent vector size
         parser.add_argument("--z_size", type=int, default=128)
-        parser.add_argument("--resolution", type=int, default=resolution)
+        # activation default leakyReLU
+        parser.add_argument("--activation_leakyReLU_slope", type=float, default=0.1)
+        # Dropout probability
+        parser.add_argument("--dropout_prob", type=float, default=0.3)
+        # spectral_norm
+        parser.add_argument("--spectral_norm", type=bool, default=False)
+        # use_simple_3dgan_struct
+        parser.add_argument("--use_simple_3dgan_struct", type=bool, default=False)
+
+        return parser
+
+    def __init__(self, config):
+        super(BaseModel, self).__init__()
+        self.config = self.setup_config_arguments(config)
+        self.model_list = []
+        self.model_name_list = []
+        self.opt_config_list = []
+        self.model_ep_loss_list = []
+
+        # for instance noise
+        self.noise_magnitude = self.config.instance_noise
+
+    def setup_Generator(self, layer_per_block, num_layer_unit):
+        config = self.config
+        generator = Generator(
+            layer_per_block=layer_per_block,
+            z_size=config.z_size,
+            output_size=config.resolution,
+            num_layer_unit=num_layer_unit,
+            dropout_prob=config.dropout_prob,
+            spectral_norm=config.spectral_norm,
+            use_simple_3dgan_struct=config.use_simple_3dgan_struct,
+            activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
+        )
+        return generator
+
+    def setup_Discriminator(self, layer_per_block, num_layer_unit):
+        config = self.config
+        discriminator = Discriminator(
+            layer_per_block=layer_per_block,
+            output_size=config.z_size,
+            input_size=config.resolution,
+            num_layer_unit=num_layer_unit,
+            dropout_prob=config.dropout_prob,
+            spectral_norm=config.spectral_norm,
+            use_simple_3dgan_struct=config.use_simple_3dgan_struct,
+            activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
+        )
+        return discriminator
+
+    def setup_config_arguments(self, config):
+        if hasattr(config, "cyclicLR_magnitude"):
+            resolution = config.resolution
+        else:
+            resolution = 32
+        # add missing default parameters
+        parser = self.add_model_specific_args(ArgumentParser(), resolution=resolution)
+        args = parser.parse_args([])
+        config = self.combine_namespace(args, config)
+        return config
+
+    def setup_model_component(self, model, model_name, model_opt_string, model_lr):
+        self.model_list.append(model)
+        self.model_name_list.append(model_name)
+        self.opt_config_list.append((model_opt_string, model_lr))
+        self.model_ep_loss_list.append([])
+
+    def configure_optimizers(self):
+        if hasattr(self.config, "cyclicLR_magnitude"):
+            cyclicLR_magnitude = self.config.cyclicLR_magnitude
+        else:
+            cyclicLR_magnitude = None
+
+        optimizer_list = []
+        scheduler_list = []
+        for idx in range(len(self.model_list)):
+            model = self.model_list[idx]
+            model_opt_string, model_lr = self.opt_config_list[idx]
+            optimizer = self.get_model_optimizer(model, model_opt_string, model_lr)
+            optimizer_list.append(optimizer)
+            # check if use cyclicLR
+            if cyclicLR_magnitude:
+                scheduler = torch.optim.lr_scheduler.CyclicLR(
+                    optimizer,
+                    base_lr=model_lr / cyclicLR_magnitude,
+                    max_lr=model_lr * cyclicLR_magnitude,
+                    step_size_up=200,
+                )
+                scheduler_list.append(scheduler)
+
+        if cyclicLR_magnitude:
+            return optimizer_list, scheduler_list
+        else:
+            return optimizer_list
+
+    def on_train_epoch_start(self):
+        # reset ep_loss
+        # set model to train
+        for idx in range(len(self.model_ep_loss_list)):
+            self.model_ep_loss_list[idx] = []
+            self.model_list[idx].train()
+
+        # calc instance noise
+        if self.noise_magnitude > 0:
+            # linear annealed noise
+            noise_rate = (
+                self.config.linear_annealed_instance_noise_epoch - self.current_epoch
+            ) / self.config.linear_annealed_instance_noise_epoch
+            self.noise_magnitude = self.config.instance_noise * noise_rate
+        else:
+            self.noise_magnitude = 0
+
+    def on_train_epoch_end(self, epoch_output):
+        log_dict = {"epoch": self.current_epoch}
+
+        # record loss
+        for idx in range(len(self.model_ep_loss_list)):
+            loss = np.mean(self.model_ep_loss_list[idx])
+            loss_name = self.model_name_list[idx] + " loss"
+            log_dict[loss_name] = loss
+
+        # boolean whether to log image/3D object
+        log_media = self.current_epoch % self.config.log_interval == 0
+
+        wandbLog(
+            self,
+            log_dict,
+            log_media=log_media,
+            log_num_samples=self.config.log_num_samples,
+        )
+
+    def training_step(self, dataset_batch, batch_idx):
+        pass
+
+    def calculate_VAE_reconstruction_with_KL_loss(self, vae, mesh_data, loss_option):
+        # loss function
+        criterion_reconstruct = self.get_loss_function_with_logit(loss_option)
+
+        reconstructed_data, mu, logVar = vae(mesh_data, output_all=True)
+        # add instance noise
+        reconstructed_data = self.add_noise_to_samples(reconstructed_data)
+
+        vae_rec_loss = criterion_reconstruct(reconstructed_data, mesh_data)
+
+        # add KL loss
+        KL = 0.5 * torch.sum(mu ** 2 + torch.exp(logVar) - 1.0 - logVar)
+        vae_rec_loss += KL
+
+        return vae_rec_loss
+
+    def generate_noise_for_samples(self, data):
+        if self.noise_magnitude <= 0:
+            return 0
+        # create uniform noise
+        noise = torch.rand(data.shape) * 2 - 1
+        noise = self.noise_magnitude * noise  # noise in [-magn, magn]
+        noise = noise.float().type_as(data).detach()
+
+        return noise
+
+    def add_noise_to_samples(self, data):
+        if self.noise_magnitude <= 0:
+            return data
+        # create instance noise
+        noise = self.generate_noise_for_samples(data)
+        # add instance noise
+        # now batch in [-1+magn, 1-magn]
+        data = data * (1 - self.noise_magnitude)
+        data = data + noise
+        return data
+
+    def get_model_optimizer(self, model, optimizer_option, lr):
+
+        if optimizer_option == "Adam":
+            optimizer = optim.Adam
+        elif optimizer_option == "SGD":
+            optimizer = optim.SGD
+        else:
+            raise Exception(
+                "optimizer_option must be in ['Adam', 'SGD']. Current "
+                + str(optimizer_option)
+            )
+        return optimizer(model.parameters(), lr=lr)
+
+    def get_loss_function_with_logit(self, loss_option):
+
+        if loss_option == "BCELoss":
+            loss = nn.BCEWithLogitsLoss(reduction="mean")
+        elif loss_option == "MSELoss":
+            loss = lambda gen, data: nn.MSELoss(reduction="mean")(F.tanh(gen), data)
+        elif loss_option == "CrossEntropyLoss":
+            loss = nn.CrossEntropyLoss(reduction="mean")
+        else:
+            raise Exception(
+                "loss_option must be in ['BCELoss', 'MSELoss', 'CrossEntropyLoss']. Current "
+                + str(loss_option)
+            )
+        return loss
+
+    def combine_namespace(self, base, update):
+        base = vars(base)
+        base.update(vars(update))
+        return Namespace(**base)
+
+    def generate_tree(self, generator, c=None, num_classes=None, num_trees=1):
+        batch_size = self.config.batch_size
+        resolution = generator.output_size
+
+        if batch_size > num_trees:
+            batch_size = num_trees
+
+        result = None
+
+        num_runs = int(np.ceil(num_trees / batch_size))
+        # ignore discriminator
+        for i in range(num_runs):
+
+            if c is not None:
+                # generate noise vector
+                z = torch.randn(batch_size, generator.z_size - num_classes).type_as(
+                    generator.gen_fc.weight
+                )
+                # convert c to one-hot
+                batch_size = z.shape[0]
+                c_onehot = torch.zeros([batch_size, num_classes]).type_as(z)
+                c_onehot[:, c] = 1
+                # merge with z to be generator input
+                z = torch.cat((z, c_onehot), 1)
+            else:
+                # generate noise vector
+                z = torch.randn(batch_size, generator.z_size).type_as(
+                    generator.gen_fc.weight
+                )
+
+            # no tanh so hasvoxel means >0
+            tree_fake = generator(z)[:, 0, :, :, :]
+            selected_trees = tree_fake.detach().cpu().numpy()
+            if result is None:
+                result = selected_trees
+            else:
+                result = np.concatenate((result, selected_trees), axis=0)
+
+        # select at most num_trees
+        if result.shape[0] > num_trees:
+            result = result[:num_trees]
+        # in case no good result
+        if result.shape[0] <= 0:
+            result = np.zeros((1, resolution, resolution, resolution))
+            result[:, 0, 0, 0] = 1
+        return result
+
+
+class VAE_train(BaseModel):
+    @staticmethod
+    def add_model_specific_args(parent_parser, resolution=32):
+        parser = ArgumentParser(parents=[parent_parser], add_help=False)
+        # model specific argument (VAE)
+
         # number of layer per block
         parser.add_argument("--vae_decoder_layer", type=int, default=1)
         parser.add_argument("--vae_encoder_layer", type=int, default=1)
@@ -39,19 +306,6 @@ class VAE_train(pl.LightningModule):
         parser.add_argument("--vae_opt", type=str, default="Adam")
         # loss function in {'BCELoss', 'MSELoss', 'CrossEntropyLoss'}
         parser.add_argument("--rec_loss", type=str, default="MSELoss")
-        # activation default leakyReLU
-        parser.add_argument("--activation_leakyReLU_slope", type=float, default=0.01)
-        # Dropout probability
-        parser.add_argument("--dropout_prob", type=float, default=0.3)
-        # instance noise (add noise to real data/generate data)
-        parser.add_argument(
-            "--linear_annealed_instance_noise_epoch", type=int, default=2000
-        )
-        parser.add_argument("--instance_noise", type=float, default=0.1)
-        # spectral_norm
-        parser.add_argument("--spectral_norm", type=bool, default=False)
-        # use_simple_3dgan_struct
-        parser.add_argument("--use_simple_3dgan_struct", type=bool, default=False)
         # learning rate
         parser.add_argument("--vae_lr", type=float, default=0.0025)
         # number of unit per layer
@@ -64,176 +318,59 @@ class VAE_train(pl.LightningModule):
         parser.add_argument("--decoder_num_layer_unit", default=decoder_num_layer_unit)
         parser.add_argument("--encoder_num_layer_unit", default=encoder_num_layer_unit)
 
-        return parser
+        return BaseModel.add_model_specific_args(parser)
 
     def __init__(self, config):
-        super(VAE_train, self).__init__()
+        super(VAE_train, self).__init__(config)
         # assert(vae.sample_size == discriminator.input_size)
         self.config = config
         self.save_hyperparameters("config")
-        # add missing default parameters
-        parser = self.add_model_specific_args(
-            ArgumentParser(), resolution=config.resolution
-        )
-        args = parser.parse_args([])
-        config = combine_namespace(args, config)
+        config = self.setup_config_arguments(config)
         self.config = config
         # create components
-        decoder = Generator(
-            config.vae_decoder_layer,
-            config.z_size,
-            config.resolution,
-            config.decoder_num_layer_unit,
-            dropout_prob=config.dropout_prob,
-            spectral_norm=config.spectral_norm,
-            use_simple_3dgan_struct=config.use_simple_3dgan_struct,
-            activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
+        decoder = self.setup_Generator(
+            config.vae_decoder_layer, config.decoder_num_layer_unit
         )
-        encoder = Discriminator(
-            layer_per_block=config.vae_encoder_layer,
-            output_size=config.z_size,
-            input_size=config.resolution,
-            num_layer_unit=config.encoder_num_layer_unit,
-            dropout_prob=config.dropout_prob,
-            spectral_norm=config.spectral_norm,
-            use_simple_3dgan_struct=config.use_simple_3dgan_struct,
-            activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
+        encoder = self.setup_Discriminator(
+            config.vae_encoder_layer, config.encoder_num_layer_unit
         )
         vae = VAE(encoder=encoder, decoder=decoder)
 
         # VAE
-        self.vae = vae
-
-        # others
-        self.noise_magnitude = config.instance_noise
+        self.setup_model_component(vae, "VAE", config.vae_opt, config.vae_lr)
 
     def forward(self, x):
-        x = self.vae(x)
+        vae = self.model_list[0]
+        x = vae(x)
         return x
-
-    def configure_optimizers(self):
-        config = self.config
-        vae = self.vae
-
-        # optimizer
-        self.vae_optimizer = get_model_optimizer(vae, config.vae_opt, config.vae_lr)
-
-        if hasattr(config, "cyclicLR_magnitude"):
-            vae_scheduler = torch.optim.lr_scheduler.CyclicLR(
-                self.vae_optimizer,
-                base_lr=config.vae_lr / config.cyclicLR_magnitude,
-                max_lr=config.vae_lr * config.cyclicLR_magnitude,
-                step_size_up=200,
-            )
-            return [self.vae_optimizer], [vae_scheduler]
-        else:
-            return self.vae_optimizer
-
-    def on_train_epoch_start(self):
-        # reset ep_loss
-        self.vae_ep_loss = []
-
-        # calc instance noise
-        if self.noise_magnitude > 0:
-            # linear annealed noise
-            noise_rate = (
-                self.config.linear_annealed_instance_noise_epoch - self.current_epoch
-            ) / self.config.linear_annealed_instance_noise_epoch
-            self.noise_magnitude = self.config.instance_noise * noise_rate
-        else:
-            self.noise_magnitude = 0
-
-        # set model to train
-        self.vae.train()
-
-    def on_train_epoch_end(self, epoch_output):
-
-        # save model if necessary
-        log_dict = {"VAE loss": np.mean(self.vae_ep_loss), "epoch": self.current_epoch}
-
-        log_media = (
-            self.current_epoch % self.config.log_interval == 0
-        )  # boolean whether to log image/3D object
-
-        wandbLog(
-            self,
-            log_dict,
-            log_media=log_media,
-            log_num_samples=self.config.log_num_samples,
-        )
 
     def training_step(self, dataset_batch, batch_idx):
         config = self.config
 
         # dataset_batch was a list: [array], so just take the array inside
-        dataset_batch = dataset_batch[0]
+        dataset_batch = dataset_batch[0].float()
         # scale to [-1,1]
         dataset_batch = dataset_batch * 2 - 1
-        # add instance noise
-        instance_noise = self.generate_noise_for_samples(dataset_batch)
         # add noise to data
-        dataset_batch = self.add_noise_to_samples(dataset_batch, instance_noise)
-
-        dataset_batch = dataset_batch.float()
+        dataset_batch = self.add_noise_to_samples(dataset_batch)
 
         batch_size = dataset_batch.shape[0]
-        vae = self.vae
+        vae = self.model_list[0]
 
-        # loss function
-        criterion_reconstruct = get_loss_function_with_logit(config.rec_loss)
-
-        ############
-        #   VAE
-        ############
-
-        reconstructed_data, mu, logVar = vae(dataset_batch, output_all=True)
-        # add instance noise
-        reconstructed_data = self.add_noise_to_samples(
-            reconstructed_data, instance_noise
+        vae_loss = self.calculate_VAE_reconstruction_with_KL_loss(
+            vae, dataset_batch, config.rec_loss
         )
 
-        vae_rec_loss = criterion_reconstruct(reconstructed_data, dataset_batch)
-
-        # add KL loss
-        KL = 0.5 * torch.sum(mu ** 2 + torch.exp(logVar) - 1.0 - logVar)
-        vae_rec_loss += KL
-
-        vae_loss = vae_rec_loss
-
         # record loss
-        self.vae_ep_loss.append(vae_loss.detach().cpu().numpy())
-
+        self.model_ep_loss_list[0].append(vae_loss.detach().cpu().numpy())
         return vae_loss
-
-    def generate_noise_for_samples(self, data):
-        if self.noise_magnitude <= 0:
-            return 0
-        # create uniform noise
-        noise = torch.rand(data.shape) * 2 - 1
-        noise = self.noise_magnitude * noise  # noise in [-magn, magn]
-        noise = noise.float().type_as(data).detach()
-
-        return noise
-
-    def add_noise_to_samples(self, data, noise):
-        if self.noise_magnitude <= 0:
-            return data
-        # add instance noise
-        # now batch in [-1+magn, 1-magn]
-        data = data * (1 - self.noise_magnitude)
-        data = data + noise
-        return data
 
     def generate_tree(self, num_trees=1):
         config = self.config
-        generator = self.vae.vae_decoder
+        vae = self.model_list[0]
+        generator = vae.vae_decoder
 
-        return generate_tree(
-            generator,
-            config.resolution,
-            num_trees=num_trees,
-            batch_size=config.batch_size,
-        )
+        return super().generate_tree(generator, num_trees=num_trees)
 
 
 class VAEGAN(pl.LightningModule):
@@ -878,168 +1015,6 @@ class GAN(pl.LightningModule):
             num_trees=num_trees,
             batch_size=config.batch_size,
         )
-
-
-class VAEGAN_Wloss_GP(VAEGAN):
-    @staticmethod
-    def add_model_specific_args(parent_parser, resolution=32):
-        parser = ArgumentParser(parents=[parent_parser], add_help=False)
-        # important argument
-        parser.add_argument("--gp_epsilon", type=int, default=5)
-
-        return VAEGAN.add_model_specific_args(parser, resolution)
-
-    def gradient_penalty(self, real_tree, generated_tree):
-        batch_size = real_tree.shape[0]
-
-        # Calculate interpolation
-        alpha = torch.rand(batch_size).reshape((batch_size, 1, 1, 1, 1)).float()
-        # alpha = alpha.expand_as(real_data)
-        # if self.use_cuda:
-        #     alpha = alpha.cuda()
-        interpolated = alpha * real_tree + (1 - alpha) * generated_tree
-        interpolated = interpolated.requires_grad_().float()
-
-        # calculate prob of interpolated trees
-        prob_interpolated = self.discriminator(interpolated)
-
-        # calculate grad of prob
-        grad = torch.autograd.grad(
-            outputs=prob_interpolated,
-            inputs=interpolated,
-            grad_outputs=torch.ones(prob_interpolated.size()),
-            create_graph=True,
-            retain_graph=True,
-        )[0]
-
-        # grad have shape same as input (batch_size,1,h,w,d),
-        grad = grad.view(batch_size, -1)
-
-        # calculate norm and add epsilon to prevent sqrt(0)
-        grad_norm = torch.sqrt(torch.sum(grad ** 2, dim=1) + 1e-10)
-
-        # return gradient penalty
-        return self.config.gp_epsilon * ((grad_norm - 1) ** 2).mean()
-
-    def training_step(self, dataset_batch, batch_idx, optimizer_idx):
-        config = self.config
-        # dataset_batch was a list: [array], so just take the array inside
-        dataset_batch = dataset_batch[0]
-        # scale to [-1,1]
-        dataset_batch = dataset_batch * 2 - 1
-        # add instance noise
-        instance_noise = self.generate_noise_for_samples(dataset_batch)
-        # add noise to data
-        dataset_batch = self.add_noise_to_samples(dataset_batch, instance_noise)
-
-        dataset_batch = dataset_batch.float()
-
-        batch_size = dataset_batch.shape[0]
-        vae = self.vae
-        discriminator = self.discriminator
-
-        # loss function
-        criterion_label = get_loss_function_with_logit(config.label_loss)
-        criterion_reconstruct = get_loss_function_with_logit(config.rec_loss)
-
-        # labels
-        # real_label = torch.unsqueeze(torch.ones(batch_size),1).float()
-        # fake_label = torch.unsqueeze(torch.zeros(batch_size),1).float()
-
-        if optimizer_idx == 0:
-            ############
-            #   VAE
-            ############
-
-            reconstructed_data, mu, logVar = vae(dataset_batch, output_all=True)
-            # add instance noise
-            reconstructed_data = self.add_noise_to_samples(
-                reconstructed_data, instance_noise
-            )
-
-            vae_rec_loss = criterion_reconstruct(reconstructed_data, dataset_batch)
-
-            # add KL loss
-            KL = 0.5 * torch.sum(mu ** 2 + torch.exp(logVar) - 1.0 - logVar)
-            vae_rec_loss += KL
-
-            # output of the vae should fool discriminator
-            vae_out_d = discriminator(F.tanh(reconstructed_data))
-            vae_d_loss = -vae_out_d.mean()  # vae/generator should maximize vae_out_d
-
-            vae_loss = (vae_rec_loss + vae_d_loss) / 2
-
-            # record loss
-            self.vae_ep_loss.append(vae_loss.detach().cpu().numpy())
-
-            return vae_loss
-
-        if optimizer_idx == 1:
-
-            ############
-            #   discriminator (and classifier if necessary)
-            ############
-
-            # generate fake trees
-            latent_size = vae.decoder_z_size
-            z = (
-                torch.randn(batch_size, latent_size).float().type_as(dataset_batch)
-            )  # noise vector
-            tree_fake = F.tanh(vae.generate_sample(z))
-            # add noise to data
-            tree_fake = self.add_noise_to_samples(tree_fake, instance_noise)
-
-            tree_fake = tree_fake.clone().detach()
-
-            # fake data (data from generator)
-            dout_fake = discriminator(tree_fake)  # detach so no update to generator
-            # dloss_fake = criterion_label(dout_fake, fake_label)
-            # real data (data from dataloader)
-            dout_real = discriminator(dataset_batch)
-            # dloss_real = criterion_label(dout_real, real_label)
-
-            # dloss = (dloss_fake + dloss_real) / 2   #scale the loss to one
-            # add gradient penalty
-            gp = self.gradient_penalty(dataset_batch, tree_fake)
-
-            dloss = (
-                dout_fake.mean() - dout_real.mean()
-            ) + gp  # d should maximize diff of real vs fake (dout_real - dout_fake)
-
-            # record loss
-            self.d_ep_loss.append(dloss.detach().cpu().numpy())
-
-            # accuracy hack
-            if config.accuracy_hack < 1.0:
-                # hack activated, calculate accuracy
-                # note that dout are before sigmoid
-                real_score = (dout_real >= 0).float()
-                fake_score = (dout_fake < 0).float()
-                accuracy = torch.cat((real_score, fake_score), 0).mean()
-                if accuracy > config.accuracy_hack:
-                    return dloss - dloss
-
-            return dloss
-
-    def configure_optimizers(self):
-        config = self.config
-        vae = self.vae
-        discriminator = self.discriminator
-
-        self.vae_optimizer = optim.Adam(vae.parameters(), lr=config.vae_lr)
-
-        self.discriminator_optimizer = optim.Adam(
-            discriminator.parameters(), lr=config.d_lr
-        )
-
-        # clip critic (discriminator) gradient
-        # no clip when gp is applied
-
-        # clip_value = config.clip_value
-        # for p in discriminator.parameters():
-        #     p.register_hook(lambda grad: torch.clamp(grad, -clip_value, clip_value))
-
-        return self.vae_optimizer, self.discriminator_optimizer
 
 
 class GAN_Wloss(GAN):
