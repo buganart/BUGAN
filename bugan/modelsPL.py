@@ -336,6 +336,10 @@ class VAE_train(BaseModel):
         )
         vae = VAE(encoder=encoder, decoder=decoder)
 
+        # set componenet as an attribute to the model
+        # so PL can set tensor device type
+        self.vae = vae
+
         # VAE
         self.setup_model_component(vae, "VAE", config.vae_opt, config.vae_lr)
 
