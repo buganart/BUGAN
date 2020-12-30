@@ -32,6 +32,11 @@ class BaseModel(pl.LightningModule):
         parser.add_argument("--log_interval", type=int, default=10)
         parser.add_argument("--log_num_samples", type=int, default=1)
 
+        # real/fake label flip probability
+        parser.add_argument("--label_flip_prob", type=float, default=0.1)
+        # real/fake label noise magnitude
+        parser.add_argument("--label_noise", type=float, default=0.2)
+
         # instance noise (add noise to real data/generate data)
         parser.add_argument(
             "--linear_annealed_instance_noise_epoch", type=int, default=1000
@@ -63,11 +68,15 @@ class BaseModel(pl.LightningModule):
         # for instance noise
         self.noise_magnitude = self.config.instance_noise
 
-    def setup_Generator(self, layer_per_block, num_layer_unit):
+    def setup_Generator(self, layer_per_block, num_layer_unit, num_classes=None):
         config = self.config
+        if not num_classes:
+            z_size = config.z_size
+        else:
+            z_size = config.z_size + num_classes
         generator = Generator(
             layer_per_block=layer_per_block,
-            z_size=config.z_size,
+            z_size=z_size,
             output_size=config.resolution,
             num_layer_unit=num_layer_unit,
             dropout_prob=config.dropout_prob,
@@ -77,11 +86,14 @@ class BaseModel(pl.LightningModule):
         )
         return generator
 
-    def setup_Discriminator(self, layer_per_block, num_layer_unit):
+    def setup_Discriminator(self, layer_per_block, num_layer_unit, output_size=None):
         config = self.config
+        if not output_size:
+            output_size = config.z_size
+
         discriminator = Discriminator(
             layer_per_block=layer_per_block,
-            output_size=config.z_size,
+            output_size=output_size,
             input_size=config.resolution,
             num_layer_unit=num_layer_unit,
             dropout_prob=config.dropout_prob,
@@ -165,31 +177,84 @@ class BaseModel(pl.LightningModule):
         # boolean whether to log image/3D object
         log_media = self.current_epoch % self.config.log_interval == 0
 
-        wandbLog(
-            self,
-            log_dict,
-            log_media=log_media,
-            log_num_samples=self.config.log_num_samples,
-        )
+        if hasattr(self, "classifier"):
+            # conditional
+            wandbLog_cond(
+                self,
+                self.trainer.datamodule.class_list,
+                log_dict,
+                log_media=log_media,
+                log_num_samples=self.config.log_num_samples,
+            )
+        else:
+            # unconditional
+            wandbLog(
+                self,
+                log_dict,
+                log_media=log_media,
+                log_num_samples=self.config.log_num_samples,
+            )
 
     def training_step(self, dataset_batch, batch_idx):
         pass
 
-    def calculate_VAE_reconstruction_with_KL_loss(self, vae, mesh_data, loss_option):
-        # loss function
-        criterion_reconstruct = self.get_loss_function_with_logit(loss_option)
+    def create_real_fake_label(self, dataset_batch):
+        config = self.config
+        batch_size = dataset_batch.shape[0]
+        # labels
+        # soft label
+        # modified scale to [1-label_noise,1]
+        # modified scale to [0,label_noise]
+        real_label = 1 - (torch.rand(batch_size) * config.label_noise)
+        fake_label = torch.rand(batch_size) * config.label_noise
+        # add noise to label
+        # P(label_flip_prob) label flipped
+        label_flip_mask = torch.bernoulli(
+            torch.ones(batch_size) * config.label_flip_prob
+        )
+        real_label = (1 - label_flip_mask) * real_label + label_flip_mask * (
+            1 - real_label
+        )
+        fake_label = (1 - label_flip_mask) * fake_label + label_flip_mask * (
+            1 - fake_label
+        )
 
-        reconstructed_data, mu, logVar = vae(mesh_data, output_all=True)
-        # add instance noise
-        reconstructed_data = self.add_noise_to_samples(reconstructed_data)
+        real_label = torch.unsqueeze(real_label, 1).float().type_as(dataset_batch)
+        fake_label = torch.unsqueeze(fake_label, 1).float().type_as(dataset_batch)
+        return real_label, fake_label
 
-        vae_rec_loss = criterion_reconstruct(reconstructed_data, mesh_data)
-
-        # add KL loss
+    def calculate_KL_loss(self, mu, logVar):
         KL = 0.5 * torch.sum(mu ** 2 + torch.exp(logVar) - 1.0 - logVar)
-        vae_rec_loss += KL
+        return KL
 
-        return vae_rec_loss
+    def record_loss(self, loss, optimizer_idx):
+        self.model_ep_loss_list[optimizer_idx].append(loss)
+
+    def apply_accuracy_hack(self, dloss, dout_real, dout_fake):
+        config = self.config
+        # accuracy hack
+        if config.accuracy_hack < 1.0:
+            # hack activated, calculate accuracy
+            # note that dout are before sigmoid
+            real_score = (dout_real >= 0).float()
+            fake_score = (dout_fake < 0).float()
+            accuracy = torch.cat((real_score, fake_score), 0).mean()
+            if accuracy > config.accuracy_hack:
+                return dloss - dloss
+        return dloss
+
+    def merge_latent_and_class_vector(self, latent_vector, class_vector):
+        z = latent_vector
+        c = class_vector
+        batch_size = z.shape[0]
+        # convert c to one-hot
+        c = c.reshape((-1, 1))
+        c_onehot = torch.zeros([batch_size, self.config.num_classes]).type_as(z)
+        c_onehot = c_onehot.scatter(1, c, 1)
+
+        # merge with z to be generator input
+        z = torch.cat((z, c_onehot), 1)
+        return z
 
     def generate_noise_for_samples(self, data):
         if self.noise_magnitude <= 0:
@@ -343,9 +408,11 @@ class VAE_train(BaseModel):
         # VAE
         self.setup_model_component(vae, "VAE", config.vae_opt, config.vae_lr)
 
+        # loss function
+        self.criterion_reconstruct = self.get_loss_function_with_logit(config.rec_loss)
+
     def forward(self, x):
-        vae = self.model_list[0]
-        x = vae(x)
+        x = self.vae(x)
         return x
 
     def training_step(self, dataset_batch, batch_idx):
@@ -359,35 +426,32 @@ class VAE_train(BaseModel):
         dataset_batch = self.add_noise_to_samples(dataset_batch)
 
         batch_size = dataset_batch.shape[0]
-        vae = self.model_list[0]
 
-        vae_loss = self.calculate_VAE_reconstruction_with_KL_loss(
-            vae, dataset_batch, config.rec_loss
-        )
+        reconstructed_data, mu, logVar = self.vae(dataset_batch, output_all=True)
+        # add instance noise
+        reconstructed_data = self.add_noise_to_samples(reconstructed_data)
+
+        vae_rec_loss = self.criterion_reconstruct(reconstructed_data, dataset_batch)
+
+        # add KL loss
+        KL = self.calculate_KL_loss(mu, logVar)
+
+        vae_loss = vae_rec_loss + KL
 
         # record loss
-        self.model_ep_loss_list[0].append(vae_loss.detach().cpu().numpy())
+        self.record_loss(vae_loss.detach().cpu().numpy(), 0)
         return vae_loss
 
     def generate_tree(self, num_trees=1):
-        config = self.config
-        vae = self.model_list[0]
-        generator = vae.vae_decoder
-
+        generator = self.vae.vae_decoder
         return super().generate_tree(generator, num_trees=num_trees)
 
 
-class VAEGAN(pl.LightningModule):
+class VAEGAN(BaseModel):
     @staticmethod
     def add_model_specific_args(parent_parser, resolution=32):
         parser = ArgumentParser(parents=[parent_parser], add_help=False)
-        # log argument
-        parser.add_argument("--log_interval", type=int, default=10)
-        parser.add_argument("--log_num_samples", type=int, default=1)
 
-        # model specific argument (VAE, discriminator)
-        parser.add_argument("--z_size", type=int, default=128)
-        parser.add_argument("--resolution", type=int, default=resolution)
         # number of layer per block
         parser.add_argument("--vae_decoder_layer", type=int, default=1)
         parser.add_argument("--vae_encoder_layer", type=int, default=1)
@@ -398,23 +462,6 @@ class VAEGAN(pl.LightningModule):
         # loss function in {'BCELoss', 'MSELoss', 'CrossEntropyLoss'}
         parser.add_argument("--label_loss", type=str, default="BCELoss")
         parser.add_argument("--rec_loss", type=str, default="MSELoss")
-        # activation default leakyReLU
-        parser.add_argument("--activation_leakyReLU_slope", type=float, default=0.01)
-        # Dropout probability
-        parser.add_argument("--dropout_prob", type=float, default=0.3)
-        # real/fake label flip probability
-        parser.add_argument("--label_flip_prob", type=float, default=0.1)
-        # real/fake label noise magnitude
-        parser.add_argument("--label_noise", type=float, default=0.2)
-        # instance noise (add noise to real data/generate data)
-        parser.add_argument(
-            "--linear_annealed_instance_noise_epoch", type=int, default=2000
-        )
-        parser.add_argument("--instance_noise", type=float, default=0.1)
-        # spectral_norm
-        parser.add_argument("--spectral_norm", type=bool, default=False)
-        # use_simple_3dgan_struct
-        parser.add_argument("--use_simple_3dgan_struct", type=bool, default=False)
         # accuracy_hack
         parser.add_argument("--accuracy_hack", type=float, default=1.1)
         # learning rate
@@ -433,62 +480,41 @@ class VAEGAN(pl.LightningModule):
         parser.add_argument("--encoder_num_layer_unit", default=encoder_num_layer_unit)
         parser.add_argument("--dis_num_layer_unit", default=dis_num_layer_unit)
 
-        return parser
+        return BaseModel.add_model_specific_args(parser)
 
     def __init__(self, config):
-        super(VAEGAN, self).__init__()
+        super(VAEGAN, self).__init__(config)
         # assert(vae.sample_size == discriminator.input_size)
         self.config = config
         self.save_hyperparameters("config")
         # add missing default parameters
-        parser = self.add_model_specific_args(
-            ArgumentParser(), resolution=config.resolution
-        )
-        args = parser.parse_args([])
-        config = combine_namespace(args, config)
+        config = self.setup_config_arguments(config)
         self.config = config
         # create components
-        decoder = Generator(
-            config.vae_decoder_layer,
-            config.z_size,
-            config.resolution,
-            config.decoder_num_layer_unit,
-            dropout_prob=config.dropout_prob,
-            spectral_norm=config.spectral_norm,
-            use_simple_3dgan_struct=config.use_simple_3dgan_struct,
-            activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
+        decoder = self.setup_Generator(
+            config.vae_decoder_layer, config.decoder_num_layer_unit
         )
-
-        encoder = Discriminator(
-            layer_per_block=config.vae_encoder_layer,
-            output_size=config.z_size,
-            input_size=config.resolution,
-            num_layer_unit=config.encoder_num_layer_unit,
-            dropout_prob=config.dropout_prob,
-            spectral_norm=config.spectral_norm,
-            use_simple_3dgan_struct=config.use_simple_3dgan_struct,
-            activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
+        encoder = self.setup_Discriminator(
+            config.vae_encoder_layer, config.encoder_num_layer_unit
         )
         vae = VAE(encoder=encoder, decoder=decoder)
-
-        discriminator = Discriminator(
-            layer_per_block=config.d_layer,
-            output_size=1,
-            input_size=config.resolution,
-            num_layer_unit=config.dis_num_layer_unit,
-            dropout_prob=config.dropout_prob,
-            spectral_norm=config.spectral_norm,
-            use_simple_3dgan_struct=config.use_simple_3dgan_struct,
-            activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
+        discriminator = self.setup_Discriminator(
+            config.d_layer, config.dis_num_layer_unit, output_size=1
         )
 
-        # VAE
+        # set componenet as an attribute to the model
+        # so PL can set tensor device type
         self.vae = vae
-        # GAN
         self.discriminator = discriminator
 
-        # others
-        self.noise_magnitude = config.instance_noise
+        self.setup_model_component(vae, "VAE", config.vae_opt, config.vae_lr)
+        self.setup_model_component(
+            discriminator, "discriminator", config.dis_opt, config.d_lr
+        )
+
+        # loss function
+        self.criterion_label = self.get_loss_function_with_logit(config.label_loss)
+        self.criterion_reconstruct = self.get_loss_function_with_logit(config.rec_loss)
 
     def forward(self, x):
         # VAE
@@ -498,143 +524,42 @@ class VAEGAN(pl.LightningModule):
         x = self.discriminator(x)
         return x
 
-    def configure_optimizers(self):
-        config = self.config
-        vae = self.vae
-        discriminator = self.discriminator
-
-        # optimizer
-        self.vae_optimizer = get_model_optimizer(vae, config.vae_opt, config.vae_lr)
-        self.discriminator_optimizer = get_model_optimizer(
-            discriminator, config.dis_opt, config.d_lr
-        )
-        if hasattr(config, "cyclicLR_magnitude"):
-            vae_scheduler = torch.optim.lr_scheduler.CyclicLR(
-                self.vae_optimizer,
-                base_lr=config.vae_lr / config.cyclicLR_magnitude,
-                max_lr=config.vae_lr * config.cyclicLR_magnitude,
-                step_size_up=200,
-            )
-            d_scheduler = torch.optim.lr_scheduler.CyclicLR(
-                self.discriminator_optimizer,
-                base_lr=config.d_lr / config.cyclicLR_magnitude,
-                max_lr=config.d_lr * config.cyclicLR_magnitude,
-                step_size_up=200,
-            )
-            return [self.vae_optimizer, self.discriminator_optimizer], [
-                vae_scheduler,
-                d_scheduler,
-            ]
-        else:
-            return self.vae_optimizer, self.discriminator_optimizer
-
-    def on_train_epoch_start(self):
-        # reset ep_loss
-        self.d_ep_loss = []
-        self.vae_ep_loss = []
-
-        # calc instance noise
-        if self.noise_magnitude > 0:
-            # linear annealed noise
-            noise_rate = (
-                self.config.linear_annealed_instance_noise_epoch - self.current_epoch
-            ) / self.config.linear_annealed_instance_noise_epoch
-            self.noise_magnitude = self.config.instance_noise * noise_rate
-        else:
-            self.noise_magnitude = 0
-
-        # set model to train
-        self.vae.train()
-        self.discriminator.train()
-
-    def on_train_epoch_end(self, epoch_output):
-
-        # save model if necessary
-        log_dict = {
-            "discriminator loss": np.mean(self.d_ep_loss),
-            "VAE loss": np.mean(self.vae_ep_loss),
-            "epoch": self.current_epoch,
-        }
-
-        log_media = (
-            self.current_epoch % self.config.log_interval == 0
-        )  # boolean whether to log image/3D object
-
-        wandbLog(
-            self,
-            log_dict,
-            log_media=log_media,
-            log_num_samples=self.config.log_num_samples,
-        )
-
     def training_step(self, dataset_batch, batch_idx, optimizer_idx):
         config = self.config
 
         # dataset_batch was a list: [array], so just take the array inside
-        dataset_batch = dataset_batch[0]
+        dataset_batch = dataset_batch[0].float()
         # scale to [-1,1]
         dataset_batch = dataset_batch * 2 - 1
-        # add instance noise
-        instance_noise = self.generate_noise_for_samples(dataset_batch)
         # add noise to data
-        dataset_batch = self.add_noise_to_samples(dataset_batch, instance_noise)
+        dataset_batch = self.add_noise_to_samples(dataset_batch)
 
-        dataset_batch = dataset_batch.float()
-
+        real_label, fake_label = self.create_real_fake_label(dataset_batch)
         batch_size = dataset_batch.shape[0]
-        vae = self.vae
-        discriminator = self.discriminator
-
-        # loss function
-        criterion_label = get_loss_function_with_logit(config.label_loss)
-        criterion_reconstruct = get_loss_function_with_logit(config.rec_loss)
-
-        # labels
-        # soft label
-        # modified scale to [1-label_noise,1]
-        # modified scale to [0,label_noise]
-        real_label = 1 - (torch.rand(batch_size) * config.label_noise)
-        fake_label = torch.rand(batch_size) * config.label_noise
-        # add noise to label
-        # P(label_flip_prob) label flipped
-        label_flip_mask = torch.bernoulli(
-            torch.ones(batch_size) * config.label_flip_prob
-        )
-        real_label = (1 - label_flip_mask) * real_label + label_flip_mask * (
-            1 - real_label
-        )
-        fake_label = (1 - label_flip_mask) * fake_label + label_flip_mask * (
-            1 - fake_label
-        )
-
-        real_label = torch.unsqueeze(real_label, 1).float().type_as(dataset_batch)
-        fake_label = torch.unsqueeze(fake_label, 1).float().type_as(dataset_batch)
 
         if optimizer_idx == 0:
             ############
             #   VAE
             ############
 
-            reconstructed_data, mu, logVar = vae(dataset_batch, output_all=True)
+            reconstructed_data, mu, logVar = self.vae(dataset_batch, output_all=True)
             # add noise to data
-            reconstructed_data = self.add_noise_to_samples(
-                reconstructed_data, instance_noise
-            )
+            reconstructed_data = self.add_noise_to_samples(reconstructed_data)
 
-            vae_rec_loss = criterion_reconstruct(reconstructed_data, dataset_batch)
+            vae_rec_loss = self.criterion_reconstruct(reconstructed_data, dataset_batch)
 
             # add KL loss
-            KL = 0.5 * torch.sum(mu ** 2 + torch.exp(logVar) - 1.0 - logVar)
+            KL = self.calculate_KL_loss(mu, logVar)
             vae_rec_loss += KL
 
             # output of the vae should fool discriminator
-            vae_out_d = discriminator(F.tanh(reconstructed_data))
-            vae_d_loss = criterion_label(vae_out_d, real_label)
+            vae_out_d = self.discriminator(F.tanh(reconstructed_data))
+            vae_d_loss = self.criterion_label(vae_out_d, real_label)
 
             vae_loss = (vae_rec_loss + vae_d_loss) / 2
 
             # record loss
-            self.vae_ep_loss.append(vae_loss.detach().cpu().numpy())
+            self.record_loss(vae_loss.detach().cpu().numpy(), optimizer_idx)
 
             return vae_loss
 
@@ -645,82 +570,40 @@ class VAEGAN(pl.LightningModule):
             ############
 
             # generate fake trees
-            latent_size = vae.decoder_z_size
-            z = (
-                torch.randn(batch_size, latent_size).float().type_as(dataset_batch)
-            )  # noise vector
-            tree_fake = F.tanh(vae.generate_sample(z))
+            latent_size = self.vae.decoder_z_size
+            # latent noise vector
+            z = torch.randn(batch_size, latent_size).float().type_as(dataset_batch)
+            tree_fake = F.tanh(self.vae.generate_sample(z))
             # add noise to data
-            tree_fake = self.add_noise_to_samples(tree_fake, instance_noise)
+            tree_fake = self.add_noise_to_samples(tree_fake)
 
             # fake data (data from generator)
-            dout_fake = discriminator(
-                tree_fake.clone().detach()
-            )  # detach so no update to generator
-            dloss_fake = criterion_label(dout_fake, fake_label)
+            # detach so no update to generator
+            dout_fake = self.discriminator(tree_fake.clone().detach())
+            dloss_fake = self.criterion_label(dout_fake, fake_label)
             # real data (data from dataloader)
-            dout_real = discriminator(dataset_batch)
-            dloss_real = criterion_label(dout_real, real_label)
+            dout_real = self.discriminator(dataset_batch)
+            dloss_real = self.criterion_label(dout_real, real_label)
 
             dloss = (dloss_fake + dloss_real) / 2  # scale the loss to one
 
             # record loss
-            self.d_ep_loss.append(dloss.detach().cpu().numpy())
+            self.record_loss(dloss.detach().cpu().numpy(), optimizer_idx)
 
             # accuracy hack
-            if config.accuracy_hack < 1.0:
-                # hack activated, calculate accuracy
-                # note that dout are before sigmoid
-                real_score = (dout_real >= 0).float()
-                fake_score = (dout_fake < 0).float()
-                accuracy = torch.cat((real_score, fake_score), 0).mean()
-                if accuracy > config.accuracy_hack:
-                    return dloss - dloss
-
+            dloss = self.apply_accuracy_hack(dloss, dout_real, dout_fake)
             return dloss
 
-    def generate_noise_for_samples(self, data):
-        if self.noise_magnitude <= 0:
-            return 0
-        # create uniform noise
-        noise = torch.rand(data.shape) * 2 - 1
-        noise = self.noise_magnitude * noise  # noise in [-magn, magn]
-        noise = noise.float().type_as(data).detach()
-
-        return noise
-
-    def add_noise_to_samples(self, data, noise):
-        if self.noise_magnitude <= 0:
-            return data
-        # add instance noise
-        # now batch in [-1+magn, 1-magn]
-        data = data * (1 - self.noise_magnitude)
-        data = data + noise
-        return data
-
     def generate_tree(self, num_trees=1):
-        config = self.config
         generator = self.vae.vae_decoder
-
-        return generate_tree(
-            generator,
-            config.resolution,
-            num_trees=num_trees,
-            batch_size=config.batch_size,
-        )
+        return super().generate_tree(generator, num_trees=num_trees)
 
 
-class GAN(pl.LightningModule):
+class GAN(BaseModel):
     @staticmethod
     def add_model_specific_args(parent_parser, resolution=32):
         parser = ArgumentParser(parents=[parent_parser], add_help=False)
-        # log argument
-        parser.add_argument("--log_interval", type=int, default=10)
-        parser.add_argument("--log_num_samples", type=int, default=1)
 
-        # model specific argument (Generator, discriminator)
-        parser.add_argument("--z_size", type=int, default=128)
-        parser.add_argument("--resolution", type=int, default=resolution)
         # number of layer per block
         parser.add_argument("--g_layer", type=int, default=1)
         parser.add_argument("--d_layer", type=int, default=1)
@@ -729,23 +612,6 @@ class GAN(pl.LightningModule):
         parser.add_argument("--dis_opt", type=str, default="Adam")
         # loss function in {'BCELoss', 'MSELoss', 'CrossEntropyLoss'}
         parser.add_argument("--label_loss", type=str, default="BCELoss")
-        # activation default leakyReLU
-        parser.add_argument("--activation_leakyReLU_slope", type=float, default=0.01)
-        # Dropout probability
-        parser.add_argument("--dropout_prob", type=float, default=0.3)
-        # real/fake label flip probability
-        parser.add_argument("--label_flip_prob", type=float, default=0.1)
-        # real/fake label noise magnitude
-        parser.add_argument("--label_noise", type=float, default=0.2)
-        # instance noise (add noise to real data/generate data)
-        parser.add_argument(
-            "--linear_annealed_instance_noise_epoch", type=int, default=2000
-        )
-        parser.add_argument("--instance_noise", type=float, default=0.1)
-        # spectral_norm
-        parser.add_argument("--spectral_norm", type=bool, default=False)
-        # use_simple_3dgan_struct
-        parser.add_argument("--use_simple_3dgan_struct", type=bool, default=False)
         # accuracy_hack
         parser.add_argument("--accuracy_hack", type=float, default=1.1)
         # learning rate
@@ -761,49 +627,34 @@ class GAN(pl.LightningModule):
         parser.add_argument("--gen_num_layer_unit", default=gen_num_layer_unit)
         parser.add_argument("--dis_num_layer_unit", default=dis_num_layer_unit)
 
-        return parser
+        return BaseModel.add_model_specific_args(parser)
 
     def __init__(self, config):
-        super(GAN, self).__init__()
+        super(GAN, self).__init__(config)
         self.config = config
         self.save_hyperparameters("config")
         # add missing default parameters
-        parser = self.add_model_specific_args(
-            ArgumentParser(), resolution=config.resolution
-        )
-        args = parser.parse_args([])
-        config = combine_namespace(args, config)
+        config = self.setup_config_arguments(config)
         self.config = config
 
         # create components
-        generator = Generator(
-            config.g_layer,
-            config.z_size,
-            config.resolution,
-            config.gen_num_layer_unit,
-            dropout_prob=config.dropout_prob,
-            spectral_norm=config.spectral_norm,
-            use_simple_3dgan_struct=config.use_simple_3dgan_struct,
-            activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
-        )
+        generator = self.setup_Generator(config.g_layer, config.gen_num_layer_unit)
 
-        discriminator = Discriminator(
-            layer_per_block=config.d_layer,
-            output_size=1,
-            input_size=config.resolution,
-            num_layer_unit=config.dis_num_layer_unit,
-            dropout_prob=config.dropout_prob,
-            spectral_norm=config.spectral_norm,
-            use_simple_3dgan_struct=config.use_simple_3dgan_struct,
-            activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
+        discriminator = self.setup_Discriminator(
+            config.d_layer, config.dis_num_layer_unit, output_size=1
         )
 
         # GAN
         self.generator = generator
         self.discriminator = discriminator
 
-        # others
-        self.noise_magnitude = config.instance_noise
+        self.setup_model_component(generator, "generator", config.gen_opt, config.g_lr)
+        self.setup_model_component(
+            discriminator, "discriminator", config.dis_opt, config.d_lr
+        )
+
+        # loss function
+        self.criterion_label = self.get_loss_function_with_logit(config.label_loss)
 
     def forward(self, x):
         # classifier and discriminator
@@ -812,213 +663,76 @@ class GAN(pl.LightningModule):
         x = self.discriminator(x)
         return x
 
-    def configure_optimizers(self):
-        config = self.config
-        generator = self.generator
-        discriminator = self.discriminator
-
-        # optimizer
-        self.generator_optimizer = get_model_optimizer(
-            generator, config.gen_opt, config.g_lr
-        )
-        self.discriminator_optimizer = get_model_optimizer(
-            discriminator, config.dis_opt, config.d_lr
-        )
-
-        if hasattr(config, "cyclicLR_magnitude"):
-            g_scheduler = torch.optim.lr_scheduler.CyclicLR(
-                self.generator_optimizer,
-                base_lr=config.g_lr / config.cyclicLR_magnitude,
-                max_lr=config.g_lr * config.cyclicLR_magnitude,
-                step_size_up=200,
-            )
-            d_scheduler = torch.optim.lr_scheduler.CyclicLR(
-                self.discriminator_optimizer,
-                base_lr=config.d_lr / config.cyclicLR_magnitude,
-                max_lr=config.d_lr * config.cyclicLR_magnitude,
-                step_size_up=200,
-            )
-            return [self.generator_optimizer, self.discriminator_optimizer], [
-                g_scheduler,
-                d_scheduler,
-            ]
-        else:
-            return self.generator_optimizer, self.discriminator_optimizer
-
-    def on_train_epoch_start(self):
-        # reset ep_loss
-        self.d_ep_loss = []
-        self.g_ep_loss = []
-
-        # calc instance noise
-        if self.noise_magnitude > 0:
-            # linear annealed noise
-            noise_rate = (
-                self.config.linear_annealed_instance_noise_epoch - self.current_epoch
-            ) / self.config.linear_annealed_instance_noise_epoch
-            self.noise_magnitude = self.config.instance_noise * noise_rate
-        else:
-            self.noise_magnitude = 0
-
-        # set model to train
-        self.generator.train()
-        self.discriminator.train()
-
-    def on_train_epoch_end(self, epoch_output):
-
-        # save model if necessary
-        log_dict = {
-            "discriminator loss": np.mean(self.d_ep_loss),
-            "generator loss": np.mean(self.g_ep_loss),
-            "epoch": self.current_epoch,
-        }
-
-        log_media = (
-            self.current_epoch % self.config.log_interval == 0
-        )  # boolean whether to log image/3D object
-
-        wandbLog(
-            self,
-            log_dict,
-            log_media=log_media,
-            log_num_samples=self.config.log_num_samples,
-        )
-
     def training_step(self, dataset_batch, batch_idx, optimizer_idx):
         config = self.config
 
         # dataset_batch was a list: [array], so just take the array inside
-        dataset_batch = dataset_batch[0]
+        dataset_batch = dataset_batch[0].float()
         # scale to [-1,1]
         dataset_batch = dataset_batch * 2 - 1
-        # add instance noise
-        instance_noise = self.generate_noise_for_samples(dataset_batch)
         # add noise to data
-        dataset_batch = self.add_noise_to_samples(dataset_batch, instance_noise)
+        dataset_batch = self.add_noise_to_samples(dataset_batch)
 
-        dataset_batch = dataset_batch.float()
-
+        real_label, fake_label = self.create_real_fake_label(dataset_batch)
         batch_size = dataset_batch.shape[0]
-        generator = self.generator
-        discriminator = self.discriminator
 
-        # loss function
-        criterion_label = get_loss_function_with_logit(config.label_loss)
-
-        # labels
-        # soft label
-        # modified scale to [1-label_noise,1]
-        # modified scale to [0,label_noise]
-        real_label = 1 - (torch.rand(batch_size) * config.label_noise)
-        fake_label = torch.rand(batch_size) * config.label_noise
-        # add noise to label
-        # P(label_flip_prob) label flipped
-        label_flip_mask = torch.bernoulli(
-            torch.ones(batch_size) * config.label_flip_prob
-        )
-        real_label = (1 - label_flip_mask) * real_label + label_flip_mask * (
-            1 - real_label
-        )
-        fake_label = (1 - label_flip_mask) * fake_label + label_flip_mask * (
-            1 - fake_label
-        )
-
-        real_label = torch.unsqueeze(real_label, 1).float().type_as(dataset_batch)
-        fake_label = torch.unsqueeze(fake_label, 1).float().type_as(dataset_batch)
         if optimizer_idx == 0:
             ############
             #   generator
             ############
 
-            z = (
-                torch.randn(batch_size, config.z_size).float().type_as(dataset_batch)
-            )  # 128-d noise vector
+            # 128-d noise vector
+            z = torch.randn(batch_size, config.z_size).float().type_as(dataset_batch)
             tree_fake = F.tanh(self.generator(z))
 
             # add noise to data
-            tree_fake = self.add_noise_to_samples(tree_fake, instance_noise)
+            tree_fake = self.add_noise_to_samples(tree_fake)
 
             # tree_fake is already computed above
             dout_fake = self.discriminator(tree_fake)
             # generator should generate trees that discriminator think they are real
-            gloss = criterion_label(dout_fake, real_label)
+            gloss = self.criterion_label(dout_fake, real_label)
 
             # record loss
-            self.g_ep_loss.append(gloss.detach().cpu().numpy())
+            self.record_loss(gloss.detach().cpu().numpy(), optimizer_idx)
 
             return gloss
 
         if optimizer_idx == 1:
 
             ############
-            #   discriminator (and classifier if necessary)
+            #   discriminator
             ############
 
-            z = (
-                torch.randn(batch_size, config.z_size).float().type_as(dataset_batch)
-            )  # 128-d noise vector
+            # 128-d noise vector
+            z = torch.randn(batch_size, config.z_size).float().type_as(dataset_batch)
             tree_fake = F.tanh(self.generator(z))
-
-            # add noise to data
-            tree_fake = self.add_noise_to_samples(tree_fake, instance_noise)
+            # add noise to generated data
+            tree_fake = self.add_noise_to_samples(tree_fake)
 
             # real data (data from dataloader)
             dout_real = self.discriminator(dataset_batch)
-            dloss_real = criterion_label(dout_real, real_label)
+            dloss_real = self.criterion_label(dout_real, real_label)
 
             # fake data (data from generator)
             dout_fake = self.discriminator(
                 tree_fake.clone().detach()
             )  # detach so no update to generator
-            dloss_fake = criterion_label(dout_fake, fake_label)
+            dloss_fake = self.criterion_label(dout_fake, fake_label)
 
             # loss function (discriminator classify real data vs generated data)
             dloss = (dloss_real + dloss_fake) / 2
 
             # record loss
-            self.d_ep_loss.append(dloss.detach().cpu().numpy())
+            self.record_loss(dloss.detach().cpu().numpy(), optimizer_idx)
 
             # accuracy hack
-            if config.accuracy_hack < 1.0:
-                # hack activated, calculate accuracy
-                # note that dout are before sigmoid
-                real_score = (dout_real >= 0).float()
-                fake_score = (dout_fake < 0).float()
-                accuracy = torch.cat((real_score, fake_score), 0).mean()
-                if accuracy > config.accuracy_hack:
-                    return dloss - dloss
-
+            dloss = self.apply_accuracy_hack(dloss, dout_real, dout_fake)
             return dloss
 
-    def generate_noise_for_samples(self, data):
-        if self.noise_magnitude <= 0:
-            return 0
-        # create uniform noise
-        noise = torch.rand(data.shape) * 2 - 1
-        noise = self.noise_magnitude * noise  # noise in [-magn, magn]
-        noise = noise.float().type_as(data).detach()
-
-        return noise
-
-    def add_noise_to_samples(self, data, noise):
-        if self.noise_magnitude <= 0:
-            return data
-        # add instance noise
-        # now batch in [-1+magn, 1-magn]
-        data = data * (1 - self.noise_magnitude)
-        data = data + noise
-        return data
-
     def generate_tree(self, num_trees=1):
-        config = self.config
         generator = self.generator
-
-        return generate_tree(
-            generator,
-            config.resolution,
-            num_trees=num_trees,
-            batch_size=config.batch_size,
-        )
+        return super().generate_tree(generator, num_trees=num_trees)
 
 
 class GAN_Wloss(GAN):
@@ -1030,39 +744,40 @@ class GAN_Wloss(GAN):
 
         return GAN.add_model_specific_args(parser, resolution)
 
+    def configure_optimizers(self):
+        config = self.config
+        discriminator = self.discriminator
+
+        # clip critic (discriminator) gradient
+        # no clip when gp is applied
+
+        clip_value = config.clip_value
+        for p in discriminator.parameters():
+            p.register_hook(lambda grad: torch.clamp(grad, -clip_value, clip_value))
+
+        return super().configure_optimizers()
+
     def training_step(self, dataset_batch, batch_idx, optimizer_idx):
         config = self.config
 
         # dataset_batch was a list: [array], so just take the array inside
-        dataset_batch = dataset_batch[0]
+        dataset_batch = dataset_batch[0].float()
         # scale to [-1,1]
         dataset_batch = dataset_batch * 2 - 1
-        # add instance noise
-        instance_noise = self.generate_noise_for_samples(dataset_batch)
         # add noise to data
-        dataset_batch = self.add_noise_to_samples(dataset_batch, instance_noise)
-
-        dataset_batch = dataset_batch.float()
+        dataset_batch = self.add_noise_to_samples(dataset_batch)
 
         batch_size = dataset_batch.shape[0]
-        generator = self.generator
-        discriminator = self.discriminator
-
-        # loss function
-        criterion_label = get_loss_function_with_logit(config.label_loss)
-
         # label not used in Wloss
         if optimizer_idx == 0:
             ############
             #   generator
             ############
-
-            z = (
-                torch.randn(batch_size, config.z_size).float().type_as(dataset_batch)
-            )  # 128-d noise vector
+            # 128-d noise vector
+            z = torch.randn(batch_size, config.z_size).float().type_as(dataset_batch)
             tree_fake = F.tanh(self.generator(z))
             # add noise to data
-            tree_fake = self.add_noise_to_samples(tree_fake, instance_noise)
+            tree_fake = self.add_noise_to_samples(tree_fake)
 
             # tree_fake is already computed above
             dout_fake = self.discriminator(tree_fake)
@@ -1071,7 +786,7 @@ class GAN_Wloss(GAN):
             gloss = -dout_fake.mean()
 
             # record loss
-            self.g_ep_loss.append(gloss.detach().cpu().numpy())
+            self.record_loss(gloss.detach().cpu().numpy(), optimizer_idx)
 
             return gloss
 
@@ -1081,12 +796,11 @@ class GAN_Wloss(GAN):
             #   discriminator (and classifier if necessary)
             ############
 
-            z = (
-                torch.randn(batch_size, config.z_size).float().type_as(dataset_batch)
-            )  # 128-d noise vector
+            # 128-d noise vector
+            z = torch.randn(batch_size, config.z_size).float().type_as(dataset_batch)
             tree_fake = F.tanh(self.generator(z))
             # add noise to data
-            tree_fake = self.add_noise_to_samples(tree_fake, instance_noise)
+            tree_fake = self.add_noise_to_samples(tree_fake)
 
             # real data (data from dataloader)
             dout_real = self.discriminator(dataset_batch)
@@ -1100,49 +814,9 @@ class GAN_Wloss(GAN):
             dloss = dout_fake.mean() - dout_real.mean()
 
             # record loss
-            self.d_ep_loss.append(dloss.detach().cpu().numpy())
+            self.record_loss(dloss.detach().cpu().numpy(), optimizer_idx)
 
             return dloss
-
-    def configure_optimizers(self):
-        config = self.config
-        generator = self.generator
-        discriminator = self.discriminator
-
-        # optimizer
-        self.generator_optimizer = get_model_optimizer(
-            generator, config.gen_opt, config.g_lr
-        )
-        self.discriminator_optimizer = get_model_optimizer(
-            discriminator, config.dis_opt, config.d_lr
-        )
-
-        # clip critic (discriminator) gradient
-        # no clip when gp is applied
-
-        clip_value = config.clip_value
-        for p in discriminator.parameters():
-            p.register_hook(lambda grad: torch.clamp(grad, -clip_value, clip_value))
-
-        if hasattr(config, "cyclicLR_magnitude"):
-            g_scheduler = torch.optim.lr_scheduler.CyclicLR(
-                self.generator_optimizer,
-                base_lr=config.g_lr / config.cyclicLR_magnitude,
-                max_lr=config.g_lr * config.cyclicLR_magnitude,
-                step_size_up=200,
-            )
-            d_scheduler = torch.optim.lr_scheduler.CyclicLR(
-                self.discriminator_optimizer,
-                base_lr=config.d_lr / config.cyclicLR_magnitude,
-                max_lr=config.d_lr * config.cyclicLR_magnitude,
-                step_size_up=200,
-            )
-            return [self.generator_optimizer, self.discriminator_optimizer], [
-                g_scheduler,
-                d_scheduler,
-            ]
-        else:
-            return self.generator_optimizer, self.discriminator_optimizer
 
 
 class GAN_Wloss_GP(GAN):
@@ -1198,22 +872,13 @@ class GAN_Wloss_GP(GAN):
         config = self.config
 
         # dataset_batch was a list: [array], so just take the array inside
-        dataset_batch = dataset_batch[0]
+        dataset_batch = dataset_batch[0].float()
         # scale to [-1,1]
         dataset_batch = dataset_batch * 2 - 1
-        # add instance noise
-        instance_noise = self.generate_noise_for_samples(dataset_batch)
         # add noise to data
-        dataset_batch = self.add_noise_to_samples(dataset_batch, instance_noise)
-
-        dataset_batch = dataset_batch.float()
+        dataset_batch = self.add_noise_to_samples(dataset_batch)
 
         batch_size = dataset_batch.shape[0]
-        generator = self.generator
-        discriminator = self.discriminator
-
-        # loss function
-        criterion_label = get_loss_function_with_logit(config.label_loss)
 
         # label not used in Wloss
         if optimizer_idx == 0:
@@ -1221,12 +886,11 @@ class GAN_Wloss_GP(GAN):
             #   generator
             ############
 
-            z = (
-                torch.randn(batch_size, config.z_size).float().type_as(dataset_batch)
-            )  # 128-d noise vector
+            # 128-d noise vector
+            z = torch.randn(batch_size, config.z_size).float().type_as(dataset_batch)
             tree_fake = F.tanh(self.generator(z))
             # add noise to data
-            tree_fake = self.add_noise_to_samples(tree_fake, instance_noise)
+            tree_fake = self.add_noise_to_samples(tree_fake)
 
             # tree_fake is already computed above
             dout_fake = self.discriminator(tree_fake)
@@ -1235,7 +899,7 @@ class GAN_Wloss_GP(GAN):
             gloss = -dout_fake.mean()
 
             # record loss
-            self.g_ep_loss.append(gloss.detach().cpu().numpy())
+            self.record_loss(gloss.detach().cpu().numpy(), optimizer_idx)
 
             return gloss
 
@@ -1245,27 +909,25 @@ class GAN_Wloss_GP(GAN):
             #   discriminator (and classifier if necessary)
             ############
 
-            z = (
-                torch.randn(batch_size, config.z_size).float().type_as(dataset_batch)
-            )  # 128-d noise vector
+            # 128-d noise vector
+            z = torch.randn(batch_size, config.z_size).float().type_as(dataset_batch)
             tree_fake = F.tanh(self.generator(z))
             # add noise to data
-            tree_fake = self.add_noise_to_samples(tree_fake, instance_noise)
+            tree_fake = self.add_noise_to_samples(tree_fake)
 
             # real data (data from dataloader)
             dout_real = self.discriminator(dataset_batch)
 
             # fake data (data from generator)
-            dout_fake = self.discriminator(
-                tree_fake.clone().detach()
-            )  # detach so no update to generator
+            # detach so no update to generator
+            dout_fake = self.discriminator(tree_fake.clone().detach())
 
             gp = self.gradient_penalty(dataset_batch, tree_fake)
             # d should maximize diff of real vs fake (dout_real - dout_fake)
             dloss = dout_fake.mean() - dout_real.mean() + gp
 
             # record loss
-            self.d_ep_loss.append(dloss.detach().cpu().numpy())
+            self.record_loss(dloss.detach().cpu().numpy(), optimizer_idx)
 
             return dloss
 
@@ -1285,49 +947,24 @@ class CGAN(GAN):
         return GAN.add_model_specific_args(parser, resolution)
 
     def __init__(self, config):
-        super(GAN, self).__init__()
+        super(GAN, self).__init__(config)
         self.config = config
         self.save_hyperparameters("config")
         # add missing default parameters
-        parser = self.add_model_specific_args(
-            ArgumentParser(), resolution=config.resolution
-        )
-        args = parser.parse_args([])
-        config = combine_namespace(args, config)
+        config = self.setup_config_arguments(config)
         self.config = config
 
         # create components
-        generator = Generator(
-            config.g_layer,
-            config.z_size + config.num_classes,
-            config.resolution,
-            config.gen_num_layer_unit,
-            dropout_prob=config.dropout_prob,
-            spectral_norm=config.spectral_norm,
-            use_simple_3dgan_struct=config.use_simple_3dgan_struct,
-            activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
+        generator = self.setup_Generator(
+            config.g_layer, config.gen_num_layer_unit, num_classes=config.num_classes
         )
 
-        discriminator = Discriminator(
-            config.d_layer,
-            1,
-            config.resolution,
-            config.dis_num_layer_unit,
-            dropout_prob=config.dropout_prob,
-            spectral_norm=config.spectral_norm,
-            use_simple_3dgan_struct=config.use_simple_3dgan_struct,
-            activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
+        discriminator = self.setup_Discriminator(
+            config.d_layer, config.dis_num_layer_unit, output_size=1
         )
 
-        classifier = Discriminator(
-            config.d_layer,
-            config.num_classes,
-            config.resolution,
-            config.dis_num_layer_unit,
-            dropout_prob=config.dropout_prob,
-            spectral_norm=config.spectral_norm,
-            use_simple_3dgan_struct=config.use_simple_3dgan_struct,
-            activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
+        classifier = self.setup_Discriminator(
+            config.d_layer, config.dis_num_layer_unit, output_size=config.num_classes
         )
 
         # GAN
@@ -1335,17 +972,21 @@ class CGAN(GAN):
         self.discriminator = discriminator
         self.classifier = classifier
 
-        # others
-        self.noise_magnitude = config.instance_noise
+        self.setup_model_component(generator, "generator", config.gen_opt, config.g_lr)
+        self.setup_model_component(
+            discriminator, "discriminator", config.dis_opt, config.d_lr
+        )
+        self.setup_model_component(
+            classifier, "classifier", config.dis_opt, config.d_lr
+        )
+
+        # loss function
+        self.criterion_label = self.get_loss_function_with_logit(config.label_loss)
+        self.criterion_class = self.get_loss_function_with_logit(config.class_loss)
 
     def forward(self, x, c):
         # combine x and c into z
-        batch_size = c.shape[0]
-        c = c.reshape((-1, 1))
-        c_onehot = torch.zeros([batch_size, self.config.num_classes]).type_as(x)
-        c_onehot = c_onehot.scatter(1, c, 1)
-        # merge with z to be generator input
-        z = torch.cat((x, c_onehot), 1)
+        z = self.merge_latent_and_class_vector(x, c)
 
         # classifier and discriminator
         x = self.generator(z)
@@ -1354,181 +995,55 @@ class CGAN(GAN):
         c_predict = self.classifier(x)
         return d_predict, c_predict
 
-    def configure_optimizers(self):
-        config = self.config
-        generator = self.generator
-        discriminator = self.discriminator
-        classifier = self.classifier
-
-        # optimizer
-        self.generator_optimizer = get_model_optimizer(
-            generator, config.gen_opt, config.g_lr
-        )
-        self.discriminator_optimizer = get_model_optimizer(
-            discriminator, config.dis_opt, config.d_lr
-        )
-        self.classifier_optimizer = get_model_optimizer(
-            classifier, config.dis_opt, config.d_lr
-        )
-
-        if hasattr(config, "cyclicLR_magnitude"):
-            g_scheduler = torch.optim.lr_scheduler.CyclicLR(
-                self.generator_optimizer,
-                base_lr=config.g_lr / config.cyclicLR_magnitude,
-                max_lr=config.g_lr * config.cyclicLR_magnitude,
-                step_size_up=200,
-            )
-            d_scheduler = torch.optim.lr_scheduler.CyclicLR(
-                self.discriminator_optimizer,
-                base_lr=config.d_lr / config.cyclicLR_magnitude,
-                max_lr=config.d_lr * config.cyclicLR_magnitude,
-                step_size_up=200,
-            )
-            c_scheduler = torch.optim.lr_scheduler.CyclicLR(
-                self.classifier_optimizer,
-                base_lr=config.d_lr / config.cyclicLR_magnitude,
-                max_lr=config.d_lr * config.cyclicLR_magnitude,
-                step_size_up=200,
-            )
-            return [
-                self.generator_optimizer,
-                self.discriminator_optimizer,
-                self.classifier_optimizer,
-            ], [g_scheduler, d_scheduler, c_scheduler]
-        else:
-            return (
-                self.generator_optimizer,
-                self.discriminator_optimizer,
-                self.classifier_optimizer,
-            )
-
-    def on_train_epoch_start(self):
-        # reset ep_loss
-        self.d_ep_loss = []
-        self.g_ep_loss = []
-        self.c_ep_loss = []
-
-        # calc instance noise
-        if self.noise_magnitude > 0:
-            # linear annealed noise
-            noise_rate = (
-                self.config.linear_annealed_instance_noise_epoch - self.current_epoch
-            ) / self.config.linear_annealed_instance_noise_epoch
-            self.noise_magnitude = self.config.instance_noise * noise_rate
-        else:
-            self.noise_magnitude = 0
-
-        # set model to train
-        self.generator.train()
-        self.discriminator.train()
-        self.classifier.train()
-
-    def on_train_epoch_end(self, epoch_output):
-
-        # save model if necessary
-        log_dict = {
-            "classifier loss": np.mean(self.c_ep_loss),
-            "discriminator loss": np.mean(self.d_ep_loss),
-            "generator loss": np.mean(self.g_ep_loss),
-            "epoch": self.current_epoch,
-        }
-
-        log_media = (
-            self.current_epoch % self.config.log_interval == 0
-        )  # boolean whether to log image/3D object
-
-        wandbLog_cond(
-            self,
-            self.trainer.datamodule.class_list,
-            log_dict,
-            log_media=log_media,
-            log_num_samples=self.config.log_num_samples,
-        )
-
     def training_step(self, dataset_batch, batch_idx, optimizer_idx):
         config = self.config
 
         dataset_batch, dataset_indices = dataset_batch
         # scale to [-1,1]
         dataset_batch = dataset_batch * 2 - 1
-        # add instance noise
-        instance_noise = self.generate_noise_for_samples(dataset_batch)
         # add noise to data
-        dataset_batch = self.add_noise_to_samples(dataset_batch, instance_noise)
+        dataset_batch = self.add_noise_to_samples(dataset_batch)
 
         dataset_batch = dataset_batch.float()
         dataset_indices = dataset_indices.to(torch.int64)
 
+        real_label, fake_label = self.create_real_fake_label(dataset_batch)
         batch_size = dataset_batch.shape[0]
-        generator = self.generator
-        discriminator = self.discriminator
-        classifier = self.classifier
 
-        # loss function
-        criterion_label = get_loss_function_with_logit(config.label_loss)
-        criterion_class = get_loss_function_with_logit(config.class_loss)
-
-        # labels
-        # soft label
-        # modified scale to [1-label_noise,1]
-        # modified scale to [0,label_noise]
-        real_label = 1 - (torch.rand(batch_size) * config.label_noise)
-        fake_label = torch.rand(batch_size) * config.label_noise
-        # add noise to label
-        # P(label_flip_prob) label flipped
-        label_flip_mask = torch.bernoulli(
-            torch.ones(batch_size) * config.label_flip_prob
-        )
-        real_label = (1 - label_flip_mask) * real_label + label_flip_mask * (
-            1 - real_label
-        )
-        fake_label = (1 - label_flip_mask) * fake_label + label_flip_mask * (
-            1 - fake_label
-        )
-
-        real_label = torch.unsqueeze(real_label, 1).float().type_as(dataset_batch)
-        fake_label = torch.unsqueeze(fake_label, 1).float().type_as(dataset_batch)
         if optimizer_idx == 0:
             ############
             #   generator
             ############
 
-            z = (
-                torch.randn(batch_size, config.z_size).float().type_as(dataset_batch)
-            )  # 128-d noise vector
+            # 128-d noise vector
+            z = torch.randn(batch_size, config.z_size).float().type_as(dataset_batch)
+            # class vector
             c_fake = (
                 torch.randint(0, config.num_classes, (batch_size,))
                 .type_as(dataset_batch)
                 .to(torch.int64)
-            )  # class vector
-
-            # convert c to one-hot
-            batch_size = z.shape[0]
-            c = c_fake.reshape((-1, 1))
-            c_onehot = torch.zeros([batch_size, config.num_classes]).type_as(
-                dataset_batch
             )
-            c_onehot = c_onehot.scatter(1, c, 1)
 
-            # merge with z to be generator input
-            z = torch.cat((z, c_onehot), 1)
+            # combine z and c_fake
+            z = self.merge_latent_and_class_vector(z, c_fake)
 
             tree_fake = F.tanh(self.generator(z))
             # add noise to data
-            tree_fake = self.add_noise_to_samples(tree_fake, instance_noise)
+            tree_fake = self.add_noise_to_samples(tree_fake)
 
             # tree_fake on Dis
             dout_fake = self.discriminator(tree_fake)
             # generator should generate trees that discriminator think they are real
-            gloss_d = criterion_label(dout_fake, real_label)
+            gloss_d = self.criterion_label(dout_fake, real_label)
 
             # tree_fake on Cla
             cout_fake = self.classifier(tree_fake)
-            gloss_c = criterion_class(cout_fake, c_fake)
+            gloss_c = self.criterion_class(cout_fake, c_fake)
 
             gloss = (gloss_d + gloss_c) / 2
+
             # record loss
-            self.g_ep_loss.append(gloss.detach().cpu().numpy())
+            self.record_loss(gloss.detach().cpu().numpy(), optimizer_idx)
 
             return gloss
 
@@ -1538,55 +1053,39 @@ class CGAN(GAN):
             #   discriminator
             ############
 
-            z = (
-                torch.randn(batch_size, config.z_size).float().type_as(dataset_batch)
-            )  # 128-d noise vector
+            # 128-d noise vector
+            z = torch.randn(batch_size, config.z_size).float().type_as(dataset_batch)
+            # class vector
             c = (
                 torch.randint(0, config.num_classes, (batch_size,))
                 .type_as(dataset_batch)
                 .to(torch.int64)
-            )  # class vector
-
-            # convert c to one-hot
-            batch_size = z.shape[0]
-            c = c.reshape((-1, 1))
-            c_onehot = torch.zeros([batch_size, config.num_classes]).type_as(
-                dataset_batch
             )
-            c_onehot = c_onehot.scatter(1, c, 1)
 
-            # merge with z to be decoder input
-            z = torch.cat((z, c_onehot), 1)
+            # combine z and c
+            z = self.merge_latent_and_class_vector(z, c)
 
             # detach so no update to generator
             tree_fake = F.tanh(self.generator(z)).clone().detach()
             # add noise to data
-            tree_fake = self.add_noise_to_samples(tree_fake, instance_noise)
+            tree_fake = self.add_noise_to_samples(tree_fake)
 
             # real data (data from dataloader)
             dout_real = self.discriminator(dataset_batch)
-            dloss_real = criterion_label(dout_real, real_label)
+            dloss_real = self.criterion_label(dout_real, real_label)
 
             # fake data (data from generator)
             dout_fake = self.discriminator(tree_fake)
-            dloss_fake = criterion_label(dout_fake, fake_label)
+            dloss_fake = self.criterion_label(dout_fake, fake_label)
 
             # loss function (discriminator classify real data vs generated data)
             dloss = (dloss_real + dloss_fake) / 2
 
             # record loss
-            self.d_ep_loss.append(dloss.detach().cpu().numpy())
+            self.record_loss(dloss.detach().cpu().numpy(), optimizer_idx)
 
             # accuracy hack
-            if config.accuracy_hack < 1.0:
-                # hack activated, calculate accuracy
-                # note that dout are before sigmoid
-                real_score = (dout_real >= 0).float()
-                fake_score = (dout_fake < 0).float()
-                accuracy = torch.cat((real_score, fake_score), 0).mean()
-                if accuracy > config.accuracy_hack:
-                    return dloss - dloss
-
+            dloss = self.apply_accuracy_hack(dloss, dout_real, dout_fake)
             return dloss
 
         if optimizer_idx == 2:
@@ -1595,44 +1094,36 @@ class CGAN(GAN):
             #   classifier
             ############
 
-            z = (
-                torch.randn(batch_size, config.z_size).float().type_as(dataset_batch)
-            )  # 128-d noise vector
+            # 128-d noise vector
+            z = torch.randn(batch_size, config.z_size).float().type_as(dataset_batch)
+            # class vector
             c_fake = (
                 torch.randint(0, config.num_classes, (batch_size,))
                 .type_as(dataset_batch)
                 .to(torch.int64)
-            )  # class vector
-
-            # convert c to one-hot
-            batch_size = z.shape[0]
-            c = c_fake.reshape((-1, 1))
-            c_onehot = torch.zeros([batch_size, config.num_classes]).type_as(
-                dataset_batch
             )
-            c_onehot = c_onehot.scatter(1, c, 1)
 
-            # merge with z to be generator input
-            z = torch.cat((z, c_onehot), 1)
+            # combine z and c
+            z = self.merge_latent_and_class_vector(z, c_fake)
 
             # detach so no update to generator
             tree_fake = F.tanh(self.generator(z)).clone().detach()
             # add noise to data
-            tree_fake = self.add_noise_to_samples(tree_fake, instance_noise)
+            tree_fake = self.add_noise_to_samples(tree_fake)
 
             # fake data (data from generator)
             cout_fake = self.classifier(tree_fake)
-            closs_fake = criterion_class(cout_fake, c_fake)
+            closs_fake = self.criterion_class(cout_fake, c_fake)
 
             # real data (data from dataloader)
             cout_real = self.classifier(dataset_batch)
-            closs_real = criterion_class(cout_real, dataset_indices)
+            closs_real = self.criterion_class(cout_real, dataset_indices)
 
             # loss function (discriminator classify real data vs generated data)
             closs = (closs_real + closs_fake) / 2
 
             # record loss
-            self.c_ep_loss.append(closs.detach().cpu().numpy())
+            self.record_loss(closs.detach().cpu().numpy(), optimizer_idx)
 
             return closs
 
@@ -1640,13 +1131,8 @@ class CGAN(GAN):
         config = self.config
         generator = self.generator
 
-        return generate_tree(
-            generator,
-            config.resolution,
-            c,
-            config.num_classes,
-            num_trees=num_trees,
-            batch_size=config.batch_size,
+        return super(GAN, self).generate_tree(
+            generator, c=c, num_classes=config.num_classes, num_trees=num_trees
         )
 
 
