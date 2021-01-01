@@ -497,13 +497,14 @@ class BaseModel(pl.LightningModule):
     # given latent_vector (B, Z) and class_vector (B),
     # reshape class_vector to one-hot (B, num_classes),
     # and merge with latent_vector
-    def merge_latent_and_class_vector(self, latent_vector, class_vector):
+    @staticmethod
+    def merge_latent_and_class_vector(latent_vector, class_vector, num_classes):
         z = latent_vector
         c = class_vector
         batch_size = z.shape[0]
         # convert c to one-hot
         c = c.reshape((-1, 1))
-        c_onehot = torch.zeros([batch_size, self.config.num_classes]).type_as(z)
+        c_onehot = torch.zeros([batch_size, num_classes]).type_as(z)
         c_onehot = c_onehot.scatter(1, c, 1)
 
         # merge with z to be generator input
@@ -1219,7 +1220,7 @@ class CGAN(GAN):
 
     def forward(self, x, c):
         # combine x and c into z
-        z = self.merge_latent_and_class_vector(x, c)
+        z = self.merge_latent_and_class_vector(x, c, self.config.num_classes)
 
         # classifier and discriminator
         x = self.generator(z)
@@ -1258,7 +1259,7 @@ class CGAN(GAN):
             )
 
             # combine z and c_fake
-            z = self.merge_latent_and_class_vector(z, c_fake)
+            z = self.merge_latent_and_class_vector(z, c_fake, self.config.num_classes)
 
             tree_fake = F.tanh(self.generator(z))
             # add noise to data
@@ -1296,7 +1297,7 @@ class CGAN(GAN):
             )
 
             # combine z and c
-            z = self.merge_latent_and_class_vector(z, c)
+            z = self.merge_latent_and_class_vector(z, c, self.config.num_classes)
 
             # detach so no update to generator
             tree_fake = F.tanh(self.generator(z)).clone().detach()
@@ -1337,7 +1338,7 @@ class CGAN(GAN):
             )
 
             # combine z and c
-            z = self.merge_latent_and_class_vector(z, c_fake)
+            z = self.merge_latent_and_class_vector(z, c_fake, self.config.num_classes)
 
             # detach so no update to generator
             tree_fake = F.tanh(self.generator(z)).clone().detach()
@@ -1631,12 +1632,15 @@ class Discriminator(nn.Module):
 
 
 class VAE(nn.Module):
-    def __init__(self, encoder, decoder):
+    def __init__(self, encoder, decoder, num_classes=None):
         super(VAE, self).__init__()
         assert encoder.input_size == decoder.output_size
         self.sample_size = decoder.output_size
         self.encoder_z_size = encoder.output_size
         self.decoder_z_size = decoder.z_size
+        self.num_classes = num_classes
+        if num_classes is not None:
+            assert (self.decoder_z_size - self.encoder_z_size) == self.num_classes
         # VAE
         self.vae_encoder = encoder
         self.encoder_mean = nn.Linear(self.encoder_z_size, self.decoder_z_size)
@@ -1644,63 +1648,22 @@ class VAE(nn.Module):
         self.vae_decoder = decoder
 
     # reference: https://github.com/YixinChen-AI/CVAE-GAN-zoos-PyTorch-Beginner/blob/master/CVAE-GAN/CVAE-GAN.py
+    # TODO: implement CVAE
     def noise_reparameterize(self, mean, logvar):
         eps = torch.randn(mean.shape).type_as(mean)
         z = mean + eps * torch.exp(logvar / 2.0)
         return z
 
-    def forward(self, x, output_all=False):
+    def forward(self, x, c=None, output_all=False):
         # VAE
         f = self.vae_encoder(x)
         x_mean = self.encoder_mean(f)
         x_logvar = self.encoder_logvar(f)
         x = self.noise_reparameterize(x_mean, x_logvar)
-        x = self.vae_decoder(x)
-        if output_all:
-            return x, x_mean, x_logvar
-        else:
-            return x
 
-    def generate_sample(self, z):
-        x = self.vae_decoder(z)
-        return x
-
-
-class CVAE(nn.Module):
-    def __init__(self, encoder, decoder):
-        super(CVAE, self).__init__()
-        assert encoder.input_size == decoder.output_size
-        self.sample_size = decoder.output_size
-        self.encoder_z_size = encoder.output_size
-        self.decoder_z_size = decoder.z_size
-        self.num_classes = self.decoder_z_size - self.encoder_z_size
-        # CVAE
-        self.vae_encoder = encoder
-        self.encoder_mean = nn.Linear(self.encoder_z_size, self.encoder_z_size)
-        self.encoder_logvar = nn.Linear(self.encoder_z_size, self.encoder_z_size)
-        self.vae_decoder = decoder
-
-    # reference: https://github.com/YixinChen-AI/CVAE-GAN-zoos-PyTorch-Beginner/blob/master/CVAE-GAN/CVAE-GAN.py
-    def noise_reparameterize(self, mean, logvar):
-        eps = torch.randn(mean.shape).type_as(mean)
-        z = mean + eps * torch.exp(logvar / 2.0)
-        return z
-
-    def forward(self, x, c, output_all=False):
-        # CVAE
-        f = self.vae_encoder(x)
-        x_mean = self.encoder_mean(f)
-        x_logvar = self.encoder_logvar(f)
-        x = self.noise_reparameterize(x_mean, x_logvar)
-
-        # convert c to one-hot
-        batch_size = x.shape[0]
-        c = c.reshape((-1, 1))
-        c_onehot = torch.zeros([batch_size, self.num_classes])
-        c_onehot = c_onehot.scatter(1, c, 1)
-
-        # merge with x to be decoder input
-        x = torch.cat((x, c_onehot), 1)
+        # handle class vector
+        if c is not None:
+            x = BaseModel.merge_latent_and_class_vector(x, c, self.num_classes)
 
         x = self.vae_decoder(x)
         if output_all:
@@ -1708,15 +1671,10 @@ class CVAE(nn.Module):
         else:
             return x
 
-    def generate_sample(self, z, c):
-        # convert c to one-hot
-        batch_size = z.shape[0]
-        c = c.reshape((-1, 1))
-        c_onehot = torch.zeros([batch_size, self.num_classes])
-        c_onehot = c_onehot.scatter(1, c, 1)
-
-        # merge with z to be decoder input
-        z = torch.cat((z, c_onehot), 1)
+    def generate_sample(self, z, c=None):
+        # handle class vector
+        if c is not None:
+            z = BaseModel.merge_latent_and_class_vector(z, c, self.num_classes)
 
         x = self.vae_decoder(z)
         return x

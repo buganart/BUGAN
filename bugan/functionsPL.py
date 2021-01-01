@@ -19,8 +19,10 @@ from disjoint_set import DisjointSet
 
 
 #####
-#   callbacks
+#   functions/callbacks for script, colab
 #####
+
+# callback for pl.Trainer() to save_checkpoint() in log_interval
 class SaveWandbCallback(Callback):
     def __init__(self, log_interval, save_model_path):
         super().__init__()
@@ -36,42 +38,60 @@ class SaveWandbCallback(Callback):
         self.epoch += 1
 
 
+# function to save/load files from wandb
+def save_checkpoint_to_cloud(checkpoint_path):
+    wandb.save(checkpoint_path)
+
+
+def load_checkpoint_from_cloud(checkpoint_path="model_dict.pth"):
+    checkpoint_file = wandb.restore(checkpoint_path)
+    return checkpoint_file.name
+
+
 #####
-#   functions
+#   functions for wandbLog in modelPL
+#   calculate_log_media_stat() is called by BaseModel on_train_epoch_end()
 #####
 
-
-def load_dataset(dataset_name, run, config):
-    # download dataset
-    dataset_artifact = run.use_artifact(dataset_name, type="dataset")
-    dir_dict = dataset_artifact.metadata["dir_dict"]
-    artifact_dir = dataset_artifact.download()
-
-    # process
-    dataset = []
-    for data_cat in dir_dict:
-        filename_list = dir_dict[data_cat]
-        for filename in filename_list:
-            filename = artifact_dir + "/" + data_cat + "/" + filename
-            m = trimesh.load(filename, force="mesh")
-            # augment data
-            if config.data_augmentation:
-                array = data_augmentation(
-                    m,
-                    num_augment_data=config.num_augment_data,
-                    array_length=config.resolution,
-                )
-            else:
-                array = mesh2arrayCentered(m, array_length=config.resolution)[
-                    np.newaxis, :, :, :
-                ]
-            dataset.append(array)
-
-    # now all the returned array contains multiple samples
-    dataset = np.concatenate(dataset)
-    return dataset
+# convert boolean voxel array (shape: H,W,D) to voxel coordinate list (shape: num_points, 3)
+def netarray2indices(boolarray):
+    coord_list = []
+    if len(boolarray.shape) == 5:
+        boolarray = boolarray[0][0]
+    x, y, z = boolarray.shape
+    for i in range(x):
+        for j in range(y):
+            for k in range(z):
+                if boolarray[i, j, k]:
+                    coord_list.append([i, j, k])
+    # print(len(coord_list))
+    if len(coord_list) == 0:
+        return np.array(
+            [[0, 0, 0]]
+        )  # return at least one point to prevent wandb 3dobject error
+    return np.array(coord_list)
 
 
+# convert boolean voxel array (shape: H,W,D)
+# to trimesh VoxelGrid.marching_cubes, the mesh for visualization
+def netarray2mesh(array, threshold=0):
+    if len(array.shape) != 3:
+        raise Exception("netarray2mesh: input array should be 3d")
+
+    # convert to bool dtype
+    array = array > threshold
+    # array all zero gives error
+    if np.sum(array) == 0:
+        array[0, 0, 0] = True
+    voxelmesh = trimesh.voxel.base.VoxelGrid(
+        trimesh.voxel.encoding.DenseEncoding(array)
+    ).marching_cubes
+    return voxelmesh
+
+
+# use DisjointSet to calculate number of voxel clusters in a mesh voxelgrid
+# more than 1 cluster means that the mesh may have outliers / floating voxel
+# the distance function is p-inf. (see infinity norm/maximum norm)
 def eval_count_cluster(boolarray):
     def nearby_voxels(boolarray, i, j, k):
         bound = boolarray.shape
@@ -101,6 +121,38 @@ def eval_count_cluster(boolarray):
                     for v in nearby_vox:
                         ds.union(v, (i, j, k))
     return len(list(ds.itersets()))
+
+
+# render image (PIL) from voxelmesh 3d object
+# using trimesh save_image() function, need a default display/renderer
+def mesh2wandbImage(voxelmesh, wandb_format=True):
+    scene = voxelmesh.scene()
+    try:
+        png = scene.save_image(
+            resolution=[600, 600],
+        )
+    except:
+        print(
+            "NoSuchDisplayException. Renderer not found! Please check configuation so trimesh scene.save_image() can run successfully"
+        )
+        return None
+
+    png = io.BytesIO(png)
+    image = Image.open(png)
+    if wandb_format:
+        return wandb.Image(image)
+    else:
+        return image
+
+
+# output export_blob in .obj file type for the input trimesh voxelmesh
+def mesh2wandb3D(voxelmesh, wandb_format=True):
+    voxelmeshfile = voxelmesh.export(file_type="obj")
+    if not wandb_format:
+        return voxelmeshfile
+    else:
+        voxelmeshfile = wandb.Object3D(io.StringIO(voxelmeshfile), file_type="obj")
+        return voxelmeshfile
 
 
 # helper function for wandbLog
@@ -156,84 +208,12 @@ def calculate_log_media_stat(model, log_num_samples, class_label=None):
     )
 
 
-def save_checkpoint_to_cloud(checkpoint_path):
-    wandb.save(checkpoint_path)
-
-
-def load_checkpoint_from_cloud(checkpoint_path="model_dict.pth"):
-    checkpoint_file = wandb.restore(checkpoint_path)
-    return checkpoint_file.name
-
-
 #####
-#   helper function (array processing and log)
+#   helper function (datamodule)
 #####
-def netarray2indices(boolarray):
-    coord_list = []
-    if len(boolarray.shape) == 5:
-        boolarray = boolarray[0][0]
-    x, y, z = boolarray.shape
-    for i in range(x):
-        for j in range(y):
-            for k in range(z):
-                if boolarray[i, j, k]:
-                    coord_list.append([i, j, k])
-    # print(len(coord_list))
-    if len(coord_list) == 0:
-        return np.array(
-            [[0, 0, 0]]
-        )  # return at least one point to prevent wandb 3dobject error
-    return np.array(coord_list)
 
-
-# array should be 3d
-def netarray2mesh(array, threshold=0):
-    if len(array.shape) != 3:
-        raise Exception("netarray2mesh: input array should be 3d")
-
-    # convert to bool dtype
-    array = array > threshold
-    # array all zero gives error
-    if np.sum(array) == 0:
-        array[0, 0, 0] = True
-    voxelmesh = trimesh.voxel.base.VoxelGrid(
-        trimesh.voxel.encoding.DenseEncoding(array)
-    ).marching_cubes
-    return voxelmesh
-
-
-def mesh2wandbImage(voxelmesh, wandb_format=True):
-    scene = voxelmesh.scene()
-    try:
-        png = scene.save_image(
-            resolution=[600, 600],
-        )
-    except:
-        print(
-            "NoSuchDisplayException. Renderer not found! Please check configuation so trimesh scene.save_image() can run successfully"
-        )
-        return None
-
-    png = io.BytesIO(png)
-    image = Image.open(png)
-    if wandb_format:
-        return wandb.Image(image)
-    else:
-        return image
-
-
-def mesh2wandb3D(voxelmesh, wandb_format=True):
-    voxelmeshfile = voxelmesh.export(file_type="obj")
-    if not wandb_format:
-        return voxelmeshfile
-    else:
-        voxelmeshfile = wandb.Object3D(io.StringIO(voxelmeshfile), file_type="obj")
-        return voxelmeshfile
-
-
-#####
-#   helper function (dataset)
-#####
+# given a mesh (trimesh), this function rotate the mesh by
+# (radians[0], axes[0]), then (radians[1], axes[1]), ...
 def rotateMesh(voxelmesh, radians, axes):
     assert len(radians) == len(axes)
     for i in range(len(axes)):
@@ -245,6 +225,8 @@ def rotateMesh(voxelmesh, radians, axes):
     return voxelmesh
 
 
+# given a mesh (trimesh), this function voxelize the mesh
+# into an array_length**3 cube in the form of boolean array
 def mesh2arrayCentered(mesh, array_length, voxel_size=1):
     # given array length 64, voxel size 2, then output array size is [128,128,128]
     resolution = np.ceil(
@@ -269,49 +251,3 @@ def mesh2arrayCentered(mesh, array_length, voxel_size=1):
     ] = v.matrix
 
     return vox_array
-
-
-def data_augmentation(mesh, array_length, num_augment_data=4, scale_max_margin=3):
-
-    retval = np.zeros((num_augment_data, array_length, array_length, array_length))
-
-    for i in range(num_augment_data):
-
-        # first select rotation angle (angle in radian)
-        angle = 2 * np.pi * (np.random.rand(1)[0])
-
-        # scale is implemented based on the bounding box with box margin (larger margin, smaller scale)
-        box_margin = np.random.randint(scale_max_margin + 1)
-
-        # pick a random starting point within margin as translation
-        initial_position = np.random.randint(box_margin + 1, size=3)
-
-        result_array = modify_mesh(
-            mesh, array_length, angle, box_margin, initial_position
-        )
-        retval[i] = result_array
-
-    return retval
-
-
-def modify_mesh(mesh, out_array_length, rot_angle, scale_box_margin, array_init_pos):
-    # first copy mesh
-    mesh = mesh.copy()
-    # rotate mesh by rot_angle in radian
-    mesh = mesh.apply_transform(
-        trimesh.transformations.rotation_matrix(rot_angle, (0, 1, 0))
-    )
-
-    # scale is implemented based on the bounding box with box margin (larger margin, smaller scale)
-    # example (assume out_array_length=64): margin = 0, bounding box shape = (64,64,64); margin = 3, bounding box shape = (61,61,61)
-    scaled_size = out_array_length - scale_box_margin
-    mesh_array = mesh2arrayCentered(mesh, array_length=scaled_size)
-
-    # put them into bounding box (and translation)
-    retval = np.zeros((out_array_length, out_array_length, out_array_length))
-    # apply translation by selecting initial position
-    # example: same mesh array of size (61,61,61) but with two position (0,1,0) and (1,0,0) is just a translation of 2 units
-    x, y, z = array_init_pos
-    retval[x : x + scaled_size, y : y + scaled_size, z : z + scaled_size] = mesh_array
-
-    return retval
