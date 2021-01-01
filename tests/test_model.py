@@ -277,6 +277,7 @@ def test_vaegan_training_loop_full(device, wandb_init_run, data_path):
         data_augmentation=True,
         aug_rotation_type="random rotation",
         aug_rotation_axis=(0, 1, 0),
+        log_interval=1,
     )
     model = VAEGAN(config).to(device)
     data_module = DataModule_process(config, run=wandb_init_run, data_path=data_path)
@@ -298,6 +299,7 @@ def test_vae_training_loop_full(device, wandb_init_run, data_path):
         data_augmentation=True,
         aug_rotation_type="random rotation",
         aug_rotation_axis=(0, 1, 0),
+        log_interval=1,
     )
     model = VAE_train(config).to(device)
     data_module = DataModule_process(config, run=wandb_init_run, data_path=data_path)
@@ -319,6 +321,7 @@ def test_gan_training_loop_full(device, wandb_init_run, data_path):
         data_augmentation=True,
         aug_rotation_type="random rotation",
         aug_rotation_axis=(0, 1, 0),
+        log_interval=1,
     )
     model = GAN(config).to(device)
     data_module = DataModule_process(config, run=wandb_init_run, data_path=data_path)
@@ -340,6 +343,7 @@ def test_gan_wloss_training_loop_full(device, wandb_init_run, data_path):
         data_augmentation=True,
         aug_rotation_type="random rotation",
         aug_rotation_axis=(0, 1, 0),
+        log_interval=1,
     )
     model = GAN_Wloss(config).to(device)
     data_module = DataModule_process(config, run=wandb_init_run, data_path=data_path)
@@ -361,6 +365,7 @@ def test_gan_wloss_gp_training_loop_full(device, wandb_init_run, data_path):
         data_augmentation=True,
         aug_rotation_type="random rotation",
         aug_rotation_axis=(0, 1, 0),
+        log_interval=1,
     )
     model = GAN_Wloss_GP(config).to(device)
     data_module = DataModule_process(config, run=wandb_init_run, data_path=data_path)
@@ -383,6 +388,7 @@ def test_cgan_training_loop_full(device, wandb_init_run, data_path_cond):
         aug_rotation_type="random rotation",
         aug_rotation_axis=(0, 1, 0),
         num_classes=1,
+        log_interval=1,
     )
     model = CGAN(config).to(device)
     data_module = DataModule_process_cond(
@@ -402,7 +408,7 @@ def test_trainPL_script(data_path):
         data_location=data_path,
         resume_id="",
         selected_model="GAN",
-        log_interval=15,
+        log_interval=1,
         log_num_samples=1,
         project_name="tree-gan",
         resolution=32,

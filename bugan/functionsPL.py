@@ -103,95 +103,57 @@ def eval_count_cluster(boolarray):
     return len(list(ds.itersets()))
 
 
-def wandbLog(model, initial_log_dict={}, log_media=False, log_num_samples=1):
-
-    if log_media:
+# helper function for wandbLog
+# calculate mesh data statistics
+# 1) average number of voxel per tree
+# 2) average number of voxel cluster per tree (check distance function)
+# 3) images of all generated tree
+# 4) meshes of all generated tree
+# 5) mean of per voxel std over generated trees
+def calculate_log_media_stat(model, log_num_samples, class_label=None):
+    if class_label is not None:
+        sample_trees = model.generate_tree(c=class_label, num_trees=log_num_samples)
+    else:
         sample_trees = model.generate_tree(num_trees=log_num_samples)
 
-        # log_dict list record
-        sample_tree_numpoints = []
-        eval_num_cluster = []
-        sample_tree_image = []
-        sample_tree_voxelmesh = []
-        for n in range(log_num_samples):
-            # sample_trees are before sigmoid
-            sample_tree_bool_array = sample_trees[n] > 0
-            # log number of points to wandb
-            sample_tree_indices = netarray2indices(sample_tree_bool_array)
-            sample_tree_numpoints.append(sample_tree_indices.shape[0])
-            # count number of cluster in the tree (grouped with dist_inf = 1)
-            num_cluster = eval_count_cluster(sample_tree_bool_array)
-            eval_num_cluster.append(num_cluster)
+    # log_dict list record
+    sample_tree_numpoints = []
+    eval_num_cluster = []
+    sample_tree_image = []
+    sample_tree_voxelmesh = []
+    for n in range(log_num_samples):
+        # sample_trees are before sigmoid
+        sample_tree_bool_array = sample_trees[n] > 0
+        # log number of points to wandb
+        sample_tree_indices = netarray2indices(sample_tree_bool_array)
+        sample_tree_numpoints.append(sample_tree_indices.shape[0])
+        # mean
+        sample_tree_numpoints = np.mean(sample_tree_numpoints)
+        # count number of cluster in the tree (grouped with dist_inf = 1)
+        num_cluster = eval_count_cluster(sample_tree_bool_array)
+        eval_num_cluster.append(num_cluster)
+        # mean
+        eval_num_cluster = np.mean(eval_num_cluster)
 
-            voxelmesh = netarray2mesh(sample_tree_bool_array)
+        voxelmesh = netarray2mesh(sample_tree_bool_array)
 
-            # image / 3D object to log_dict
-            image = mesh2wandbImage(voxelmesh)
-            if image is not None:
-                sample_tree_image.append(image)
-            voxelmeshfile = mesh2wandb3D(voxelmesh)
-            sample_tree_voxelmesh.append(voxelmeshfile)
+        # image / 3D object to log_dict
+        image = mesh2wandbImage(voxelmesh)
+        if image is not None:
+            sample_tree_image.append(image)
+        voxelmeshfile = mesh2wandb3D(voxelmesh)
+        sample_tree_voxelmesh.append(voxelmeshfile)
 
-        # add list record to log_dict
-        initial_log_dict["sample_tree_numpoints"] = np.mean(sample_tree_numpoints)
-        initial_log_dict["eval_num_cluster"] = np.mean(eval_num_cluster)
-        initial_log_dict["sample_tree_image"] = sample_tree_image
-        initial_log_dict["sample_tree_voxelmesh"] = sample_tree_voxelmesh
-
-        # log model variance
+        # mesh model variance
         mesh_bool_array = sample_trees > 0
-        initial_log_dict["mesh_per_voxel_std"] = np.mean(np.std(mesh_bool_array, 0))
-
-    wandb.log(initial_log_dict)
-
-
-def wandbLog_cond(
-    model, class_list, initial_log_dict={}, log_media=False, log_num_samples=1
-):
-    num_classes = len(class_list)
-    if log_media:
-
-        for c in range(num_classes):
-            sample_trees = model.generate_tree(c, num_trees=log_num_samples)
-            # log_dict list record
-            sample_tree_numpoints = []
-            eval_num_cluster = []
-            sample_tree_image = []
-            sample_tree_voxelmesh = []
-            for n in range(log_num_samples):
-                # sample_trees are before sigmoid
-                sample_tree_bool_array = sample_trees[n] > 0
-                # log number of points to wandb
-                sample_tree_indices = netarray2indices(sample_tree_bool_array)
-                sample_tree_numpoints.append(sample_tree_indices.shape[0])
-                # count number of cluster in the tree (grouped with dist_inf = 1)
-                num_cluster = eval_count_cluster(sample_tree_bool_array)
-                eval_num_cluster.append(num_cluster)
-
-                voxelmesh = netarray2mesh(sample_tree_bool_array)
-
-                # image / 3D object to log_dict
-                image = mesh2wandbImage(voxelmesh)
-                if image is not None:
-                    sample_tree_image.append(image)
-                voxelmeshfile = mesh2wandb3D(voxelmesh)
-                sample_tree_voxelmesh.append(voxelmeshfile)
-
-            # add list record to log_dict
-            initial_log_dict[
-                "sample_tree_numpoints_class_" + str(c) + "_" + str(class_list[c])
-            ] = np.mean(sample_tree_numpoints)
-            initial_log_dict[
-                "eval_num_cluster_class_" + str(c) + "_" + str(class_list[c])
-            ] = np.mean(eval_num_cluster)
-            initial_log_dict[
-                "sample_tree_image_class_" + str(c) + "_" + str(class_list[c])
-            ] = sample_tree_image
-            initial_log_dict[
-                "sample_tree_voxelmesh_class_" + str(c) + "_" + str(class_list[c])
-            ] = sample_tree_voxelmesh
-
-    wandb.log(initial_log_dict)
+        mesh_per_voxel_std = np.mean(np.std(mesh_bool_array, 0))
+    return (
+        sample_tree_numpoints,
+        eval_num_cluster,
+        sample_tree_image,
+        sample_tree_voxelmesh,
+        mesh_per_voxel_std,
+    )
 
 
 def save_checkpoint_to_cloud(checkpoint_path):

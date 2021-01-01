@@ -19,25 +19,42 @@ device
 
 
 #####
-#   models for training
+#   Base model
+#   The parent of all training models
+#
+#   This model manages settings that shares among all training models, including
+#   1) setup model components (optimizer, setup on_epoch / on_batch, logging, ...)
+#   2) wandb logging (log when epoch end)
+#   3) GAN hacks (label_noise, instance_noise, dropout_prob, spectral_norm, ...)
+#   4) other common functions (generate_trees, get_loss_function_with_logit, create_real_fake_label, ...)
+#   5) LightningModule functions (configure_optimizers, on_train_epoch_start, on_train_epoch_end)
+#   *) Note that __init__() and training_step should be implemented in child model
 #####
 class BaseModel(pl.LightningModule):
     @staticmethod
     def add_model_specific_args(parent_parser, resolution=32):
         parser = ArgumentParser(parents=[parent_parser], add_help=False)
-
+        # basic attributes for training
         parser.add_argument("--batch_size", type=int, default=4)
         parser.add_argument("--resolution", type=int, default=resolution)
-        # log argument
+        # wandb log argument
         parser.add_argument("--log_interval", type=int, default=10)
         parser.add_argument("--log_num_samples", type=int, default=1)
 
+        # label noise
         # real/fake label flip probability
         parser.add_argument("--label_flip_prob", type=float, default=0.1)
         # real/fake label noise magnitude
         parser.add_argument("--label_noise", type=float, default=0.2)
 
         # instance noise (add noise to real data/generate data)
+        # generate instance noise once per batch?
+        # if False, generate instance noise for every sample,
+        # including every generated data and real data
+        # if True, same noise will be applied to
+        # every generated data and real data in the same batch
+        parser.add_argument("--instance_noise_per_batch", type=bool, default=True)
+        # noise linear delay time
         parser.add_argument(
             "--linear_annealed_instance_noise_epoch", type=int, default=1000
         )
@@ -53,22 +70,72 @@ class BaseModel(pl.LightningModule):
         # spectral_norm
         parser.add_argument("--spectral_norm", type=bool, default=False)
         # use_simple_3dgan_struct
+        # reference: https://github.com/xchhuang/simple-pytorch-3dgan
+        # basically both G and D will conv the input to volume (1,1,1),
+        # which is different from the other one that flatten when (k,k,k), k=4
         parser.add_argument("--use_simple_3dgan_struct", type=bool, default=False)
 
         return parser
 
+    #####
+    #   __init__() related functions
+    #####
+
     def __init__(self, config):
         super(BaseModel, self).__init__()
         self.config = self.setup_config_arguments(config)
+        # list for setup_model_component()
+        # record (model_list, opt_config_list) for configure_optimizers()
+        # record (model_name_list, model_ep_loss_list) for logging loss
+        # * the items for the same model component should have the same list index
+        # * the list index also indicates the optimizer_idx in the training_step
+
+        # a list containing all model components
         self.model_list = []
+        # model name string is recorded only for logging purpose
         self.model_name_list = []
+        # config for setup optimizer for the components in self.model_list
         self.opt_config_list = []
+        # record loss of each model component in training_step
         self.model_ep_loss_list = []
 
         # for instance noise
         self.noise_magnitude = self.config.instance_noise
+        self.instance_noise = None
 
-    def setup_Generator(self, layer_per_block, num_layer_unit, num_classes=None):
+    # The add_model_specific_args() function listed all the parameters for the model
+    # from the config dict given by the user, the necessary parameters may not be there
+    # This function takes all the default values from the add_model_specific_args() function,
+    # and then add only the missing parameter values to the user config dict
+    # (the values in add_model_specific_args() will be overwritten by values in user config dict)
+    # * this function should be in every child model __init__() right after super().__init__()
+    def setup_config_arguments(self, config):
+        if hasattr(config, "cyclicLR_magnitude"):
+            resolution = config.resolution
+        else:
+            resolution = 32
+        # add missing default parameters
+        parser = self.add_model_specific_args(ArgumentParser(), resolution=resolution)
+        args = parser.parse_args([])
+        config = self.combine_namespace(args, config)
+        return config
+
+    # helper function to combine Namespace object
+    # values in base will be overwritten by values in update
+    def combine_namespace(self, base, update):
+        base = vars(base)
+        base.update(vars(update))
+        return Namespace(**base)
+
+    def setup_Generator(
+        self,
+        model_name,
+        layer_per_block,
+        num_layer_unit,
+        optimizer_option,
+        learning_rate,
+        num_classes=None,
+    ):
         config = self.config
         if not num_classes:
             z_size = config.z_size
@@ -84,12 +151,23 @@ class BaseModel(pl.LightningModule):
             use_simple_3dgan_struct=config.use_simple_3dgan_struct,
             activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
         )
+        # setup component in __init__() lists
+        # for configure_optimizers() and record loss
+        self.setup_model_component(
+            generator, model_name, optimizer_option, learning_rate
+        )
         return generator
 
-    def setup_Discriminator(self, layer_per_block, num_layer_unit, output_size=None):
+    def setup_Discriminator(
+        self,
+        model_name,
+        layer_per_block,
+        num_layer_unit,
+        optimizer_option,
+        learning_rate,
+        output_size=1,
+    ):
         config = self.config
-        if not output_size:
-            output_size = config.z_size
 
         discriminator = Discriminator(
             layer_per_block=layer_per_block,
@@ -101,25 +179,84 @@ class BaseModel(pl.LightningModule):
             use_simple_3dgan_struct=config.use_simple_3dgan_struct,
             activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
         )
+        # setup component in __init__() lists
+        # for configure_optimizers() and record loss
+        self.setup_model_component(
+            discriminator, model_name, optimizer_option, learning_rate
+        )
         return discriminator
 
-    def setup_config_arguments(self, config):
-        if hasattr(config, "cyclicLR_magnitude"):
-            resolution = config.resolution
-        else:
-            resolution = 32
-        # add missing default parameters
-        parser = self.add_model_specific_args(ArgumentParser(), resolution=resolution)
-        args = parser.parse_args([])
-        config = self.combine_namespace(args, config)
-        return config
+    def setup_VAE(
+        self,
+        model_name,
+        encoder_layer_per_block,
+        encoder_num_layer_unit,
+        decoder_layer_per_block,
+        decoder_num_layer_unit,
+        optimizer_option,
+        learning_rate,
+    ):
+        config = self.config
 
+        encoder = Discriminator(
+            layer_per_block=encoder_layer_per_block,
+            output_size=config.z_size,
+            input_size=config.resolution,
+            num_layer_unit=encoder_num_layer_unit,
+            dropout_prob=config.dropout_prob,
+            spectral_norm=config.spectral_norm,
+            use_simple_3dgan_struct=config.use_simple_3dgan_struct,
+            activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
+        )
+
+        decoder = Generator(
+            layer_per_block=decoder_layer_per_block,
+            z_size=config.z_size,
+            output_size=config.resolution,
+            num_layer_unit=decoder_num_layer_unit,
+            dropout_prob=config.dropout_prob,
+            spectral_norm=config.spectral_norm,
+            use_simple_3dgan_struct=config.use_simple_3dgan_struct,
+            activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
+        )
+
+        vae = VAE(encoder=encoder, decoder=decoder)
+        # setup component in __init__() lists
+        # for configure_optimizers() and record loss
+        self.setup_model_component(vae, model_name, optimizer_option, learning_rate)
+        return vae
+
+    # setup model components to the lists for later use
+    # record (model_list, opt_config_list) for configure_optimizers()
+    # record (model_name_list, model_ep_loss_list) for logging loss
+    # * this function will be called when initializing model components
+    #   in setup_Generator/Discriminator/VAE
     def setup_model_component(self, model, model_name, model_opt_string, model_lr):
         self.model_list.append(model)
         self.model_name_list.append(model_name)
         self.opt_config_list.append((model_opt_string, model_lr))
         self.model_ep_loss_list.append([])
 
+    # return torch loss function based on the string loss_option
+    # the returned loss assume input to be logit (before sigmoid/tanh)
+    def get_loss_function_with_logit(self, loss_option):
+
+        if loss_option == "BCELoss":
+            loss = nn.BCEWithLogitsLoss(reduction="mean")
+        elif loss_option == "MSELoss":
+            loss = lambda gen, data: nn.MSELoss(reduction="mean")(F.tanh(gen), data)
+        elif loss_option == "CrossEntropyLoss":
+            loss = nn.CrossEntropyLoss(reduction="mean")
+        else:
+            raise Exception(
+                "loss_option must be in ['BCELoss', 'MSELoss', 'CrossEntropyLoss']. Current "
+                + str(loss_option)
+            )
+        return loss
+
+    #####
+    #   configure_optimizers()
+    #####
     def configure_optimizers(self):
         if hasattr(self.config, "cyclicLR_magnitude"):
             cyclicLR_magnitude = self.config.cyclicLR_magnitude
@@ -128,6 +265,10 @@ class BaseModel(pl.LightningModule):
 
         optimizer_list = []
         scheduler_list = []
+
+        # setup optimizer for each model component in model_list
+        # (check __init__() and setup_model_component())
+        # if cyclicLR_magnitude is set in user config, also setup scheduler
         for idx in range(len(self.model_list)):
             model = self.model_list[idx]
             model_opt_string, model_lr = self.opt_config_list[idx]
@@ -148,6 +289,23 @@ class BaseModel(pl.LightningModule):
         else:
             return optimizer_list
 
+    # return torch optimizer based on the string optimizer_option
+    def get_model_optimizer(self, model, optimizer_option, lr):
+
+        if optimizer_option == "Adam":
+            optimizer = optim.Adam
+        elif optimizer_option == "SGD":
+            optimizer = optim.SGD
+        else:
+            raise Exception(
+                "optimizer_option must be in ['Adam', 'SGD']. Current "
+                + str(optimizer_option)
+            )
+        return optimizer(model.parameters(), lr=lr)
+
+    #####
+    #   on_train_epoch_start()
+    #####
     def on_train_epoch_start(self):
         # reset ep_loss
         # set model to train
@@ -156,6 +314,7 @@ class BaseModel(pl.LightningModule):
             self.model_list[idx].train()
 
         # calc instance noise
+        # check add_noise_to_samples() and generate_noise_for_samples()
         if self.noise_magnitude > 0:
             # linear annealed noise
             noise_rate = (
@@ -165,10 +324,20 @@ class BaseModel(pl.LightningModule):
         else:
             self.noise_magnitude = 0
 
+    #####
+    #   on_train_batch_start()
+    #####
+    def on_train_batch_start(self, batch, batch_idx, dataloader_idx):
+        # record/reset instance noise per batch
+        self.instance_noise = None
+
+    #####
+    #   on_train_epoch_end()
+    #####
     def on_train_epoch_end(self, epoch_output):
         log_dict = {"epoch": self.current_epoch}
 
-        # record loss
+        # record loss and add to log_dict
         for idx in range(len(self.model_ep_loss_list)):
             loss = np.mean(self.model_ep_loss_list[idx])
             loss_name = self.model_name_list[idx] + " loss"
@@ -177,27 +346,100 @@ class BaseModel(pl.LightningModule):
         # boolean whether to log image/3D object
         log_media = self.current_epoch % self.config.log_interval == 0
 
+        # log data to wandb
         if hasattr(self, "classifier"):
             # conditional
-            wandbLog_cond(
-                self,
-                self.trainer.datamodule.class_list,
-                log_dict,
-                log_media=log_media,
-                log_num_samples=self.config.log_num_samples,
-            )
+            class_list = self.trainer.datamodule.class_list
         else:
             # unconditional
-            wandbLog(
-                self,
-                log_dict,
-                log_media=log_media,
-                log_num_samples=self.config.log_num_samples,
-            )
+            class_list = None
 
+        self.wandbLog(
+            class_list,
+            log_dict,
+            log_media=log_media,
+            log_num_samples=self.config.log_num_samples,
+        )
+
+    # construct log_dict to log data/statistics to wandb
+    # image/mesh/statistics are calculated by calculate_log_media_stat() in functionPL.py
+    # mesh data statistics
+    # 1) average number of voxel per tree
+    # 2) average number of voxel cluster per tree (check distance function)
+    # 3) images of all generated tree
+    # 4) meshes of all generated tree
+    # 5) mean of per voxel std over generated trees
+    def wandbLog(
+        self, class_list=None, initial_log_dict={}, log_media=False, log_num_samples=1
+    ):
+
+        if log_media:
+
+            if class_list is not None:
+                num_classes = len(class_list)
+                # log condition model data
+                for c in range(num_classes):
+                    (
+                        numpoints,
+                        num_cluster,
+                        image,
+                        voxelmesh,
+                        std,
+                    ) = calculate_log_media_stat(self, log_num_samples, class_label=c)
+
+                    # add list record to log_dict
+                    initial_log_dict[
+                        "sample_tree_numpoints_class_"
+                        + str(c)
+                        + "_"
+                        + str(class_list[c])
+                    ] = numpoints
+                    initial_log_dict[
+                        "eval_num_cluster_class_" + str(c) + "_" + str(class_list[c])
+                    ] = num_cluster
+                    initial_log_dict[
+                        "sample_tree_image_class_" + str(c) + "_" + str(class_list[c])
+                    ] = image
+                    initial_log_dict[
+                        "sample_tree_voxelmesh_class_"
+                        + str(c)
+                        + "_"
+                        + str(class_list[c])
+                    ] = voxelmesh
+                    initial_log_dict[
+                        "mesh_per_voxel_std_class_" + str(c) + "_" + str(class_list[c])
+                    ] = std
+            else:
+                # log uncondition model data
+                (
+                    numpoints,
+                    num_cluster,
+                    image,
+                    voxelmesh,
+                    std,
+                ) = calculate_log_media_stat(self, log_num_samples)
+
+                # add list record to log_dict
+                initial_log_dict["sample_tree_numpoints"] = numpoints
+                initial_log_dict["eval_num_cluster"] = num_cluster
+                initial_log_dict["sample_tree_image"] = image
+                initial_log_dict["sample_tree_voxelmesh"] = voxelmesh
+                initial_log_dict["mesh_per_voxel_std"] = std
+
+        wandb.log(initial_log_dict)
+
+    #####
+    #   training_step() related function
+    #####
     def training_step(self, dataset_batch, batch_idx):
+        # implement training_step() in child model
         pass
 
+    # create true/false label for discriminator loss
+    # normally, true label is 1 and false label is 0
+    # this function also add noise to the labels,
+    # so true:[1-label_noise,1], false:[0,label_noise]
+    # also, flip label with P(config.label_flip_prob)
     def create_real_fake_label(self, dataset_batch):
         config = self.config
         batch_size = dataset_batch.shape[0]
@@ -223,13 +465,21 @@ class BaseModel(pl.LightningModule):
         fake_label = torch.unsqueeze(fake_label, 1).float().type_as(dataset_batch)
         return real_label, fake_label
 
+    # calculate KL loss for VAE
     def calculate_KL_loss(self, mu, logVar):
         KL = 0.5 * torch.sum(mu ** 2 + torch.exp(logVar) - 1.0 - logVar)
         return KL
 
+    # save loss to list for updating loss on wandb log
     def record_loss(self, loss, optimizer_idx):
         self.model_ep_loss_list[optimizer_idx].append(loss)
 
+    # accuracy hack
+    # stop update discriminator when prediction accurary > config.accuracy_hack
+    # stop update by return 0 loss (dloss - dloss)
+    # *** the parameter config.accuracy_hack is not in
+    #     BaseModel.add_model_specific_args().
+    #     Please add accuracy_hack in the child class.
     def apply_accuracy_hack(self, dloss, dout_real, dout_fake):
         config = self.config
         # accuracy hack
@@ -243,6 +493,10 @@ class BaseModel(pl.LightningModule):
                 return dloss - dloss
         return dloss
 
+    # for conditional models
+    # given latent_vector (B, Z) and class_vector (B),
+    # reshape class_vector to one-hot (B, num_classes),
+    # and merge with latent_vector
     def merge_latent_and_class_vector(self, latent_vector, class_vector):
         z = latent_vector
         c = class_vector
@@ -256,60 +510,36 @@ class BaseModel(pl.LightningModule):
         z = torch.cat((z, c_onehot), 1)
         return z
 
-    def generate_noise_for_samples(self, data):
-        if self.noise_magnitude <= 0:
-            return 0
-        # create uniform noise
-        noise = torch.rand(data.shape) * 2 - 1
-        noise = self.noise_magnitude * noise  # noise in [-magn, magn]
-        noise = noise.float().type_as(data).detach()
-
-        return noise
-
+    # instance noise
+    # create and add instance noise which has the same shape as the data
     def add_noise_to_samples(self, data):
         if self.noise_magnitude <= 0:
             return data
-        # create instance noise
-        noise = self.generate_noise_for_samples(data)
+
+        # self.instance_noise will always be None if
+        # self.config.instance_noise_per_batch is False
+        if self.instance_noise is not None:
+            noise = self.instance_noise
+        else:
+            # create uniform noise
+            noise = torch.rand(data.shape) * 2 - 1
+            noise = self.noise_magnitude * noise  # noise in [-magn, magn]
+            noise = noise.float().type_as(data).detach()
+
+        # share the same noise for real and generated data in the same batch
+        if self.config.instance_noise_per_batch:
+            self.instance_noise = noise
         # add instance noise
         # now batch in [-1+magn, 1-magn]
         data = data * (1 - self.noise_magnitude)
         data = data + noise
         return data
 
-    def get_model_optimizer(self, model, optimizer_option, lr):
-
-        if optimizer_option == "Adam":
-            optimizer = optim.Adam
-        elif optimizer_option == "SGD":
-            optimizer = optim.SGD
-        else:
-            raise Exception(
-                "optimizer_option must be in ['Adam', 'SGD']. Current "
-                + str(optimizer_option)
-            )
-        return optimizer(model.parameters(), lr=lr)
-
-    def get_loss_function_with_logit(self, loss_option):
-
-        if loss_option == "BCELoss":
-            loss = nn.BCEWithLogitsLoss(reduction="mean")
-        elif loss_option == "MSELoss":
-            loss = lambda gen, data: nn.MSELoss(reduction="mean")(F.tanh(gen), data)
-        elif loss_option == "CrossEntropyLoss":
-            loss = nn.CrossEntropyLoss(reduction="mean")
-        else:
-            raise Exception(
-                "loss_option must be in ['BCELoss', 'MSELoss', 'CrossEntropyLoss']. Current "
-                + str(loss_option)
-            )
-        return loss
-
-    def combine_namespace(self, base, update):
-        base = vars(base)
-        base.update(vars(update))
-        return Namespace(**base)
-
+    # generate tree
+    # for unconditional model, this takes the generator of the model and generate trees
+    # for conditional model, this also take class label c and num_classes,
+    # to generate trees of the specified class c
+    # this function will generate n trees per call (n = num_trees)
     def generate_tree(self, generator, c=None, num_classes=None, num_trees=1):
         batch_size = self.config.batch_size
         resolution = generator.output_size
@@ -358,6 +588,9 @@ class BaseModel(pl.LightningModule):
         return result
 
 
+#####
+#   models for training
+#####
 class VAE_train(BaseModel):
     @staticmethod
     def add_model_specific_args(parent_parser, resolution=32):
@@ -372,7 +605,7 @@ class VAE_train(BaseModel):
         # loss function in {'BCELoss', 'MSELoss', 'CrossEntropyLoss'}
         parser.add_argument("--rec_loss", type=str, default="MSELoss")
         # learning rate
-        parser.add_argument("--vae_lr", type=float, default=0.0025)
+        parser.add_argument("--vae_lr", type=float, default=0.0005)
         # number of unit per layer
         if resolution == 32:
             decoder_num_layer_unit = [1024, 512, 256, 128]
@@ -392,21 +625,19 @@ class VAE_train(BaseModel):
         self.save_hyperparameters("config")
         config = self.setup_config_arguments(config)
         self.config = config
+
         # create components
-        decoder = self.setup_Generator(
-            config.vae_decoder_layer, config.decoder_num_layer_unit
-        )
-        encoder = self.setup_Discriminator(
-            config.vae_encoder_layer, config.encoder_num_layer_unit
-        )
-        vae = VAE(encoder=encoder, decoder=decoder)
-
-        # set componenet as an attribute to the model
+        # set component as an attribute to the model
         # so PL can set tensor device type
-        self.vae = vae
-
-        # VAE
-        self.setup_model_component(vae, "VAE", config.vae_opt, config.vae_lr)
+        self.vae = self.setup_VAE(
+            model_name="VAE",
+            encoder_layer_per_block=config.vae_encoder_layer,
+            encoder_num_layer_unit=config.encoder_num_layer_unit,
+            decoder_layer_per_block=config.vae_decoder_layer,
+            decoder_num_layer_unit=config.decoder_num_layer_unit,
+            optimizer_option=config.vae_opt,
+            learning_rate=config.vae_lr,
+        )
 
         # loss function
         self.criterion_reconstruct = self.get_loss_function_with_logit(config.rec_loss)
@@ -465,7 +696,7 @@ class VAEGAN(BaseModel):
         # accuracy_hack
         parser.add_argument("--accuracy_hack", type=float, default=1.1)
         # learning rate
-        parser.add_argument("--vae_lr", type=float, default=0.0025)
+        parser.add_argument("--vae_lr", type=float, default=0.0005)
         parser.add_argument("--d_lr", type=float, default=0.00005)
         # number of unit per layer
         if resolution == 32:
@@ -490,26 +721,25 @@ class VAEGAN(BaseModel):
         # add missing default parameters
         config = self.setup_config_arguments(config)
         self.config = config
+
         # create components
-        decoder = self.setup_Generator(
-            config.vae_decoder_layer, config.decoder_num_layer_unit
-        )
-        encoder = self.setup_Discriminator(
-            config.vae_encoder_layer, config.encoder_num_layer_unit
-        )
-        vae = VAE(encoder=encoder, decoder=decoder)
-        discriminator = self.setup_Discriminator(
-            config.d_layer, config.dis_num_layer_unit, output_size=1
-        )
-
-        # set componenet as an attribute to the model
+        # set component as an attribute to the model
         # so PL can set tensor device type
-        self.vae = vae
-        self.discriminator = discriminator
-
-        self.setup_model_component(vae, "VAE", config.vae_opt, config.vae_lr)
-        self.setup_model_component(
-            discriminator, "discriminator", config.dis_opt, config.d_lr
+        self.vae = self.setup_VAE(
+            model_name="VAE",
+            encoder_layer_per_block=config.vae_encoder_layer,
+            encoder_num_layer_unit=config.encoder_num_layer_unit,
+            decoder_layer_per_block=config.vae_decoder_layer,
+            decoder_num_layer_unit=config.decoder_num_layer_unit,
+            optimizer_option=config.vae_opt,
+            learning_rate=config.vae_lr,
+        )
+        self.discriminator = self.setup_Discriminator(
+            "discriminator",
+            layer_per_block=config.d_layer,
+            num_layer_unit=config.dis_num_layer_unit,
+            optimizer_option=config.dis_opt,
+            learning_rate=config.d_lr,
         )
 
         # loss function
@@ -638,19 +868,21 @@ class GAN(BaseModel):
         self.config = config
 
         # create components
-        generator = self.setup_Generator(config.g_layer, config.gen_num_layer_unit)
-
-        discriminator = self.setup_Discriminator(
-            config.d_layer, config.dis_num_layer_unit, output_size=1
+        # set component as an attribute to the model
+        # so PL can set tensor device type
+        self.generator = self.setup_Generator(
+            "generator",
+            layer_per_block=config.g_layer,
+            num_layer_unit=config.gen_num_layer_unit,
+            optimizer_option=config.gen_opt,
+            learning_rate=config.g_lr,
         )
-
-        # GAN
-        self.generator = generator
-        self.discriminator = discriminator
-
-        self.setup_model_component(generator, "generator", config.gen_opt, config.g_lr)
-        self.setup_model_component(
-            discriminator, "discriminator", config.dis_opt, config.d_lr
+        self.discriminator = self.setup_Discriminator(
+            "discriminator",
+            layer_per_block=config.d_layer,
+            num_layer_unit=config.dis_num_layer_unit,
+            optimizer_option=config.dis_opt,
+            learning_rate=config.d_lr,
         )
 
         # loss function
@@ -955,29 +1187,30 @@ class CGAN(GAN):
         self.config = config
 
         # create components
-        generator = self.setup_Generator(
-            config.g_layer, config.gen_num_layer_unit, num_classes=config.num_classes
+        # set component as an attribute to the model
+        # so PL can set tensor device type
+        self.generator = self.setup_Generator(
+            "generator",
+            layer_per_block=config.g_layer,
+            num_layer_unit=config.gen_num_layer_unit,
+            optimizer_option=config.gen_opt,
+            learning_rate=config.g_lr,
+            num_classes=config.num_classes,
         )
-
-        discriminator = self.setup_Discriminator(
-            config.d_layer, config.dis_num_layer_unit, output_size=1
+        self.discriminator = self.setup_Discriminator(
+            "discriminator",
+            layer_per_block=config.d_layer,
+            num_layer_unit=config.dis_num_layer_unit,
+            optimizer_option=config.dis_opt,
+            learning_rate=config.d_lr,
         )
-
-        classifier = self.setup_Discriminator(
-            config.d_layer, config.dis_num_layer_unit, output_size=config.num_classes
-        )
-
-        # GAN
-        self.generator = generator
-        self.discriminator = discriminator
-        self.classifier = classifier
-
-        self.setup_model_component(generator, "generator", config.gen_opt, config.g_lr)
-        self.setup_model_component(
-            discriminator, "discriminator", config.dis_opt, config.d_lr
-        )
-        self.setup_model_component(
-            classifier, "classifier", config.dis_opt, config.d_lr
+        self.classifier = self.setup_Discriminator(
+            "classifier",
+            layer_per_block=config.d_layer,
+            num_layer_unit=config.dis_num_layer_unit,
+            optimizer_option=config.dis_opt,
+            learning_rate=config.d_lr,
+            output_size=config.num_classes,
         )
 
         # loss function
