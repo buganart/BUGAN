@@ -60,177 +60,18 @@ class DataModule_process(pl.LightningDataModule):
         is_zip = self.data_path.suffix == ".zip"
         self.zip_path = self.data_path if is_zip else None
         self.folder_path = Path(tmp_folder) if is_zip else self.data_path
-        self.npy_path = make_npy_path(self.data_path, self.config.resolution)
 
-    def _unzip_zip_file_to_directory(self):
-        print(f"Unzipping {self.zip_path} to {self.folder_path}")
+        # process self.num_classes
+        # num_classes > 0 => conditional data (int)
+        # else => unconditional data (None)
+        self.num_classes = None
+        if hasattr(config, "num_classes"):
+            if config.num_classes > 0:
+                self.num_classes = config.num_classes
 
-        failed = []
-        samples = []
-
-        zf = zipfile.ZipFile(self.zip_path, "r")
-        zf.extractall(path=self.folder_path)
-        zf.close()
-
-    def _read_mesh_array_from_zip_file(self):
-
-        failed = 0
-        samples = []
-
-        zf = zipfile.ZipFile(self.zip_path, "r")
-        supported_files = [
-            path
-            for path in zf.namelist()
-            if (
-                Path(path).suffix in self.supported_extensions
-                and not path.startswith("__MACOSX")
-            )
-        ]
-
-        for path in tqdm.tqdm(supported_files, desc="Meshes"):
-            try:
-                file = zf.open(path, "r")
-                file = BytesIO(file.read())
-                m = trimesh.load(
-                    file,
-                    file_type=Path(path).suffix[1:],
-                    force="mesh",
-                )
-                array = mesh2arrayCentered(m, array_length=self.config.resolution)
-                samples.append(array)
-            except IndexError:
-                failed += 1
-                print("Failed to load {path}")
-        return samples, failed
-
-    def _read_mesh_array_from_directory(self, process_to_array=True):
-
-        failed = 0
-        samples = []
-
-        paths = [
-            path
-            for path in self.folder_path.rglob("*.*")
-            if path.suffix in self.supported_extensions
-        ]
-
-        for path in tqdm.tqdm(paths, desc="Meshes"):
-            try:
-                m = trimesh.load(path, force="mesh")
-                if process_to_array:
-                    m = mesh2arrayCentered(m, array_length=self.config.resolution)
-                samples.append(m)
-            except Exception as exc:
-                failed += 1
-                print(f"Failed to load {path}: {exc}")
-        return samples, failed
-
-    # prepare_data() should contains code that will be run once per dataset.
-    # most of the code will be skipped in subsequent run.
-    def prepare_data(self):
-
-        if self.config.data_augmentation:
-            # for data_augmentation:
-            # put/unzip all 3D objects to a directory. Ready for setup() to read
-            # after perpare_data(), the target should be a directory with all 3D object files
-            if self.zip_path:
-                self._unzip_zip_file_to_directory()
-        else:
-            # for normal:
-            # read all files and process the object array to .npy file
-            if self.npy_path.exists():
-                print(f"Processed dataset {self.npy_path} already exists.")
-                return
-
-            if self.data_path.suffix == ".zip":
-                loader = self._read_mesh_array_from_zip_file
-            else:
-                loader = self._read_mesh_array_from_directory
-
-            samples, failed = loader()
-            dataset = np.array(samples)
-            print(f"Processed dataset_array shape: {dataset.shape}")
-            print(f"Number of failed file: {failed}")
-
-            np.save(self.npy_path, dataset)
-            print(f"Saved processed dataset to {self.npy_path}")
-
-    # setup() should contains code that will be run once per run.
-    def setup(self, stage=None):
-
-        if self.config.data_augmentation:
-            dataset, failed = self._read_mesh_array_from_directory(
-                process_to_array=False
-            )
-
-            # now all the returned array contains multiple samples
-            self.size = len(dataset)
-            self.dataset = dataset
-            print(f"Processed dataset size: {len(dataset)}")
-            print(f"Number of failed file: {failed}")
-        else:
-            dataset = np.load(self.npy_path)
-
-            # now all the returned array contains multiple samples
-            self.size = dataset.shape[0]
-            self.dataset = torch.unsqueeze(torch.tensor(dataset), 1)
-
-    def train_dataloader(self):
-        if self.config.data_augmentation:
-            config = self.config
-            aug_dataset = AugmentationDataset(self.config, self.dataset)
-            return DataLoader(
-                aug_dataset, batch_size=config.batch_size, shuffle=True, num_workers=8
-            )
-        else:
-            config = self.config
-            tensor_dataset = TensorDataset(self.dataset)
-            return DataLoader(
-                tensor_dataset,
-                batch_size=config.batch_size,
-                shuffle=True,
-                num_workers=8,
-            )
-
-
-#####
-#   DataModule cond
-#####
-class DataModule_process_cond(pl.LightningDataModule):
-    supported_extensions = set(
-        [
-            ".obj",
-            ".off",
-            ".ply",
-            ".stl",
-            ".dae",
-            ".misc",
-            ".gltf",
-            ".assimp",
-            ".threemf",
-            ".openctm",
-            ".xml_based",
-            ".binvox",
-            ".xyz",
-        ]
-    )
-
-    def __init__(self, config, run, data_path, tmp_folder="/tmp/"):
-        super().__init__()
-        self.config = config
-        self.run = run
-        self.dataset_artifact = None
-        self.dataset = None
-        self.size = 0
-        self.data_path = Path(data_path)
-        is_zip = self.data_path.suffix == ".zip"
-        self.zip_path = self.data_path if is_zip else None
-        self.folder_path = Path(tmp_folder) if is_zip else self.data_path
-        self.num_classes = config.num_classes
         self.class_list = None
-        # change npy to npz
-        self.npz_path = make_npz_path(
-            self.data_path, self.config.resolution, self.num_classes
+        self.savefile_path = make_processed_savefile_path(
+            self.data_path, self.config.resolution, max_num_classes=self.num_classes
         )
 
     def _unzip_zip_file_to_directory(self):
@@ -243,85 +84,72 @@ class DataModule_process_cond(pl.LightningDataModule):
         zf.extractall(path=self.folder_path)
         zf.close()
 
-    def _read_mesh_array_from_zip_file(self):
+    def _read_mesh_array(self, isZip=True, process_to_array=True):
 
         failed = 0
         samples = []
         class_list = []
         sample_class_index = []
 
-        zf = zipfile.ZipFile(self.zip_path, "r")
+        zf = None
+        filepath_list = None
+
+        if isZip:
+            zf = zipfile.ZipFile(self.zip_path, "r")
+            filepath_list = zf.namelist()
+        else:
+            filepath_list = self.folder_path.rglob("*.*")
+
+        # check files in filepath_list is supported (by extensions)
         supported_files = [
             path
-            for path in zf.namelist()
+            for path in filepath_list
             if (
                 Path(path).suffix in self.supported_extensions
-                and not path.startswith("__MACOSX")
+                and not str(path).startswith("__MACOSX")
             )
         ]
 
+        # process files in the filepath_list
         for path in tqdm.tqdm(supported_files, desc="Meshes"):
-            # extract label
-            label = Path(path).parent.stem
-            if label in class_list:
-                index = class_list.index(label)
-            else:
-                class_list.append(label)
-                index = class_list.index(label)
+            # extract label if conditional data
+            if self.num_classes is not None:
+                label = Path(path).parent.stem
+                if label in class_list:
+                    index = class_list.index(label)
+                else:
+                    class_list.append(label)
+                    index = class_list.index(label)
 
             # process mesh
             try:
-                file = zf.open(path, "r")
-                file = BytesIO(file.read())
-                m = trimesh.load(
-                    file,
-                    file_type=Path(path).suffix[1:],
-                    force="mesh",
-                )
-                array = mesh2arrayCentered(m, array_length=self.config.resolution)
-                samples.append(array)
-                # also append index
-                sample_class_index.append(index)
-            except IndexError:
-                failed += 1
-                print("Failed to load {path}")
-        return samples, sample_class_index, failed, class_list
+                if isZip:
+                    file = zf.open(path, "r")
+                    file = BytesIO(file.read())
+                    m = trimesh.load(
+                        file,
+                        file_type=Path(path).suffix[1:],
+                        force="mesh",
+                    )
+                else:
+                    m = trimesh.load(path, force="mesh")
 
-    def _read_mesh_array_from_directory(self, process_to_array=True):
-
-        failed = 0
-        samples = []
-        class_list = []
-        sample_class_index = []
-
-        paths = [
-            path
-            for path in self.folder_path.rglob("*.*")
-            if path.suffix in self.supported_extensions
-        ]
-
-        for path in tqdm.tqdm(paths, desc="Meshes"):
-            # extract label
-            label = path.parent.stem
-            if label in class_list:
-                index = class_list.index(label)
-            else:
-                class_list.append(label)
-                index = class_list.index(label)
-
-            # process mesh
-            try:
-                m = trimesh.load(path, force="mesh")
+                # process_to_array make m to be in numpy tensor (shape: resolution**3)
+                # if not process_to_array, m is in trimesh "trimesh" type
                 if process_to_array:
                     m = mesh2arrayCentered(m, array_length=self.config.resolution)
                 samples.append(m)
-                # also append index
-                sample_class_index.append(index)
-
-            except Exception as exc:
+                # also append index for conditional data
+                if self.num_classes is not None:
+                    sample_class_index.append(index)
+            except IndexError:
                 failed += 1
-                print(f"Failed to load {path}: {exc}")
-        return samples, sample_class_index, failed, class_list
+                print("Failed to load {path}")
+
+        if self.num_classes is not None:
+            return samples, sample_class_index, failed, class_list
+        else:
+            return samples, failed
 
     def _trim_dataset(self, samples, sample_class_index, class_name_list):
         # find class_index counts
@@ -362,97 +190,155 @@ class DataModule_process_cond(pl.LightningDataModule):
                 self._unzip_zip_file_to_directory()
         else:
             # for normal:
-            # read all files and process the object array to .npy file
-            if self.npz_path.exists():
-                print(f"Processed dataset {self.npz_path} already exists.")
+            # read all files and process the object array to .npy/.npz file
+            if self.savefile_path.exists():
+                print(f"Processed dataset {self.savefile_path} already exists.")
                 return
 
+            # check input path is a zip file or a directory
             if self.data_path.suffix == ".zip":
-                loader = self._read_mesh_array_from_zip_file
+                isZip = True
             else:
-                loader = self._read_mesh_array_from_directory
+                isZip = False
 
-            samples, sample_class_index, failed, class_list = loader()
-            print(f"Processed dataset_array shape: {len(samples)}")
-            print(f"Processed number of classes: {len(set(sample_class_index))}")
-            print(f"Number of failed file: {failed}")
-            if self.num_classes > len(set(sample_class_index)):
-                raise ValueError(
-                    f"max_num_classes ({self.num_classes}) should be <= Processed number of classes ({len(set(sample_class_index))})"
+            # read data
+            if self.num_classes is not None:
+                # conditional data
+                samples, sample_class_index, failed, class_list = self._read_mesh_array(
+                    isZip=isZip, process_to_array=True
                 )
-            print(
-                f"select {self.num_classes} out of {len(set(sample_class_index))} classes:"
-            )
+            else:
+                samples, failed = self._read_mesh_array(
+                    isZip=isZip, process_to_array=True
+                )
 
-            data, index, class_list = self._trim_dataset(
-                samples, sample_class_index, class_list
-            )
+            # print processed data information
+            print(f"Processed dataset_array shape: {len(samples)}")
+            print(f"Number of failed file: {failed}")
 
-            print(f"Final dataset_array shape: {len(data)}")
-            print(f"Final number of classes: {self.num_classes}")
-            print("class_list:", class_list)
+            if self.num_classes is None:
+                # just save unconditional data into .npy file
+                dataset = np.array(samples)
+                np.save(self.savefile_path, dataset)
+            else:
+                # print also class information if conditional
+                print(f"Processed number of classes: {len(set(sample_class_index))}")
 
-            np.savez(self.npz_path, data=data, index=index, class_list=class_list)
-            print(f"Saved processed dataset to {self.npz_path}")
+                if self.num_classes > len(set(sample_class_index)):
+                    raise ValueError(
+                        f"max_num_classes ({self.num_classes}) should be <= Processed number of classes ({len(set(sample_class_index))})"
+                    )
+                print(
+                    f"select {self.num_classes} out of {len(set(sample_class_index))} classes:"
+                )
+                # trim dataset by class (c = max_num_classes)
+                # only keep c classes that has highest number of samples
+                data, index, class_list = self._trim_dataset(
+                    samples, sample_class_index, class_list
+                )
+
+                print(f"Final dataset_array shape: {len(data)}")
+                print(f"Final number of classes: {self.num_classes}")
+                print("class_list:", class_list)
+                # save as .npz file for conditional data
+                np.savez(
+                    self.savefile_path, data=data, index=index, class_list=class_list
+                )
+
+            print(f"Saved processed dataset to {self.savefile_path}")
 
     # setup() should contains code that will be run once per run.
     def setup(self, stage=None):
 
         if self.config.data_augmentation:
-            (
-                dataset,
-                sample_class_index,
-                failed,
-                class_list,
-            ) = self._read_mesh_array_from_directory(process_to_array=False)
 
-            # now all the returned array contains multiple samples
-            print(f"Processed dataset size: {len(dataset)}")
-            print(f"Processed number of classes: {len(set(sample_class_index))}")
-            print(f"Number of failed file: {failed}")
-
-            if self.num_classes > len(set(sample_class_index)):
-                raise ValueError(
-                    f"max_num_classes ({self.num_classes}) should be <= Processed number of classes ({len(set(sample_class_index))})"
+            if self.num_classes is None:
+                # read uncondtional data
+                dataset, failed = self._read_mesh_array(
+                    isZip=False, process_to_array=False
                 )
-            print(
-                f"select {self.num_classes} out of {len(set(sample_class_index))} classes:"
-            )
 
-            data, index, class_list = self._trim_dataset(
-                dataset, sample_class_index, class_list
-            )
-            self.size = len(data)
-            self.dataset = data
-            self.datalabel = index
+                # now all the returned array contains multiple samples
+                self.size = len(dataset)
+                self.dataset = dataset
+                print(f"Processed dataset size: {len(dataset)}")
+                print(f"Number of failed file: {failed}")
+            else:
+                # read conditional data
+                (
+                    dataset,
+                    sample_class_index,
+                    failed,
+                    class_list,
+                ) = self._read_mesh_array(isZip=False, process_to_array=False)
 
-            print(f"Final dataset_array shape: {len(data)}")
-            print(f"Final number of classes: {self.num_classes}")
-            print("class_list:", class_list)
-            self.class_list = class_list
+                # now all the returned array contains multiple samples
+                print(f"Processed dataset size: {len(dataset)}")
+                print(f"Processed number of classes: {len(set(sample_class_index))}")
+                print(f"Number of failed file: {failed}")
+
+                if self.num_classes > len(set(sample_class_index)):
+                    raise ValueError(
+                        f"max_num_classes ({self.num_classes}) should be <= Processed number of classes ({len(set(sample_class_index))})"
+                    )
+                print(
+                    f"select {self.num_classes} out of {len(set(sample_class_index))} classes:"
+                )
+
+                data, index, class_list = self._trim_dataset(
+                    dataset, sample_class_index, class_list
+                )
+                self.size = len(data)
+                self.dataset = data
+                self.datalabel = index
+
+                print(f"Final dataset_array shape: {len(data)}")
+                print(f"Final number of classes: {self.num_classes}")
+                print("class_list:", class_list)
+                self.class_list = class_list
 
         else:
-            dataFile = np.load(self.npz_path)
-            data = dataFile["data"]
-            index = dataFile["index"]
-            class_list = dataFile["class_list"]
+            if self.num_classes is None:
+                dataset = np.load(self.savefile_path)
 
-            # now all the returned array contains multiple samples
-            self.size = data.shape[0]
-            self.dataset = torch.unsqueeze(torch.tensor(data), 1)
-            self.datalabel = torch.tensor(index)
-            self.class_list = class_list
+                # now all the returned array contains multiple samples
+                self.size = dataset.shape[0]
+                self.dataset = torch.unsqueeze(torch.tensor(dataset), 1)
+            else:
+                dataFile = np.load(self.savefile_path)
+                data = dataFile["data"]
+                index = dataFile["index"]
+                class_list = dataFile["class_list"]
+
+                # now all the returned array contains multiple samples
+                self.size = data.shape[0]
+                self.dataset = torch.unsqueeze(torch.tensor(data), 1)
+                self.datalabel = torch.tensor(index)
+                self.class_list = class_list
 
     def train_dataloader(self):
         if self.config.data_augmentation:
             config = self.config
-            aug_dataset = AugmentationDataset(self.config, self.dataset, self.datalabel)
+
+            # for conditional data, also load datalabel
+            if self.num_classes is None:
+                aug_dataset = AugmentationDataset(self.config, self.dataset)
+            else:
+                aug_dataset = AugmentationDataset(
+                    self.config, self.dataset, self.datalabel
+                )
+
             return DataLoader(
                 aug_dataset, batch_size=config.batch_size, shuffle=True, num_workers=8
             )
         else:
             config = self.config
-            tensor_dataset = TensorDataset(self.dataset, self.datalabel)
+            # for conditional data, also load datalabel
+            if self.num_classes is None:
+                tensor_dataset = TensorDataset(self.dataset)
+            else:
+                tensor_dataset = TensorDataset(self.dataset, self.datalabel)
+
             return DataLoader(
                 tensor_dataset,
                 batch_size=config.batch_size,
@@ -521,34 +407,35 @@ class AugmentationDataset(Dataset):
             return AugmentationDataset(self.config, self.data_list.append(other))
 
 
-# npy file for unconditional data
-def make_npy_path(path: Path, res):
-    if path.is_dir():
-        # TODO
-        # Preferably we would not save into the dataset directory it can break
-        # code that relies on there not being extra files in the dataset directory.
-        #
-        # We could use
-        #
-        #     path.parent / "{path.name}.npy"
-        #
-        # instead or save to an entirely different location.
-        return path / ("dataset_array_processed_res" + str(res) + ".npy")
-    elif path.suffix == ".zip":
-        return path.parent / f"{path.stem}_res{res}.npy"
-    elif path.suffix == ".npy":
-        return path
+# return npy file for unconditional data
+# return npz file for conditional data
+def make_processed_savefile_path(path: Path, res, max_num_classes=None):
+    # TODO
+    # Preferably we would not save into the dataset directory it can break
+    # code that relies on there not being extra files in the dataset directory.
+    #
+    # We could use
+    #
+    #     path.parent / "{path.name}.npy"
+    #
+    # instead or save to an entirely different location.
+    if max_num_classes is None:
+        # unconditional data
+        if path.is_dir():
+            return path / (f"dataset_array_processed_res{res}.npy")
+        elif path.suffix == ".zip":
+            return path.parent / f"{path.stem}_res{res}.npy"
+        elif path.suffix == ".npy":
+            return path
+        else:
+            raise ValueError(f"Cannot handle dataset path {path}")
     else:
-        raise ValueError(f"Cannot handle dataset path {path}")
-
-
-# npz file for conditional data
-def make_npz_path(path: Path, res, max_num_classes):
-    if path.is_dir():
-        return path / (f"dataset_array_processed_res{res}_c{max_num_classes}.npz")
-    elif path.suffix == ".zip":
-        return path.parent / (f"{path.stem}_res{res}_c{max_num_classes}.npz")
-    elif path.suffix == ".npz":
-        return path
-    else:
-        raise ValueError(f"Cannot handle dataset path {path}")
+        # conditional data
+        if path.is_dir():
+            return path / (f"dataset_array_processed_res{res}_c{max_num_classes}.npz")
+        elif path.suffix == ".zip":
+            return path.parent / (f"{path.stem}_res{res}_c{max_num_classes}.npz")
+        elif path.suffix == ".npz":
+            return path
+        else:
+            raise ValueError(f"Cannot handle dataset path {path}")

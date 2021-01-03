@@ -5,7 +5,7 @@ import zipfile
 
 import pytest
 
-from bugan.datamodulePL import DataModule_process, DataModule_process_cond
+from bugan.datamodulePL import DataModule_process
 
 
 @pytest.fixture(params=["zip", "folder"])
@@ -13,31 +13,34 @@ def data_process_format(request):
     return request.param
 
 
-@pytest.fixture
-def data_path(data_process_format, tmp_path):
-    data_folder = Path(__file__).parent / "data"
-    if data_process_format == "folder":
-        tmp_data_path = shutil.copytree(data_folder, tmp_path / "data")
-        return tmp_data_path
-    else:
-        zip_path = shutil.make_archive(tmp_path / "dataset", "zip", data_folder)
-        return zip_path
+@pytest.fixture(params=[True, False])
+def isConditionalData(request):
+    return request.param
 
 
 @pytest.fixture
-def data_path_cond(data_process_format, tmp_path):
+def data_path(data_process_format, isConditionalData, tmp_path):
     data_folder = Path(__file__).parent / "data"
+    if isConditionalData:
+        localDirPath = "data/class_1"
+    else:
+        localDirPath = "data"
+
     if data_process_format == "folder":
-        tmp_data_path = shutil.copytree(data_folder, tmp_path / "data/class_1")
+        tmp_data_path = shutil.copytree(data_folder, tmp_path / localDirPath)
         return tmp_data_path
     else:
-        zip_path = shutil.make_archive(tmp_path / "dataset/class_1", "zip", data_folder)
+        zip_path = shutil.make_archive(tmp_path / localDirPath, "zip", data_folder)
         return zip_path
 
 
 @pytest.mark.parametrize("data_augmentation", [True, False])
 @pytest.mark.parametrize("rotation_type", ["random rotation", "axis rotation"])
-def test_data_module_folder(data_path, data_augmentation, rotation_type):
+def test_data_module_folder(
+    data_path, data_augmentation, rotation_type, isConditionalData
+):
+    # separate isConditionalData from data_path
+    # data_path, isConditionalData = data_path
 
     config = Namespace(
         batch_size=1,
@@ -46,41 +49,23 @@ def test_data_module_folder(data_path, data_augmentation, rotation_type):
         aug_rotation_type=rotation_type,
         aug_rotation_axis=(0, 1, 0),
     )
+
+    if isConditionalData:
+        # add num_classes into config
+        config.num_classes = 1
 
     data_module = DataModule_process(config, run=None, data_path=data_path)
     data_module.prepare_data()
     data_module.setup()
 
     batch = next(iter(data_module.train_dataloader()))
-    expected_shape = [
-        1,
-        1,
-        32,
-        32,
-        32,
-    ]
-    assert list(batch[0].shape) == expected_shape
 
+    if isConditionalData:
+        # batch from conditional data contains index
+        mesh, index = batch
+    else:
+        mesh = batch[0]
 
-@pytest.mark.parametrize("data_augmentation", [True, False])
-@pytest.mark.parametrize("rotation_type", ["random rotation", "axis rotation"])
-def test_data_module_folder_cond(data_path_cond, data_augmentation, rotation_type):
-
-    config = Namespace(
-        batch_size=1,
-        resolution=32,
-        data_augmentation=data_augmentation,
-        aug_rotation_type=rotation_type,
-        aug_rotation_axis=(0, 1, 0),
-        num_classes=1,
-    )
-
-    data_module = DataModule_process_cond(config, run=None, data_path=data_path_cond)
-    data_module.prepare_data()
-    data_module.setup()
-
-    batch = next(iter(data_module.train_dataloader()))
-    mesh, index = batch
     expected_shape = [
         1,
         1,

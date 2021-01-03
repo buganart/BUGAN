@@ -9,9 +9,9 @@ import pytorch_lightning as pl
 from pathlib import Path
 
 from bugan.modelsPL import VAEGAN, VAE_train, GAN, GAN_Wloss, GAN_Wloss_GP, CGAN
-from bugan.datamodulePL import DataModule_process, DataModule_process_cond
+from bugan.datamodulePL import DataModule_process
 from bugan.trainPL import init_wandb_run, setup_datamodule, setup_model, train
-from test_data_loader import data_path_cond, data_path
+from test_data_loader import data_path
 
 
 @pytest.fixture
@@ -262,7 +262,10 @@ def test_cgan_training_step(device):
 
 
 @pytest.mark.parametrize("data_process_format", ["zip"])
-def test_vaegan_training_loop_full(device, wandb_init_run, data_path):
+@pytest.mark.parametrize("isConditionalData", [False])
+def test_vaegan_training_loop_full(
+    device, wandb_init_run, data_path, isConditionalData
+):
     config = Namespace(
         resolution=32,
         d_layer=1,
@@ -286,7 +289,8 @@ def test_vaegan_training_loop_full(device, wandb_init_run, data_path):
 
 
 @pytest.mark.parametrize("data_process_format", ["zip"])
-def test_vae_training_loop_full(device, wandb_init_run, data_path):
+@pytest.mark.parametrize("isConditionalData", [False])
+def test_vae_training_loop_full(device, wandb_init_run, data_path, isConditionalData):
     config = Namespace(
         resolution=32,
         encoder_num_layer_unit=[1, 1, 1, 1],
@@ -308,7 +312,8 @@ def test_vae_training_loop_full(device, wandb_init_run, data_path):
 
 
 @pytest.mark.parametrize("data_process_format", ["zip"])
-def test_gan_training_loop_full(device, wandb_init_run, data_path):
+@pytest.mark.parametrize("isConditionalData", [False])
+def test_gan_training_loop_full(device, wandb_init_run, data_path, isConditionalData):
     config = Namespace(
         resolution=32,
         d_layer=1,
@@ -330,7 +335,10 @@ def test_gan_training_loop_full(device, wandb_init_run, data_path):
 
 
 @pytest.mark.parametrize("data_process_format", ["zip"])
-def test_gan_wloss_training_loop_full(device, wandb_init_run, data_path):
+@pytest.mark.parametrize("isConditionalData", [False])
+def test_gan_wloss_training_loop_full(
+    device, wandb_init_run, data_path, isConditionalData
+):
     config = Namespace(
         resolution=32,
         d_layer=1,
@@ -352,7 +360,10 @@ def test_gan_wloss_training_loop_full(device, wandb_init_run, data_path):
 
 
 @pytest.mark.parametrize("data_process_format", ["zip"])
-def test_gan_wloss_gp_training_loop_full(device, wandb_init_run, data_path):
+@pytest.mark.parametrize("isConditionalData", [False])
+def test_gan_wloss_gp_training_loop_full(
+    device, wandb_init_run, data_path, isConditionalData
+):
     config = Namespace(
         resolution=32,
         d_layer=1,
@@ -374,7 +385,8 @@ def test_gan_wloss_gp_training_loop_full(device, wandb_init_run, data_path):
 
 
 @pytest.mark.parametrize("data_process_format", ["zip"])
-def test_cgan_training_loop_full(device, wandb_init_run, data_path_cond):
+@pytest.mark.parametrize("isConditionalData", [True])
+def test_cgan_training_loop_full(device, wandb_init_run, data_path, isConditionalData):
     config = Namespace(
         resolution=32,
         d_layer=1,
@@ -391,16 +403,15 @@ def test_cgan_training_loop_full(device, wandb_init_run, data_path_cond):
         log_interval=1,
     )
     model = CGAN(config).to(device)
-    data_module = DataModule_process_cond(
-        config, run=wandb_init_run, data_path=data_path_cond
-    )
+    data_module = DataModule_process(config, run=wandb_init_run, data_path=data_path)
     trainer = pl.Trainer(max_epochs=1)
     trainer.fit(model, data_module)
 
 
 ### TEST EXPERIMENT SCRIPT
 @pytest.mark.parametrize("data_process_format", ["zip"])
-def test_trainPL_script(data_path):
+@pytest.mark.parametrize("isConditionalData", [False])
+def test_trainPL_script(data_path, isConditionalData):
     config_dict = dict(
         aug_rotation_type="random rotation",
         data_augmentation=True,

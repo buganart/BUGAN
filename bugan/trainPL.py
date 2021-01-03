@@ -23,7 +23,7 @@ import pytorch_lightning as pl
 from pytorch_lightning.loggers import WandbLogger
 
 from bugan.functionsPL import load_checkpoint_from_cloud, SaveWandbCallback
-from bugan.datamodulePL import DataModule_process, DataModule_process_cond
+from bugan.datamodulePL import DataModule_process
 from bugan.modelsPL import VAEGAN, VAE_train, GAN, GAN_Wloss, GAN_Wloss_GP, CGAN
 
 
@@ -72,10 +72,7 @@ def setup_datamodule(config, run):
     else:
         config.dataset = "dataset_array_custom"
 
-    if config.num_classes > 0:
-        dataModule = DataModule_process_cond(config, run, dataset_path)
-    else:
-        dataModule = DataModule_process(config, run, dataset_path)
+    dataModule = DataModule_process(config, run, dataset_path)
 
     print("dataset name: ", config.dataset)
     print("dataset path: ", dataset_path)
