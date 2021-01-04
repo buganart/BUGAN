@@ -410,9 +410,10 @@ def test_cgan_training_loop_full(device, wandb_init_run, data_path):
 
 
 ### TEST EXPERIMENT SCRIPT
-@pytest.mark.parametrize("data_process_format", ["zip"])
+@pytest.mark.parametrize("data_process_format", ["folder"])
 @pytest.mark.parametrize("isConditionalData", [False])
 def test_trainPL_script(data_path):
+    print("data_path:", data_path)
     config_dict = dict(
         aug_rotation_type="random rotation",
         data_augmentation=True,
@@ -432,12 +433,14 @@ def test_trainPL_script(data_path):
         dis_num_layer_unit=[1, 1, 1, 1],
     )
     config = Namespace(**config_dict)
+    dataset_path = Path(config.data_location)
+    if str(config.data_location).endswith(".zip"):
+        config.dataset = dataset_path.stem
+    else:
+        config.dataset = "dataset_array_custom"
 
     # run offline
     os.environ["WANDB_MODE"] = "dryrun"
-
-    # write bugan package revision number to bugan
-    config.rev_number = get_bugan_package_revision_number()
 
     # get previous config if resume run
     if config.resume_id:
@@ -449,8 +452,11 @@ def test_trainPL_script(data_path):
         config.update(vars(prev_config))
         config = Namespace(**config)
 
+    # write bugan package revision number to bugan
+    config.rev_number = get_bugan_package_revision_number()
+
     run, config = init_wandb_run(config, run_dir="../")
-    dataModule, config = setup_datamodule(config, run)
+    dataModule = setup_datamodule(config, run)
     model, extra_trainer_args = setup_model(config, run)
 
     if torch.cuda.is_available():

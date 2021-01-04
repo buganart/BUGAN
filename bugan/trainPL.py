@@ -75,19 +75,11 @@ def setup_datamodule(config, run):
     torch.manual_seed(config.seed)
 
     dataset_path = Path(config.data_location)
-    if config.data_location.endswith(".zip"):
-        config.dataset = dataset_path.stem
-    else:
-        config.dataset = "dataset_array_custom"
-
-    # log config
-    wandb.config.update(config)
-
     dataModule = DataModule_process(config, run, dataset_path)
 
     print("dataset name: ", config.dataset)
     print("dataset path: ", dataset_path)
-    return dataModule, config
+    return dataModule
 
 
 def setup_model(config, run):
@@ -166,15 +158,18 @@ def main():
         batch_size=32,
     )
     config = Namespace(**config_dict)
+
+    dataset_path = Path(config.data_location)
+    if str(config.data_location).endswith(".zip"):
+        config.dataset = dataset_path.stem
+    else:
+        config.dataset = "dataset_array_custom"
     # adjust parameter datatype
     if config.selected_model in ["VAEGAN", "GAN", "VAE", "WGAN", "WGAN_GP"]:
         config.num_classes = 0
 
     # run offline
     os.environ["WANDB_MODE"] = "dryrun"
-
-    # write bugan package revision number to bugan
-    config.rev_number = get_bugan_package_revision_number()
 
     # get previous config if resume run
     if config.resume_id:
@@ -186,8 +181,11 @@ def main():
         config.update(vars(prev_config))
         config = Namespace(**config)
 
+    # write bugan package revision number to bugan
+    config.rev_number = get_bugan_package_revision_number()
+
     run, config = init_wandb_run(config, run_dir="../")
-    dataModule, config = setup_datamodule(config, run)
+    dataModule = setup_datamodule(config, run)
     model, extra_trainer_args = setup_model(config, run)
 
     if torch.cuda.is_available():
