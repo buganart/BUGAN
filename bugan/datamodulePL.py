@@ -188,64 +188,6 @@ class DataModule_process(pl.LightningDataModule):
             # after perpare_data(), the target should be a directory with all 3D object files
             if self.zip_path:
                 self._unzip_zip_file_to_directory()
-        else:
-            # for normal:
-            # read all files and process the object array to .npy/.npz file
-            if self.savefile_path.exists():
-                print(f"Processed dataset {self.savefile_path} already exists.")
-                return
-
-            # check input path is a zip file or a directory
-            if self.data_path.suffix == ".zip":
-                isZip = True
-            else:
-                isZip = False
-
-            # read data
-            if self.num_classes is not None:
-                # conditional data
-                samples, sample_class_index, failed, class_list = self._read_mesh_array(
-                    isZip=isZip, process_to_array=True
-                )
-            else:
-                samples, failed = self._read_mesh_array(
-                    isZip=isZip, process_to_array=True
-                )
-
-            # print processed data information
-            print(f"Processed dataset_array shape: {len(samples)}")
-            print(f"Number of failed file: {failed}")
-
-            if self.num_classes is None:
-                # just save unconditional data into .npy file
-                dataset = np.array(samples)
-                np.save(self.savefile_path, dataset)
-            else:
-                # print also class information if conditional
-                print(f"Processed number of classes: {len(set(sample_class_index))}")
-
-                if self.num_classes > len(set(sample_class_index)):
-                    raise ValueError(
-                        f"max_num_classes ({self.num_classes}) should be <= Processed number of classes ({len(set(sample_class_index))})"
-                    )
-                print(
-                    f"select {self.num_classes} out of {len(set(sample_class_index))} classes:"
-                )
-                # trim dataset by class (c = max_num_classes)
-                # only keep c classes that has highest number of samples
-                data, index, class_list = self._trim_dataset(
-                    samples, sample_class_index, class_list
-                )
-
-                print(f"Final dataset_array shape: {len(data)}")
-                print(f"Final number of classes: {self.num_classes}")
-                print("class_list:", class_list)
-                # save as .npz file for conditional data
-                np.savez(
-                    self.savefile_path, data=data, index=index, class_list=class_list
-                )
-
-            print(f"Saved processed dataset to {self.savefile_path}")
 
     # setup() should contains code that will be run once per run.
     def setup(self, stage=None):
@@ -298,6 +240,72 @@ class DataModule_process(pl.LightningDataModule):
                 self.class_list = class_list
 
         else:
+            # for normal:
+            # read all files and process the object array to .npy/.npz file
+            if self.savefile_path.exists():
+                print(f"Processed dataset {self.savefile_path} already exists.")
+            else:
+
+                # check input path is a zip file or a directory
+                if self.data_path.suffix == ".zip":
+                    isZip = True
+                else:
+                    isZip = False
+
+                # read data
+                if self.num_classes is not None:
+                    # conditional data
+                    (
+                        samples,
+                        sample_class_index,
+                        failed,
+                        class_list,
+                    ) = self._read_mesh_array(isZip=isZip, process_to_array=True)
+                else:
+                    samples, failed = self._read_mesh_array(
+                        isZip=isZip, process_to_array=True
+                    )
+
+                # print processed data information
+                print(f"Processed dataset_array shape: {len(samples)}")
+                print(f"Number of failed file: {failed}")
+
+                if self.num_classes is None:
+                    # just save unconditional data into .npy file
+                    dataset = np.array(samples)
+                    np.save(self.savefile_path, dataset)
+                else:
+                    # print also class information if conditional
+                    print(
+                        f"Processed number of classes: {len(set(sample_class_index))}"
+                    )
+
+                    if self.num_classes > len(set(sample_class_index)):
+                        raise ValueError(
+                            f"max_num_classes ({self.num_classes}) should be <= Processed number of classes ({len(set(sample_class_index))})"
+                        )
+                    print(
+                        f"select {self.num_classes} out of {len(set(sample_class_index))} classes:"
+                    )
+                    # trim dataset by class (c = max_num_classes)
+                    # only keep c classes that has highest number of samples
+                    data, index, class_list = self._trim_dataset(
+                        samples, sample_class_index, class_list
+                    )
+
+                    print(f"Final dataset_array shape: {len(data)}")
+                    print(f"Final number of classes: {self.num_classes}")
+                    print("class_list:", class_list)
+                    # save as .npz file for conditional data
+                    np.savez(
+                        self.savefile_path,
+                        data=data,
+                        index=index,
+                        class_list=class_list,
+                    )
+
+                print(f"Saved processed dataset to {self.savefile_path}")
+
             if self.num_classes is None:
                 dataset = np.load(self.savefile_path)
 
