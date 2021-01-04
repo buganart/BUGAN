@@ -179,13 +179,9 @@ def calculate_log_media_stat(model, log_num_samples, class_label=None):
         # log number of points to wandb
         sample_tree_indices = netarray2indices(sample_tree_bool_array)
         sample_tree_numpoints.append(sample_tree_indices.shape[0])
-        # mean
-        sample_tree_numpoints = np.mean(sample_tree_numpoints)
         # count number of cluster in the tree (grouped with dist_inf = 1)
         num_cluster = eval_count_cluster(sample_tree_bool_array)
         eval_num_cluster.append(num_cluster)
-        # mean
-        eval_num_cluster = np.mean(eval_num_cluster)
 
         voxelmesh = netarray2mesh(sample_tree_bool_array)
 
@@ -196,9 +192,13 @@ def calculate_log_media_stat(model, log_num_samples, class_label=None):
         voxelmeshfile = mesh2wandb3D(voxelmesh)
         sample_tree_voxelmesh.append(voxelmeshfile)
 
-        # mesh model variance
-        mesh_bool_array = sample_trees > 0
-        mesh_per_voxel_std = np.mean(np.std(mesh_bool_array, 0))
+    # mean
+    sample_tree_numpoints = np.mean(sample_tree_numpoints)
+    eval_num_cluster = np.mean(eval_num_cluster)
+    # mesh model variance
+    mesh_bool_array = sample_trees > 0
+    mesh_per_voxel_std = np.mean(np.std(mesh_bool_array, 0))
+
     return (
         sample_tree_numpoints,
         eval_num_cluster,
