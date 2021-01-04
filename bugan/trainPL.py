@@ -8,6 +8,7 @@ import numpy as np
 from argparse import Namespace, ArgumentParser
 import wandb
 from pathlib import Path
+import pkg_resources
 
 import torch
 import torch.nn as nn
@@ -27,6 +28,20 @@ from bugan.datamodulePL import DataModule_process
 from bugan.modelsPL import VAEGAN, VAE_train, GAN, GAN_Wloss, GAN_Wloss_GP, CGAN
 
 
+def get_resume_run_config(project_name, resume_id):
+    # all config will be replaced by the stored one in wandb
+    api = wandb.Api()
+    previous_run = api.run(f"bugan/{project_name}/{resume_id}")
+    config = Namespace(**previous_run.config)
+    return config
+
+
+def get_bugan_package_revision_number():
+    version_str = pkg_resources.get_distribution("bugan").version
+    rev_number = (version_str.split("+g")[1]).split(".")[0]
+    return rev_number
+
+
 def init_wandb_run(config, run_dir="./"):
     resume_id = config.resume_id
     project_name = config.project_name
@@ -36,13 +51,6 @@ def init_wandb_run(config, run_dir="./"):
 
     if resume_id:
         run_id = resume_id
-        # all config will be replaced by the stored one in wandb
-        api = wandb.Api()
-        previous_run = api.run(f"{entity}/{project_name}/{resume_id}")
-        config = Namespace(**previous_run.config)
-        # selected_model may be not in config
-        if hasattr(config, "selected_model"):
-            selected_model = config.selected_model
     else:
         run_id = wandb.util.generate_id()
 
@@ -71,6 +79,9 @@ def setup_datamodule(config, run):
         config.dataset = dataset_path.stem
     else:
         config.dataset = "dataset_array_custom"
+
+    # log config
+    wandb.config.update(config)
 
     dataModule = DataModule_process(config, run, dataset_path)
 
@@ -161,6 +172,20 @@ def main():
 
     # run offline
     os.environ["WANDB_MODE"] = "dryrun"
+
+    # write bugan package revision number to bugan
+    config.rev_number = get_bugan_package_revision_number()
+
+    # get previous config if resume run
+    if config.resume_id:
+        project_name = config.project_name
+        resume_id = config.resume_id
+        prev_config = get_resume_run_config(project_name, resume_id)
+        # replace config with prev_config
+        config = vars(config)
+        config.update(vars(prev_config))
+        config = Namespace(**config)
+
     run, config = init_wandb_run(config, run_dir="../")
     dataModule, config = setup_datamodule(config, run)
     model, extra_trainer_args = setup_model(config, run)

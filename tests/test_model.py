@@ -10,7 +10,14 @@ from pathlib import Path
 
 from bugan.modelsPL import VAEGAN, VAE_train, GAN, GAN_Wloss, GAN_Wloss_GP, CGAN
 from bugan.datamodulePL import DataModule_process
-from bugan.trainPL import init_wandb_run, setup_datamodule, setup_model, train
+from bugan.trainPL import (
+    get_resume_run_config,
+    get_bugan_package_revision_number,
+    init_wandb_run,
+    setup_datamodule,
+    setup_model,
+    train,
+)
 from test_data_loader import data_path
 
 
@@ -263,9 +270,7 @@ def test_cgan_training_step(device):
 
 @pytest.mark.parametrize("data_process_format", ["zip"])
 @pytest.mark.parametrize("isConditionalData", [False])
-def test_vaegan_training_loop_full(
-    device, wandb_init_run, data_path, isConditionalData
-):
+def test_vaegan_training_loop_full(device, wandb_init_run, data_path):
     config = Namespace(
         resolution=32,
         d_layer=1,
@@ -290,7 +295,7 @@ def test_vaegan_training_loop_full(
 
 @pytest.mark.parametrize("data_process_format", ["zip"])
 @pytest.mark.parametrize("isConditionalData", [False])
-def test_vae_training_loop_full(device, wandb_init_run, data_path, isConditionalData):
+def test_vae_training_loop_full(device, wandb_init_run, data_path):
     config = Namespace(
         resolution=32,
         encoder_num_layer_unit=[1, 1, 1, 1],
@@ -313,7 +318,7 @@ def test_vae_training_loop_full(device, wandb_init_run, data_path, isConditional
 
 @pytest.mark.parametrize("data_process_format", ["zip"])
 @pytest.mark.parametrize("isConditionalData", [False])
-def test_gan_training_loop_full(device, wandb_init_run, data_path, isConditionalData):
+def test_gan_training_loop_full(device, wandb_init_run, data_path):
     config = Namespace(
         resolution=32,
         d_layer=1,
@@ -336,9 +341,7 @@ def test_gan_training_loop_full(device, wandb_init_run, data_path, isConditional
 
 @pytest.mark.parametrize("data_process_format", ["zip"])
 @pytest.mark.parametrize("isConditionalData", [False])
-def test_gan_wloss_training_loop_full(
-    device, wandb_init_run, data_path, isConditionalData
-):
+def test_gan_wloss_training_loop_full(device, wandb_init_run, data_path):
     config = Namespace(
         resolution=32,
         d_layer=1,
@@ -361,9 +364,7 @@ def test_gan_wloss_training_loop_full(
 
 @pytest.mark.parametrize("data_process_format", ["zip"])
 @pytest.mark.parametrize("isConditionalData", [False])
-def test_gan_wloss_gp_training_loop_full(
-    device, wandb_init_run, data_path, isConditionalData
-):
+def test_gan_wloss_gp_training_loop_full(device, wandb_init_run, data_path):
     config = Namespace(
         resolution=32,
         d_layer=1,
@@ -386,7 +387,7 @@ def test_gan_wloss_gp_training_loop_full(
 
 @pytest.mark.parametrize("data_process_format", ["zip"])
 @pytest.mark.parametrize("isConditionalData", [True])
-def test_cgan_training_loop_full(device, wandb_init_run, data_path, isConditionalData):
+def test_cgan_training_loop_full(device, wandb_init_run, data_path):
     config = Namespace(
         resolution=32,
         d_layer=1,
@@ -411,7 +412,7 @@ def test_cgan_training_loop_full(device, wandb_init_run, data_path, isConditiona
 ### TEST EXPERIMENT SCRIPT
 @pytest.mark.parametrize("data_process_format", ["zip"])
 @pytest.mark.parametrize("isConditionalData", [False])
-def test_trainPL_script(data_path, isConditionalData):
+def test_trainPL_script(data_path):
     config_dict = dict(
         aug_rotation_type="random rotation",
         data_augmentation=True,
@@ -434,7 +435,20 @@ def test_trainPL_script(data_path, isConditionalData):
 
     # run offline
     os.environ["WANDB_MODE"] = "dryrun"
-    run_dir = Path("./").absolute().parent
+
+    # write bugan package revision number to bugan
+    config.rev_number = get_bugan_package_revision_number()
+
+    # get previous config if resume run
+    if config.resume_id:
+        project_name = config.project_name
+        resume_id = config.resume_id
+        prev_config = get_resume_run_config(project_name, resume_id)
+        # replace config with prev_config
+        config = vars(config)
+        config.update(vars(prev_config))
+        config = Namespace(**config)
+
     run, config = init_wandb_run(config, run_dir="../")
     dataModule, config = setup_datamodule(config, run)
     model, extra_trainer_args = setup_model(config, run)
