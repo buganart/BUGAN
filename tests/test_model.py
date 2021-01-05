@@ -280,7 +280,6 @@ def test_cgan_training_step(device):
 def data_module(isConditionalData, config, wandb_init_run, data_path, tmp_path):
     return DataModule_process(
         config,
-        run=wandb_init_run,
         data_path=data_path,
         tmp_folder=tmp_path / "datamodule_tmp_dir",
     )
@@ -504,7 +503,6 @@ def test_trainPL_script(data_path, tmp_path, resume_id):
 
     dataModule = setup_datamodule(
         config,
-        run,
         tmp_folder=tmp_path / "datamodule_tmp_dir",
     )
 

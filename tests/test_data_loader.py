@@ -54,7 +54,7 @@ def test_data_module_folder(
         # add num_classes into config
         config.num_classes = 1
 
-    data_module = DataModule_process(config, run=None, data_path=data_path)
+    data_module = DataModule_process(config, data_path=data_path)
     data_module.prepare_data()
     data_module.setup()
 

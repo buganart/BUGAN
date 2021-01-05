@@ -71,12 +71,12 @@ def init_wandb_run(config, run_dir="./", mode="run"):
     return run, config
 
 
-def setup_datamodule(config, run, tmp_folder="/tmp"):
+def setup_datamodule(config, tmp_folder="/tmp"):
     np.random.seed(config.seed)
     torch.manual_seed(config.seed)
 
     dataset_path = Path(config.data_location)
-    dataModule = DataModule_process(config, run, dataset_path, tmp_folder=tmp_folder)
+    dataModule = DataModule_process(config, dataset_path, tmp_folder=tmp_folder)
 
     print("dataset name: ", config.dataset)
     print("dataset path: ", dataset_path)
@@ -186,7 +186,7 @@ def main():
     config.rev_number = get_bugan_package_revision_number()
 
     run, config = init_wandb_run(config, run_dir="../")
-    dataModule = setup_datamodule(config, run)
+    dataModule = setup_datamodule(config)
     model, extra_trainer_args = setup_model(config, run)
 
     if torch.cuda.is_available():

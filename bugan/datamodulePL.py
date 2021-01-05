@@ -20,17 +20,83 @@ from pytorch_lightning.callbacks.base import Callback
 from disjoint_set import DisjointSet
 
 
-#################
-#       datamodule that modify data on-the-fly
-#       data are processed in __getitem__() func defined in AugmentationDataset in the module
-#       init: dataModule = DataModule_augmentation(config, run, data_path)
-#              where data_path is the directory of all the files (not recursive)
-#              example: data_path = "../../../../../My Drive/Hand-Tool-Data-Set/turbosquid_thingiverse_dataset/dataset_ply/"
-#################
 #####
 #   DataModule
 #####
 class DataModule_process(pl.LightningDataModule):
+    """
+    pytorch lightning datamodule to load mesh files from zipfile/directory specified by data_path
+
+    If data_augmentation=False, this datamodule will process the data into array and store in .npy/.npz file.
+        The location of the .npy/.npz file is created by make_processed_savefile_path().
+    If True, this will just load all mesh files into a list for AugmentationDataset to perform data_augmentation on-the-fly.
+        data are processed in __getitem__() func defined in AugmentationDataset in the module
+
+    This datamodule will load data as unconditional data by default (or config.num_classes <= 0).
+    If config.num_classes > 0, data will be loaded as conditional data. The label of the data is the folder name containing it.
+    For example: "zipFile/data/oak_tree/tree_1.obj" has "oak_tree" as label
+
+    This datamodule will return a torch dataloader (after train_dataloader() is called).
+    For unconditional, the dataset_batch of the dataloader is [array], which the array represents the processed meshes
+    For conditional, the dataset_batch of the dataloader is [array, index], which the index represents the class index from the class_list
+    class_list will be created during the processing of the files (calling setup())
+
+    Attributes
+    ----------
+    config : Namespace
+        dictionary of training parameters
+    config.num_classes : int
+        indicate maximum number of classes to read.
+        If num_classes <= 0, the data is unconditional, and dataset_batch will not contain index
+        If num_classes > 0, the data is conditional, and dataset_batch will contain index
+        Assume the datamodule can read n classes from the zipfile/directory specified by the data_path,
+            if n > num_classes, the _trim_dataset() will be called. The class_index will be sorted by data count.
+            the (n - num_classes) classes with least data count will be removed.
+            if n < num_classes, raise ValueError()
+    config.batch_size : int
+        the batch_size for the dataloader
+    config.resolution : int
+        the size of the array for voxelization
+        if resolution=32, the resulting array of processing N mesh files are (N, 1, 32, 32, 32)
+    config.data_augmentation : boolean
+        whether to apply data_augmentation or not
+        if data_augmentation = True, the array processing will be done on-the-fly (see AugmentationDataset below)
+            the augmentation actually do not create new meshes, but just rotate the original mesh based on aug_rotation_type, aug_rotation_axis
+        if data_augmentation = False, the mesh will be processed into array in setup().
+        The array of unconditional data will be store in .npy
+        The array, index, and class_list of conditional data will be stored in .npz (npzfile['data'],  npzfile['index'], npzfile['class_list'])
+    config.aug_rotation_type : string
+        argument for AugmentationDataset to determine rotation_type of data_augmentation
+    config.aug_rotation_axis : (float, float, float)
+        argument for AugmentationDataset to determine rotation_axis of data_augmentation if aug_rotation_type="axis_roataion"
+
+    data_path : string
+        the relative/absolute path specifies the location (zipfile/directory) of mesh files
+        example for zipfile: "../Hand-Tool-Data-Set/turbosquid_thingiverse_dataset/dataset_ply_out.zip"
+        example for directory: "../Hand-Tool-Data-Set/turbosquid_thingiverse_dataset/dataset_ply/"
+            with mesh files in the folder: "....../dataset_ply/pen/pen1.obj"
+
+    tmp_folder : string
+        the folder for zipFile to temporarly extract files on if data_augmentation = True.
+        If data_augmentation = True and data_path points to zip, the mesh files will be extracted to the location when prepare_data() is called
+        else, tmp_folder is ignored.
+
+    Methods
+    -------
+    _unzip_zip_file_to_directory()
+        unzip files in the zip file
+    _read_mesh_array(isZip=True, process_to_array=True)
+        read and process mesh files into array
+    _trim_dataset(samples, sample_class_index, class_name_list)
+        trim the dataset based on self.num_classes
+    prepare_data()
+        default function to download data / write to disk for pytorch datamodule
+    setup(stage=None)
+        default function to process data and assign them as attribute
+    train_dataloader():
+        default function for pytorch datamodule to return torch dataloader
+    """
+
     supported_extensions = set(
         [
             ".obj",
@@ -49,11 +115,9 @@ class DataModule_process(pl.LightningDataModule):
         ]
     )
 
-    def __init__(self, config, run, data_path, tmp_folder="/tmp/"):
+    def __init__(self, config, data_path, tmp_folder="/tmp/"):
         super().__init__()
         self.config = config
-        self.run = run
-        self.dataset_artifact = None
         self.dataset = None
         self.size = 0
         self.data_path = Path(data_path)
@@ -75,6 +139,16 @@ class DataModule_process(pl.LightningDataModule):
         )
 
     def _unzip_zip_file_to_directory(self):
+        """
+        unzip files in the zip file
+
+        Parameters
+        ----------
+        self.zip_path : string
+            the path to the target zip file
+        self.folder_path : string
+            the path to the output directory
+        """
         print(f"Unzipping {self.zip_path} to {self.folder_path}")
 
         failed = []
@@ -85,6 +159,39 @@ class DataModule_process(pl.LightningDataModule):
         zf.close()
 
     def _read_mesh_array(self, isZip=True, process_to_array=True):
+        """
+        read and process mesh files into array
+
+        Parameters
+        ----------
+        isZip : boolean
+            indicate whether the data_path specifies a zip file or a directory
+        process_to_array: boolean
+            whether to process the loaded mesh files into numpy array or not
+        config.resolution : int
+            the size of the array for voxelization
+        config.num_classes : int
+            indicate maximum number of classes to read whether to process data with label or not
+        self.zip_path : Path
+        self.folder_path : Path
+            the location of the mesh files. If isZip=True, self.zip_path is used.
+
+        Returns
+        -------
+        samples : list/numpy ndarray
+            if process_to_array=True, all successfully loaded mesh files will be voxelized into numpy array
+            if process_to_array=False, all successfully loaded mesh files will be appended to a list
+        sample_class_index : list of int
+            the class indices of the loaded mesh files above.
+            sample_class_index[i] is the class index of samples[i]
+            if self.num_classes is None, this will not return
+        failed : int
+            the number of mesh files failed to load
+        class_list : list of string
+            the string label of the class index.
+            class_list[sample_class_index[i]] is the label of samples[i]
+
+        """
 
         failed = 0
         samples = []
@@ -152,6 +259,35 @@ class DataModule_process(pl.LightningDataModule):
             return samples, failed
 
     def _trim_dataset(self, samples, sample_class_index, class_name_list):
+        """
+        Trim the dataset based on self.num_classes
+        This function will first produce the count of each class_index,
+        and then sort class_index by count.
+        Assume that self.num_classes < len(class_name_list),
+        this function will remove classes with least count until the number of classes = self.num_classes
+        Parameters
+        ----------
+        samples : list/numpy ndarray
+            loaded mesh data processed from _read_mesh_array()
+            if process_to_array=True, all successfully loaded mesh files will be voxelized into numpy array
+            if process_to_array=False, all successfully loaded mesh files will be appended to a list
+        sample_class_index : list of int
+            the class indices of the loaded mesh files from _read_mesh_array()
+            sample_class_index[i] is the class index of samples[i]
+            if self.num_classes is None, this will not return
+        class_name_list : list of string
+            the string label of the class index from _read_mesh_array()
+            class_list[sample_class_index[i]] is the label of samples[i]
+
+        Returns
+        -------
+        data : list/numpy ndarray
+            the sorted samples list but with classes removed
+        index : list of int
+            the sample_class_index list but with classes removed
+        class_name_list : list of string
+            the class_name_list list but with classes removed
+        """
         # find class_index counts
         indices, indices_count = np.unique(sample_class_index, return_counts=True)
         # sort class_index with counts
@@ -181,6 +317,10 @@ class DataModule_process(pl.LightningDataModule):
     # prepare_data() should contains code that will be run once per dataset.
     # most of the code will be skipped in subsequent run.
     def prepare_data(self):
+        """
+        default function to download data / write to disk for pytorch datamodule
+        now it will unzip mesh file to directory if necessary
+        """
 
         if self.config.data_augmentation:
             # for data_augmentation:
@@ -191,6 +331,42 @@ class DataModule_process(pl.LightningDataModule):
 
     # setup() should contains code that will be run once per run.
     def setup(self, stage=None):
+        """
+        default function to process data and assign them as attribute
+
+        if config.data_augmentation, this call _read_mesh_array() to process the mesh data
+            and then assign results to self.size and self.dataset
+            if the data is conditional (num_classes > 0), also perform _trim_dataset()
+            and assign results to self.size, self.dataset, self.datalabel, and self.class_list
+
+        if not config.data_augmentation, this first check .npy/.npz file (the self.savefile_path)
+            exists or not. If exists, just load the data in it and assign to self.size and self.dataset
+            for .npy file , and self.size, self.dataset, self.datalabel, and self.class_list for .npz file.
+            If the .npy/.npz file not exists, this still call _read_mesh_array() and _trim_dataset()
+            to process the mesh data, and then save the result to .npy/.npz file. After that, load data
+            from .npy/.npz file again to assign to datamodule attributes.
+
+
+        Parameters
+        ----------
+        stage : (Default value = None)
+            Not used here
+        self.config.num_classes : int
+            indicate maximum number of classes to read.
+        self.config.data_augmentation : boolean
+            whether to apply data_augmentation or not
+        self.size : int
+            will record the number of samples after this function runs
+        self.dataset : list/numpy.ndarray
+            will contain the processed mesh files after this function runs
+            if data_augmentation=True, mesh files will be processed into array
+            if not, mesh files just appended in list
+        self.datalabel : list
+            will contain the class indices of the loaded mesh files
+        self.class_list : list
+            will contain the class name of the loaded mesh files
+            self.class_list[self.datalabel[i]] for self.dataset[i]
+        """
 
         if self.config.data_augmentation:
 
@@ -325,6 +501,23 @@ class DataModule_process(pl.LightningDataModule):
                 self.class_list = class_list
 
     def train_dataloader(self):
+        """
+        default function for pytorch datamodule to return torch dataloader
+
+        Parameters
+        ----------
+        self.config.num_classes : int
+            indicate maximum number of classes to read.
+        self.config.data_augmentation : boolean
+            whether to apply data_augmentation or not
+
+        Returns
+        -------
+        torch.utils.data.DataLoader
+            the dataloader of the processed data
+            if data_augmentation=True, dataloader with AugmentationDataset will be returned
+            if num_classes > 0, the dataset also contains data label.
+        """
         if self.config.data_augmentation:
             config = self.config
 
@@ -361,6 +554,28 @@ class DataModule_process(pl.LightningDataModule):
 
 
 class AugmentationDataset(Dataset):
+    """
+    torch Dataset that voxelize mesh file into numpy array on-the-fly
+
+    When __getitem__() is called, the class object will rotate the required mesh with a random angle,
+    voxelize it into numpy array, and return as torch.Tensor
+
+    Parameters
+    ----------
+    config : Namespace
+        dictionary of training parameters
+    config.aug_rotation_type : string
+        indicate the how to rotate the mesh when __getitem__() is called.
+        "random rotation" : rotate mesh randomly
+        "axis rotation" :  rotate the mesh on the specified axis in config.aug_rotation_axis
+    config.aug_rotation_axis : (float, float, float)
+        the axis of rotation when aug_rotation_type = "axis rotation"
+    data_list : list
+        the loaded mesh files (self.dataset) from the DataModule_process class
+    datalabel : list
+        the loaded label of the mesh files (self.datalabel) the DataModule_process class
+    """
+
     def __init__(self, config, data_list, datalabel=None):
         assert isinstance(data_list, list)
         self.data_list = data_list
@@ -374,6 +589,26 @@ class AugmentationDataset(Dataset):
             )
 
     def __getitem__(self, index):
+        """
+        get the processed mesh based on the given index
+
+        The returned tensor is based on self.data_list[index]
+        The data will first be rotated based on the self.rotation_type and config.aug_rotation_axis,
+            and processed into numpy array, and then the torch tensor of the array.
+        If self.datalabel is not None, also return torch tensor of self.datalabel[index]
+
+        Parameters
+        ----------
+        self.aug_rotation_type : string
+            indicate the how to rotate the mesh when __getitem__() is called.
+            "random rotation" : rotate mesh randomly
+            "axis rotation" :  rotate the mesh on the specified axis in config.aug_rotation_axis
+        config.aug_rotation_axis : (float, float, float)
+            the axis of rotation when aug_rotation_type = "axis rotation"
+        config.resolution : int
+            the size of the array for voxelization
+            if resolution=32, the resulting array of processing N mesh files are (N, 1, 32, 32, 32)
+        """
         selectedItem = self.data_list[index]
         # not going to copy the mesh before rotation (performance consideration)
         if self.rotation_type == "axis rotation":
@@ -418,6 +653,26 @@ class AugmentationDataset(Dataset):
 # return npy file for unconditional data
 # return npz file for conditional data
 def make_processed_savefile_path(path: Path, res, max_num_classes=None):
+    """
+    The function to generate the path of .npy/.npz file for DataModule_process class
+
+    for unconditional data (max_num_classes=None), .npy file path will be generated,
+        else, .npz file will be generated.
+    The generated path will be based on the path input (usually the data_path in DataModule_process),
+        and also add resolution (res) and number of classes (max_num_classes) information
+        to the file name of the .npy/.npz file
+
+    Parameters
+    ----------
+    path : Path
+        the path (usually the data_path in DataModule_process) that the generated .npy/.npz file
+        based on.
+    res : int
+        the resolution, the size of the array for voxelization in DataModule_process
+    max_num_classes : int
+        the maximum number of classes specified in the config. Indicate the maximum number of classes to read
+    """
+
     # TODO
     # Preferably we would not save into the dataset directory it can break
     # code that relies on there not being extra files in the dataset directory.
