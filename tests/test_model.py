@@ -410,16 +410,15 @@ def test_cgan_training_loop_full(device, wandb_init_run, data_path):
 
 
 ### TEST EXPERIMENT SCRIPT
-@pytest.mark.parametrize("data_process_format", ["folder"])
+@pytest.mark.parametrize("data_process_format", ["folder", "zip"])
 @pytest.mark.parametrize("isConditionalData", [False])
-def test_trainPL_script(data_path):
-    print("data_path:", data_path)
+@pytest.mark.parametrize("resume_id", ["", "1iqrmh7p"])
+def test_trainPL_script(data_path, resume_id):
     config_dict = dict(
         aug_rotation_type="random rotation",
         data_augmentation=True,
         aug_rotation_axis=(0, 1, 0),
         data_location=data_path,
-        resume_id="",
         selected_model="GAN",
         log_interval=1,
         log_num_samples=1,
@@ -433,6 +432,9 @@ def test_trainPL_script(data_path):
         dis_num_layer_unit=[1, 1, 1, 1],
     )
     config = Namespace(**config_dict)
+    # also test resume_id
+    config.resume_id = resume_id
+
     dataset_path = Path(config.data_location)
     if str(config.data_location).endswith(".zip"):
         config.dataset = dataset_path.stem
@@ -463,3 +465,6 @@ def test_trainPL_script(data_path):
         extra_trainer_args["gpus"] = -1
 
     train(config, run, model, dataModule, extra_trainer_args)
+
+    # finish the run in tests, so the next test won't be affected
+    run.finish()

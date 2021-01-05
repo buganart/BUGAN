@@ -29,7 +29,7 @@ config_dict = dict(
     resolution=32,
     num_classes=0,
     seed=1234,
-    epochs=1,
+    epochs=3,
     batch_size=32,
     gen_num_layer_unit=[1, 1, 1, 1],
     dis_num_layer_unit=[1, 1, 1, 1],
@@ -42,7 +42,7 @@ else:
     config.dataset = "dataset_array_custom"
 
 # run offline
-os.environ["WANDB_MODE"] = "dryrun"
+# os.environ["WANDB_MODE"] = "dryrun"
 
 # get previous config if resume run
 if config.resume_id:
@@ -58,6 +58,8 @@ if config.resume_id:
 config.rev_number = get_bugan_package_revision_number()
 
 run, config = init_wandb_run(config, run_dir="../")
+run.notes = "testing train.py"
+
 dataModule = setup_datamodule(config, run)
 model, extra_trainer_args = setup_model(config, run)
 
@@ -65,3 +67,4 @@ if torch.cuda.is_available():
     extra_trainer_args["gpus"] = -1
 
 train(config, run, model, dataModule, extra_trainer_args)
+run.finish()
