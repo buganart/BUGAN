@@ -42,7 +42,7 @@ def get_bugan_package_revision_number():
     return rev_number
 
 
-def init_wandb_run(config, run_dir="./"):
+def init_wandb_run(config, run_dir="./", mode="run"):
     resume_id = config.resume_id
     project_name = config.project_name
     selected_model = config.selected_model
@@ -61,6 +61,7 @@ def init_wandb_run(config, run_dir="./"):
         resume=True,
         dir=run_dir,
         group=selected_model,
+        mode=mode,
     )
 
     print("run id: " + str(wandb.run.id))
@@ -70,12 +71,12 @@ def init_wandb_run(config, run_dir="./"):
     return run, config
 
 
-def setup_datamodule(config, run):
+def setup_datamodule(config, run, tmp_folder="/tmp"):
     np.random.seed(config.seed)
     torch.manual_seed(config.seed)
 
     dataset_path = Path(config.data_location)
-    dataModule = DataModule_process(config, run, dataset_path)
+    dataModule = DataModule_process(config, run, dataset_path, tmp_folder=tmp_folder)
 
     print("dataset name: ", config.dataset)
     print("dataset path: ", dataset_path)
