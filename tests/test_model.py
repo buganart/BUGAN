@@ -454,7 +454,8 @@ def test_cgan_training_loop_full(device, config, data_module):
 ### TEST EXPERIMENT SCRIPT
 @pytest.mark.parametrize("data_process_format", ["folder", "zip"])
 @pytest.mark.parametrize("isConditionalData", [False])
-@pytest.mark.parametrize("resume_id", ["", "1iqrmh7p"])
+# resume_id: "1iqrmh7p" (github build test fail as wandb API key not set)
+@pytest.mark.parametrize("resume_id", [""])
 def test_trainPL_script(data_path, tmp_path, resume_id):
     config_dict = dict(
         aug_rotation_type="random rotation",
