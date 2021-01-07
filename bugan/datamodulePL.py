@@ -249,7 +249,7 @@ class DataModule_process(pl.LightningDataModule):
                 # also append index for conditional data
                 if self.num_classes is not None:
                     sample_class_index.append(index)
-            except IndexError:
+            except:
                 failed += 1
                 print("Failed to load {path}")
 
