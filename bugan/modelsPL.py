@@ -789,18 +789,85 @@ class BaseModel(pl.LightningModule):
     #####
     #   training_step() related function
     #####
-    def training_step(self, dataset_batch, batch_idx):
+
+    def training_step(self, dataset_batch, batch_idx, optimizer_idx=0):
         """
-        implement training_step() in child model
+        default function for pl.LightningModule to train the model
+        the model takes the dataset_batch to calculate the loss of the model components
 
         Parameters
         ----------
-        dataset_batch : tuple
-            data from the dataloader. depends on the datamodule
+        dataset_batch : torch.Tensor
+            the input data batch from the datamodule in datamodule_process class
+            if the data is unconditional, dataset_batch is in the form [array]
+                where array is in shape (B, 1, res, res, res)
+                B = config.batch_size, res = config.resolution
+            if the data is conditional, dataset_batch is in the form [array, index]
+                where index is in shape (B,), each element is
+                the class index based on the datamodule class_list
+            see datamodulePL.py datamodule_process class
         batch_idx : int
+            the index of the batch in datamodule
+        optimizer_idx : int
+            the index of the optimizer
+            the optimizer_idx is based on the setup order of model components
+        Returns
+        -------
+        loss : torch.Tensor of shape [1]
+            the loss of the model component.
         """
+        config = self.config
 
-        # TODO: refactor basic structure of training_step()
+        dataset_indices = None
+        if len(dataset_batch) > 1:
+            # dataset_batch was a list: [array, index]
+            dataset_batch, dataset_indices = dataset_batch
+            dataset_batch = dataset_batch.float()
+            dataset_indices = dataset_indices.to(torch.int64)
+        else:
+            # dataset_batch was a list: [array], so just take the array inside
+            dataset_batch = dataset_batch[0].float()
+
+        # scale to [-1,1]
+        dataset_batch = dataset_batch * 2 - 1
+
+        # calculate loss for model components
+        loss = self.calculate_loss(dataset_batch, dataset_indices, optimizer_idx)
+
+        # record loss
+        self.record_loss(loss.detach().cpu().numpy(), optimizer_idx)
+        return loss
+
+    def calculate_loss(self, dataset_batch, dataset_indices=None, optimizer_idx=0):
+        """
+        function to calculate loss of each of the model components
+        the model_name of the component: self.model_name_list[optimizer_idx]
+
+        Parameters
+        ----------
+        dataset_batch : torch.Tensor
+            the input mesh data from the datamodule scaled to [-1,1]
+                where array is in shape (B, 1, res, res, res)
+                B = config.batch_size, res = config.resolution
+            see datamodulePL.py datamodule_process class
+        dataset_indices : torch.Tensor
+            the input data indices for conditional data from the datamodule
+                where index is in shape (B,), each element is
+                the class index based on the datamodule class_list
+                None if the data/model is unconditional
+        dataset_indices : torch.Tensor
+            the input data indices for conditional data from the datamodule
+                where array is in shape (B,). B = config.batch_size
+                None if the data/model is unconditional
+        optimizer_idx : int
+            the index of the optimizer
+            the optimizer_idx is based on the setup order of model components
+            the model_name of the component: self.model_name_list[optimizer_idx]
+        Returns
+        -------
+        loss : torch.Tensor of shape [1]
+            the loss of the model component.
+        """
         pass
 
     def create_real_fake_label(self, dataset_batch):
@@ -1212,37 +1279,36 @@ class VAE_train(BaseModel):
         x = self.vae(x)
         return x
 
-    def training_step(self, dataset_batch, batch_idx):
+    def calculate_loss(self, dataset_batch, dataset_indices=None, optimizer_idx=0):
         """
-        default function for pl.LightningModule to train the model
-        the model takes the dataset_batch to calculate the loss of the model components
+        function to calculate loss of each of the model components
+        the model_name of the component: self.model_name_list[optimizer_idx]
 
         Parameters
         ----------
         dataset_batch : torch.Tensor
-            the input data batch from the datamodule
-            if the datamodule is in datamodule_process class,
-                the input should be unconditional, int the form [array]
+            the input mesh data from the datamodule scaled to [-1,1]
                 where array is in shape (B, 1, res, res, res)
                 B = config.batch_size, res = config.resolution
             see datamodulePL.py datamodule_process class
-        batch_idx : int
-            the index of the batch in datamodule
+        dataset_indices : torch.Tensor
+            the input data indices for conditional data from the datamodule
+                where index is in shape (B,), each element is
+                the class index based on the datamodule class_list
+                None if the data/model is unconditional
+        optimizer_idx : int
+            the index of the optimizer
+            the optimizer_idx is based on the setup order of model components
+            the model_name of the component: self.model_name_list[optimizer_idx]
 
         self.criterion_reconstruct : nn Loss function
             the loss function based on config.rec_loss to calculate the loss of VAE
-
         Returns
         -------
         vae_loss : torch.Tensor of shape [1]
             the loss of the VAE.
         """
         config = self.config
-
-        # dataset_batch was a list: [array], so just take the array inside
-        dataset_batch = dataset_batch[0].float()
-        # scale to [-1,1]
-        dataset_batch = dataset_batch * 2 - 1
         # add noise to data
         dataset_batch = self.add_noise_to_samples(dataset_batch)
 
@@ -1259,8 +1325,6 @@ class VAE_train(BaseModel):
 
         vae_loss = vae_rec_loss + KL
 
-        # record loss
-        self.record_loss(vae_loss.detach().cpu().numpy(), 0)
         return vae_loss
 
     def generate_tree(self, num_trees=1):
@@ -1456,25 +1520,27 @@ class VAEGAN(BaseModel):
         x = self.discriminator(x)
         return x
 
-    def training_step(self, dataset_batch, batch_idx, optimizer_idx):
+    def calculate_loss(self, dataset_batch, dataset_indices=None, optimizer_idx=0):
         """
-        default function for pl.LightningModule to train the model
-        the model takes the dataset_batch to calculate the loss of the model components
+        function to calculate loss of each of the model components
+        the model_name of the component: self.model_name_list[optimizer_idx]
 
         Parameters
         ----------
         dataset_batch : torch.Tensor
-            the input data batch from the datamodule
-            if the datamodule is in datamodule_process class,
-                the input should be unconditional, int the form [array]
+            the input mesh data from the datamodule scaled to [-1,1]
                 where array is in shape (B, 1, res, res, res)
                 B = config.batch_size, res = config.resolution
             see datamodulePL.py datamodule_process class
-        batch_idx : int
-            the index of the batch in datamodule
+        dataset_indices : torch.Tensor
+            the input data indices for conditional data from the datamodule
+                where index is in shape (B,), each element is
+                the class index based on the datamodule class_list
+                None if the data/model is unconditional
         optimizer_idx : int
             the index of the optimizer
             the optimizer_idx is based on the setup order of model components
+            the model_name of the component: self.model_name_list[optimizer_idx]
             here self.vae=0, self.discriminator=1
 
         self.criterion_label : nn Loss function
@@ -1490,11 +1556,6 @@ class VAEGAN(BaseModel):
             the loss of the discriminator.
         """
         config = self.config
-
-        # dataset_batch was a list: [array], so just take the array inside
-        dataset_batch = dataset_batch[0].float()
-        # scale to [-1,1]
-        dataset_batch = dataset_batch * 2 - 1
         # add noise to data
         dataset_batch = self.add_noise_to_samples(dataset_batch)
 
@@ -1522,9 +1583,6 @@ class VAEGAN(BaseModel):
 
             vae_loss = (vae_rec_loss + vae_d_loss) / 2
 
-            # record loss
-            self.record_loss(vae_loss.detach().cpu().numpy(), optimizer_idx)
-
             return vae_loss
 
         if optimizer_idx == 1:
@@ -1550,9 +1608,6 @@ class VAEGAN(BaseModel):
             dloss_real = self.criterion_label(dout_real, real_label)
 
             dloss = (dloss_fake + dloss_real) / 2  # scale the loss to one
-
-            # record loss
-            self.record_loss(dloss.detach().cpu().numpy(), optimizer_idx)
 
             # accuracy hack
             dloss = self.apply_accuracy_hack(dloss, dout_real, dout_fake)
@@ -1723,25 +1778,27 @@ class GAN(BaseModel):
         x = self.discriminator(x)
         return x
 
-    def training_step(self, dataset_batch, batch_idx, optimizer_idx):
+    def calculate_loss(self, dataset_batch, dataset_indices=None, optimizer_idx=0):
         """
-        default function for pl.LightningModule to train the model
-        the model takes the dataset_batch to calculate the loss of the model components
+        function to calculate loss of each of the model components
+        the model_name of the component: self.model_name_list[optimizer_idx]
 
         Parameters
         ----------
         dataset_batch : torch.Tensor
-            the input data batch from the datamodule
-            if the datamodule is in datamodule_process class,
-                the input should be unconditional, int the form [array]
+            the input mesh data from the datamodule scaled to [-1,1]
                 where array is in shape (B, 1, res, res, res)
                 B = config.batch_size, res = config.resolution
             see datamodulePL.py datamodule_process class
-        batch_idx : int
-            the index of the batch in datamodule
+        dataset_indices : torch.Tensor
+            the input data indices for conditional data from the datamodule
+                where index is in shape (B,), each element is
+                the class index based on the datamodule class_list
+                None if the data/model is unconditional
         optimizer_idx : int
             the index of the optimizer
             the optimizer_idx is based on the setup order of model components
+            the model_name of the component: self.model_name_list[optimizer_idx]
             here self.generator=0, self.discriminator=1
 
         self.criterion_label : nn Loss function
@@ -1755,11 +1812,6 @@ class GAN(BaseModel):
             the loss of the discriminator.
         """
         config = self.config
-
-        # dataset_batch was a list: [array], so just take the array inside
-        dataset_batch = dataset_batch[0].float()
-        # scale to [-1,1]
-        dataset_batch = dataset_batch * 2 - 1
         # add noise to data
         dataset_batch = self.add_noise_to_samples(dataset_batch)
 
@@ -1782,9 +1834,6 @@ class GAN(BaseModel):
             dout_fake = self.discriminator(tree_fake)
             # generator should generate trees that discriminator think they are real
             gloss = self.criterion_label(dout_fake, real_label)
-
-            # record loss
-            self.record_loss(gloss.detach().cpu().numpy(), optimizer_idx)
 
             return gloss
 
@@ -1812,9 +1861,6 @@ class GAN(BaseModel):
 
             # loss function (discriminator classify real data vs generated data)
             dloss = (dloss_real + dloss_fake) / 2
-
-            # record loss
-            self.record_loss(dloss.detach().cpu().numpy(), optimizer_idx)
 
             # accuracy hack
             dloss = self.apply_accuracy_hack(dloss, dout_real, dout_fake)
@@ -1915,32 +1961,28 @@ class GAN_Wloss(GAN):
 
         return super().configure_optimizers()
 
-    def training_step(self, dataset_batch, batch_idx, optimizer_idx):
+    def calculate_loss(self, dataset_batch, dataset_indices=None, optimizer_idx=0):
         """
-        default function for pl.LightningModule to train the model
-        the model takes the dataset_batch to calculate the loss of the model components
-
-        The difference of WGAN to normal GAN is that the Discriminator just tries to
-            make the output score bigger for real data than that of generated data
+        function to calculate loss of each of the model components
+        the model_name of the component: self.model_name_list[optimizer_idx]
 
         Parameters
         ----------
         dataset_batch : torch.Tensor
-            the input data batch from the datamodule
-            if the datamodule is in datamodule_process class,
-                the input should be unconditional, int the form [array]
+            the input mesh data from the datamodule scaled to [-1,1]
                 where array is in shape (B, 1, res, res, res)
                 B = config.batch_size, res = config.resolution
             see datamodulePL.py datamodule_process class
-        batch_idx : int
-            the index of the batch in datamodule
+        dataset_indices : torch.Tensor
+            the input data indices for conditional data from the datamodule
+                where index is in shape (B,), each element is
+                the class index based on the datamodule class_list
+                None if the data/model is unconditional
         optimizer_idx : int
             the index of the optimizer
             the optimizer_idx is based on the setup order of model components
+            the model_name of the component: self.model_name_list[optimizer_idx]
             here self.generator=0, self.discriminator=1
-
-        self.criterion_label : nn Loss function
-            the loss function based on config.label_loss to calculate the loss of generator/discriminator
 
         Returns
         -------
@@ -1950,16 +1992,11 @@ class GAN_Wloss(GAN):
             the loss of the discriminator.
         """
         config = self.config
-
-        # dataset_batch was a list: [array], so just take the array inside
-        dataset_batch = dataset_batch[0].float()
-        # scale to [-1,1]
-        dataset_batch = dataset_batch * 2 - 1
         # add noise to data
         dataset_batch = self.add_noise_to_samples(dataset_batch)
-
         batch_size = dataset_batch.shape[0]
-        # label not used in Wloss
+
+        # label no used in WGAN
         if optimizer_idx == 0:
             ############
             #   generator
@@ -1975,10 +2012,6 @@ class GAN_Wloss(GAN):
 
             # generator should maximize dout_fake
             gloss = -dout_fake.mean()
-
-            # record loss
-            self.record_loss(gloss.detach().cpu().numpy(), optimizer_idx)
-
             return gloss
 
         if optimizer_idx == 1:
@@ -2003,10 +2036,6 @@ class GAN_Wloss(GAN):
 
             # d should maximize diff of real vs fake (dout_real - dout_fake)
             dloss = dout_fake.mean() - dout_real.mean()
-
-            # record loss
-            self.record_loss(dloss.detach().cpu().numpy(), optimizer_idx)
-
             return dloss
 
 
@@ -2107,33 +2136,28 @@ class GAN_Wloss_GP(GAN):
         # return gradient penalty
         return self.config.gp_epsilon * ((grad_norm - 1) ** 2).mean()
 
-    def training_step(self, dataset_batch, batch_idx, optimizer_idx):
+    def calculate_loss(self, dataset_batch, dataset_indices=None, optimizer_idx=0):
         """
-        default function for pl.LightningModule to train the model
-        the model takes the dataset_batch to calculate the loss of the model components
-
-        The difference of WGAN to normal GAN is that the Discriminator just tries to
-            make the output score bigger for real data than that of generated data
-        Alse, WGAN_GP use gradient penalty to add model parameter restriction instead of clipping values
+        function to calculate loss of each of the model components
+        the model_name of the component: self.model_name_list[optimizer_idx]
 
         Parameters
         ----------
         dataset_batch : torch.Tensor
-            the input data batch from the datamodule
-            if the datamodule is in datamodule_process class,
-                the input should be unconditional, int the form [array]
+            the input mesh data from the datamodule scaled to [-1,1]
                 where array is in shape (B, 1, res, res, res)
                 B = config.batch_size, res = config.resolution
             see datamodulePL.py datamodule_process class
-        batch_idx : int
-            the index of the batch in datamodule
+        dataset_indices : torch.Tensor
+            the input data indices for conditional data from the datamodule
+                where index is in shape (B,), each element is
+                the class index based on the datamodule class_list
+                None if the data/model is unconditional
         optimizer_idx : int
             the index of the optimizer
             the optimizer_idx is based on the setup order of model components
+            the model_name of the component: self.model_name_list[optimizer_idx]
             here self.generator=0, self.discriminator=1
-
-        self.criterion_label : nn Loss function
-            the loss function based on config.label_loss to calculate the loss of generator/discriminator
 
         Returns
         -------
@@ -2143,17 +2167,11 @@ class GAN_Wloss_GP(GAN):
             the loss of the discriminator.
         """
         config = self.config
-
-        # dataset_batch was a list: [array], so just take the array inside
-        dataset_batch = dataset_batch[0].float()
-        # scale to [-1,1]
-        dataset_batch = dataset_batch * 2 - 1
         # add noise to data
         dataset_batch = self.add_noise_to_samples(dataset_batch)
-
         batch_size = dataset_batch.shape[0]
 
-        # label not used in Wloss
+        # label no used in Wloss
         if optimizer_idx == 0:
             ############
             #   generator
@@ -2170,16 +2188,12 @@ class GAN_Wloss_GP(GAN):
 
             # generator should maximize dout_fake
             gloss = -dout_fake.mean()
-
-            # record loss
-            self.record_loss(gloss.detach().cpu().numpy(), optimizer_idx)
-
             return gloss
 
         if optimizer_idx == 1:
 
             ############
-            #   discriminator (and classifier if necessary)
+            #   discriminator
             ############
 
             # 128-d noise vector
@@ -2198,10 +2212,6 @@ class GAN_Wloss_GP(GAN):
             gp = self.gradient_penalty(dataset_batch, tree_fake)
             # d should maximize diff of real vs fake (dout_real - dout_fake)
             dloss = dout_fake.mean() - dout_real.mean() + gp
-
-            # record loss
-            self.record_loss(dloss.detach().cpu().numpy(), optimizer_idx)
-
             return dloss
 
 
@@ -2344,26 +2354,27 @@ class CGAN(GAN):
         c_predict = self.classifier(x)
         return d_predict, c_predict
 
-    def training_step(self, dataset_batch, batch_idx, optimizer_idx):
+    def calculate_loss(self, dataset_batch, dataset_indices=None, optimizer_idx=0):
         """
-        default function for pl.LightningModule to train the model
-        the model takes the dataset_batch to calculate the loss of the model components
+        function to calculate loss of each of the model components
+        the model_name of the component: self.model_name_list[optimizer_idx]
 
         Parameters
         ----------
         dataset_batch : torch.Tensor
-            the input data batch from the datamodule
-            if the datamodule is in datamodule_process class,
-                the input should be conditional, int the form [array, index]
-                where array is in shape (B, 1, res, res, res),
-                and the index is in shape (B,) containing class index
+            the input mesh data from the datamodule scaled to [-1,1]
+                where array is in shape (B, 1, res, res, res)
                 B = config.batch_size, res = config.resolution
             see datamodulePL.py datamodule_process class
-        batch_idx : int
-            the index of the batch in datamodule
+        dataset_indices : torch.Tensor
+            the input data indices for conditional data from the datamodule
+                where index is in shape (B,), each element is
+                the class index based on the datamodule class_list
+                None if the data/model is unconditional
         optimizer_idx : int
             the index of the optimizer
             the optimizer_idx is based on the setup order of model components
+            the model_name of the component: self.model_name_list[optimizer_idx]
             here self.generator=0, self.discriminator=1, self.classifier=2
 
         self.criterion_label : nn Loss function
@@ -2381,15 +2392,8 @@ class CGAN(GAN):
             the loss of the classifier.
         """
         config = self.config
-
-        dataset_batch, dataset_indices = dataset_batch
-        # scale to [-1,1]
-        dataset_batch = dataset_batch * 2 - 1
         # add noise to data
         dataset_batch = self.add_noise_to_samples(dataset_batch)
-
-        dataset_batch = dataset_batch.float()
-        dataset_indices = dataset_indices.to(torch.int64)
 
         real_label, fake_label = self.create_real_fake_label(dataset_batch)
         batch_size = dataset_batch.shape[0]
@@ -2425,10 +2429,6 @@ class CGAN(GAN):
             gloss_c = self.criterion_class(cout_fake, c_fake)
 
             gloss = (gloss_d + gloss_c) / 2
-
-            # record loss
-            self.record_loss(gloss.detach().cpu().numpy(), optimizer_idx)
-
             return gloss
 
         if optimizer_idx == 1:
@@ -2464,9 +2464,6 @@ class CGAN(GAN):
 
             # loss function (discriminator classify real data vs generated data)
             dloss = (dloss_real + dloss_fake) / 2
-
-            # record loss
-            self.record_loss(dloss.detach().cpu().numpy(), optimizer_idx)
 
             # accuracy hack
             dloss = self.apply_accuracy_hack(dloss, dout_real, dout_fake)
@@ -2505,10 +2502,6 @@ class CGAN(GAN):
 
             # loss function (discriminator classify real data vs generated data)
             closs = (closs_real + closs_fake) / 2
-
-            # record loss
-            self.record_loss(closs.detach().cpu().numpy(), optimizer_idx)
-
             return closs
 
     def generate_tree(self, c, num_trees=1):
