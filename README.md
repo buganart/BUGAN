@@ -38,6 +38,15 @@ Or with a file watcher to re-run when saving files
 
     ptw
 
+## Documentation
+This section is work in progress.
+
+    sphinx-apidoc -f -o doc bugan
+    cd doc
+    make html
+
+Open `_build/html/index.html` in the browser to view.
+
 ## Training
 
     wandb login  # Only if not yet logged in.
