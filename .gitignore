@@ -142,3 +142,4 @@ wandb/
 *.jpg
 
 lightning_logs/
+doc/_build
