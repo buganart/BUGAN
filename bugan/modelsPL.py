@@ -791,9 +791,11 @@ class BaseModel(pl.LightningModule):
                     initial_log_dict["input_per_voxel_std"] = std
 
                     # generate reconstructed samples
-                    sample_trees = self.forward(
-                        torch.unsqueeze(torch.tensor(sample_input), 1).float()
+                    sample_input = torch.unsqueeze(torch.Tensor(sample_input), 1)
+                    sample_input = sample_input.type_as(
+                        self.vae.vae_decoder.gen_fc.weight
                     )
+                    sample_trees = self.forward(sample_input)
                     sample_trees = sample_trees[:, 0, :, :, :].detach().cpu().numpy()
                 else:
                     sample_trees = self.generate_tree(num_trees=log_num_samples)
