@@ -25,7 +25,15 @@ from pytorch_lightning.loggers import WandbLogger
 
 from bugan.functionsPL import load_checkpoint_from_cloud, SaveWandbCallback
 from bugan.datamodulePL import DataModule_process
-from bugan.modelsPL import VAEGAN, VAE_train, GAN, GAN_Wloss, GAN_Wloss_GP, CGAN
+from bugan.modelsPL import (
+    VAEGAN,
+    VAE_train,
+    GAN,
+    GAN_Wloss,
+    GAN_Wloss_GP,
+    CGAN,
+    CVAEGAN,
+)
 
 
 def get_resume_run_config(project_name, resume_id):
@@ -97,8 +105,10 @@ def setup_model(config, run):
         MODEL_CLASS = GAN_Wloss
     elif selected_model == "WGAN_GP":
         MODEL_CLASS = GAN_Wloss_GP
-    else:
+    elif selected_model == "CGAN":
         MODEL_CLASS = CGAN
+    else:
+        MODEL_CLASS = CVAEGAN
 
     if config.resume_id:
         # Download file from the wandb cloud.
