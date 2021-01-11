@@ -589,7 +589,7 @@ class DataModule_process(pl.LightningDataModule):
                 label = np.array(label)
                 return data, label
         else:
-            data = np.array(self.dataset[indices])
+            data = np.array(self.dataset[indices])[:, 0, :, :, :]
             if self.num_classes is None:
                 return data
             else:
