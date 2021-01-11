@@ -162,20 +162,16 @@ def mesh2wandb3D(voxelmesh, wandb_format=True):
 # 3) images of all generated tree
 # 4) meshes of all generated tree
 # 5) mean of per voxel std over generated trees
-def calculate_log_media_stat(model, log_num_samples, class_label=None):
-    if class_label is not None:
-        sample_trees = model.generate_tree(c=class_label, num_trees=log_num_samples)
-    else:
-        sample_trees = model.generate_tree(num_trees=log_num_samples)
-
+def calculate_log_media_stat(samples):
+    num_samples = samples.shape[0]
     # log_dict list record
     sample_tree_numpoints = []
     eval_num_cluster = []
     sample_tree_image = []
     sample_tree_voxelmesh = []
-    for n in range(log_num_samples):
-        # sample_trees are before sigmoid
-        sample_tree_bool_array = sample_trees[n] > 0
+    for n in range(num_samples):
+        # samples are before sigmoid
+        sample_tree_bool_array = samples[n] > 0
         # log number of points to wandb
         sample_tree_indices = netarray2indices(sample_tree_bool_array)
         sample_tree_numpoints.append(sample_tree_indices.shape[0])
@@ -196,7 +192,7 @@ def calculate_log_media_stat(model, log_num_samples, class_label=None):
     sample_tree_numpoints = np.mean(sample_tree_numpoints)
     eval_num_cluster = np.mean(eval_num_cluster)
     # mesh model variance
-    mesh_bool_array = sample_trees > 0
+    mesh_bool_array = samples > 0
     mesh_per_voxel_std = np.mean(np.std(mesh_bool_array, 0))
 
     return (

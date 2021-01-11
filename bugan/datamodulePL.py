@@ -379,7 +379,7 @@ class DataModule_process(pl.LightningDataModule):
                 # now all the returned array contains multiple samples
                 self.size = len(dataset)
                 self.dataset = dataset
-                print(f"Processed dataset size: {len(dataset)}")
+                print(f"Processed dataset size: {self.size}")
                 print(f"Number of failed file: {failed}")
             else:
                 # read conditional data
@@ -410,7 +410,7 @@ class DataModule_process(pl.LightningDataModule):
                 self.dataset = data
                 self.datalabel = index
 
-                print(f"Final dataset_array shape: {len(data)}")
+                print(f"Final dataset_array shape: {self.size}")
                 print(f"Final number of classes: {self.num_classes}")
                 print("class_list:", class_list)
                 self.class_list = class_list
@@ -547,6 +547,55 @@ class DataModule_process(pl.LightningDataModule):
                 num_workers=8,
             )
 
+    def sample_data(self, num_samples=1):
+        """
+        default function for pytorch datamodule to return torch dataloader
+        sample_data from dataset is used for wandbLog and calculate statistics in between epochs
+
+        Parameters
+        ----------
+        self.config.num_classes : int
+            indicate maximum number of classes to read.
+        self.config.data_augmentation : boolean
+            whether to apply data_augmentation or not
+
+        Returns
+        -------
+        data : numpy ndarray
+            the input mesh data from the datamodule scaled to [-1,1]
+                where array is in shape (B, res, res, res)
+                B = config.batch_size, res = config.resolution
+            see datamodulePL.py datamodule_process class
+        label : numpy ndarray
+            the input data indices for conditional data from the datamodule
+                where index is in shape (B,), each element is
+                the class index based on the datamodule class_list
+                None if the data/model is unconditional
+        """
+        num_data = len(self.dataset)
+        indices = np.random.choice(num_data, num_samples, replace=False)
+        if self.config.data_augmentation:
+            data_list = []
+            for n in range(num_samples):
+                array = mesh2arrayCentered(
+                    self.dataset[indices[n]], array_length=self.config.resolution
+                )
+                data_list.append(array)
+            data = np.array(data_list) * 2 - 1
+            if self.num_classes is None:
+                return data
+            else:
+                label = [self.datalabel[i] for i in indices]
+                label = np.array(label)
+                return data, label
+        else:
+            data = np.array(self.dataset[indices])
+            if self.num_classes is None:
+                return data
+            else:
+                label = np.array(self.datalabel[indices])
+                return data, label
+
 
 #####
 #   helper class
@@ -625,10 +674,8 @@ class AugmentationDataset(Dataset):
                 [radian[0], radian[1], radian[2]],
                 [(1, 0, 0), (0, 1, 0), (0, 0, 1)],
             )
-
-        array = mesh2arrayCentered(
-            selectedItem, array_length=self.config.resolution
-        )  # assume selectedItem is Trimesh object
+        # assume selectedItem is Trimesh object
+        array = mesh2arrayCentered(selectedItem, array_length=self.config.resolution)
         # print("mesh index:", index, "| rot radian:", angle)
         if self.datalabel:
             return torch.tensor(array[np.newaxis, :, :, :]), torch.tensor(

@@ -737,13 +737,14 @@ class BaseModel(pl.LightningModule):
                 num_classes = len(class_list)
                 # log condition model data
                 for c in range(num_classes):
+                    sample_trees = self.generate_tree(c=c, num_trees=log_num_samples)
                     (
                         numpoints,
                         num_cluster,
                         image,
                         voxelmesh,
                         std,
-                    ) = calculate_log_media_stat(self, log_num_samples, class_label=c)
+                    ) = calculate_log_media_stat(sample_trees)
 
                     # add list record to log_dict
                     initial_log_dict[
@@ -769,20 +770,48 @@ class BaseModel(pl.LightningModule):
                     ] = std
             else:
                 # log uncondition model data
+                if isinstance(self, VAE_train):
+                    # for VAE, log both input and reconstructed samples instead of just generated samples
+                    # sample only 1 batch
+                    sample_input = self.trainer.datamodule.sample_data(
+                        num_samples=log_num_samples
+                    )
+                    (
+                        numpoints,
+                        num_cluster,
+                        image,
+                        voxelmesh,
+                        std,
+                    ) = calculate_log_media_stat(sample_input)
+                    # log input
+                    initial_log_dict["input_numpoints"] = numpoints
+                    initial_log_dict["input_num_cluster"] = num_cluster
+                    initial_log_dict["input_image"] = image
+                    initial_log_dict["input_voxelmesh"] = voxelmesh
+                    initial_log_dict["input_per_voxel_std"] = std
+
+                    # generate reconstructed samples
+                    sample_trees = self.forward(
+                        torch.unsqueeze(torch.tensor(sample_input), 1).float()
+                    )
+                    sample_trees = sample_trees[:, 0, :, :, :].detach().cpu().numpy()
+                else:
+                    sample_trees = self.generate_tree(num_trees=log_num_samples)
+
                 (
                     numpoints,
                     num_cluster,
                     image,
                     voxelmesh,
                     std,
-                ) = calculate_log_media_stat(self, log_num_samples)
+                ) = calculate_log_media_stat(sample_trees)
 
                 # add list record to log_dict
-                initial_log_dict["sample_tree_numpoints"] = numpoints
-                initial_log_dict["eval_num_cluster"] = num_cluster
-                initial_log_dict["sample_tree_image"] = image
-                initial_log_dict["sample_tree_voxelmesh"] = voxelmesh
-                initial_log_dict["mesh_per_voxel_std"] = std
+                initial_log_dict["sample_numpoints"] = numpoints
+                initial_log_dict["sample_num_cluster"] = num_cluster
+                initial_log_dict["sample_image"] = image
+                initial_log_dict["sample_voxelmesh"] = voxelmesh
+                initial_log_dict["sample_per_voxel_std"] = std
 
         wandb.log(initial_log_dict)
 
