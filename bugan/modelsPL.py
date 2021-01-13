@@ -1158,6 +1158,8 @@ class BaseModel(pl.LightningModule):
 #####
 #   models for training
 #####
+
+# TODO: doc about KL loss coef and voxel diff coef
 class VAE_train(BaseModel):
     """
     VAE
@@ -1225,6 +1227,10 @@ class VAE_train(BaseModel):
         parser.add_argument("--rec_loss", type=str, default="MSELoss")
         # learning rate
         parser.add_argument("--vae_lr", type=float, default=0.0005)
+        # KL loss coefficient
+        parser.add_argument("--kl_coef", type=float, default=0.1)
+        # KL loss coefficient
+        parser.add_argument("--voxel_diff_coef", type=float, default=0.01)
         # number of unit per layer
         decoder_num_layer_unit = [1024, 512, 256, 128, 128]
         encoder_num_layer_unit = [32, 64, 128, 128, 256]
@@ -1320,8 +1326,17 @@ class VAE_train(BaseModel):
 
         vae_rec_loss = self.criterion_reconstruct(reconstructed_data, dataset_batch)
 
+        # scale loss with voxel difference function
+        voxel_diff = torch.mean(
+            torch.abs(
+                torch.sum(reconstructed_data > 0, (1, 2, 3, 4))
+                - torch.sum(dataset_batch > 0, (1, 2, 3, 4))
+            ).float()
+        )
+        vae_rec_loss = vae_rec_loss * (1 + config.voxel_diff_coef * voxel_diff)
+
         # add KL loss
-        KL = self.calculate_KL_loss(mu, logVar)
+        KL = self.calculate_KL_loss(mu, logVar) * config.kl_coef
 
         vae_loss = vae_rec_loss + KL
 
