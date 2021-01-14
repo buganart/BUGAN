@@ -53,6 +53,9 @@ class BaseModel(pl.LightningModule):
             model_ep_loss_list[i][b] is the loss of the model component with index i in training batch with index b
         Please use self.record_loss(loss, optimizer_idx) function to record loss instead of directly append to this list
         the elements will be added when setup_Generator()/setup_Discriminator()/setup_VAE() are called
+    other_loss_dict : list of list of numpy array shape [1]
+        record custom loss from the model recorded by self.record_loss(loss, loss_name)
+        will be processed like model_ep_loss_list (storing list of batch loss, and wandblog mean of them)
     noise_magnitude : int
         a placeholder for config.instance_noise (see below)
     instance_noise : None/torch.Tensor
@@ -191,6 +194,8 @@ class BaseModel(pl.LightningModule):
         self.opt_config_list = []
         # record loss of each model component in training_step
         self.model_ep_loss_list = []
+        # record other losses specified by the record_loss function in training_step
+        self.other_loss_dict = {}
 
         # for instance noise
         self.noise_magnitude = self.config.instance_noise
@@ -617,6 +622,9 @@ class BaseModel(pl.LightningModule):
         for idx in range(len(self.model_ep_loss_list)):
             self.model_ep_loss_list[idx] = []
             self.model_list[idx].train()
+        # also process other_loss_dict like model_ep_loss_list
+        for i in self.other_loss_dict:
+            self.other_loss_dict[i] = []
 
         # calc instance noise
         # check add_noise_to_samples() and generate_noise_for_samples()
@@ -689,6 +697,10 @@ class BaseModel(pl.LightningModule):
             loss = np.mean(self.model_ep_loss_list[idx])
             loss_name = self.model_name_list[idx] + " loss"
             log_dict[loss_name] = loss
+        # record loss for other_loss_dict like model_ep_loss_list
+        for i in self.other_loss_dict:
+            loss = np.mean(self.other_loss_dict[i])
+            log_dict[i] = loss
 
         # boolean whether to log image/3D object
         log_media = self.current_epoch % self.config.log_interval == 0
@@ -961,25 +973,14 @@ class BaseModel(pl.LightningModule):
         fake_label = torch.unsqueeze(fake_label, 1).float().type_as(dataset_batch)
         return real_label, fake_label
 
-    def calculate_KL_loss(self, mu, logVar):
-        """
-        calculate KL loss for VAE based on the mean and logvar used for noise_reparameterize()
-        reference: https://github.com/YixinChen-AI/CVAE-GAN-zoos-PyTorch-Beginner/blob/master/CVAE-GAN/CVAE-GAN.py
-        See VAE class
-
-        Parameters
-        ----------
-        mu : torch.Tensor
-        logVar : torch.Tensor
-        """
-        KL = 0.5 * torch.sum(mu ** 2 + torch.exp(logVar) - 1.0 - logVar)
-        return KL
-
-    def record_loss(self, loss, optimizer_idx):
+    def record_loss(self, loss, optimizer_idx=0, loss_name=None):
         """
         save loss to list for updating loss on wandb log
         this function will be called in the training_step()
         Note that the optimizer_idx is also the model component index in self.model_list
+
+        if the loss_name is set, new log item will be added instead of replacing any of the loss
+            of the model components. the optimizer_idx will be ignored.
 
         Parameters
         ----------
@@ -988,8 +989,18 @@ class BaseModel(pl.LightningModule):
         optimizer_idx : int
             the index of the optimizer called in training_step()
             this is also the model index in self.model_list
+        loss_name : string
+            the name of the custom loss that should record to wandb
+            the loss will be processed like model_ep_loss_list
+            (record list of batch loss and wandblog mean of the loss)
         """
-        self.model_ep_loss_list[optimizer_idx].append(loss)
+        if loss_name:
+            if loss_name in self.other_loss_dict:
+                self.other_loss_dict[loss_name].append(loss)
+            else:
+                self.other_loss_dict[loss_name] = [loss]
+        else:
+            self.model_ep_loss_list[optimizer_idx].append(loss)
 
     def apply_accuracy_hack(self, dloss, dout_real, dout_fake):
         """
@@ -1194,6 +1205,8 @@ class BaseModel(pl.LightningModule):
 #####
 #   models for training
 #####
+
+# TODO: doc about KL loss coef and voxel diff coef
 class VAE_train(BaseModel):
     """
     VAE
@@ -1214,11 +1227,17 @@ class VAE_train(BaseModel):
         see also Discriminator class, BaseModel setup_VAE()
     config.vae_opt : string
         the string in ['Adam', 'SGD'], setup the optimizer of the VAE
+        Using 'Adam' may cause VAE KL loss go to inf.
     config.rec_loss : string
         rec_loss in ['BCELoss', 'MSELoss', 'CrossEntropyLoss']
         the returned loss assume input to be logit (before sigmoid/tanh)
     config.vae_lr : float
         the learning_rate of the VAE
+    config.kl_coef : float
+        the coefficient of the KL loss in the final VAE loss
+    config.voxel_diff_coef : float
+        the coefficient of the voxel difference loss in the final VAE loss
+        added absolute voxel difference between data and reconstructed as a part of loss
     config.decoder_num_layer_unit : int/list
         the decoder_num_layer_unit for BaseModel setup_VAE()
         see also Generator class, BaseModel setup_VAE()
@@ -1256,11 +1275,15 @@ class VAE_train(BaseModel):
         parser.add_argument("--vae_decoder_layer", type=int, default=1)
         parser.add_argument("--vae_encoder_layer", type=int, default=1)
         # optimizer in {"Adam", "SGD"}
-        parser.add_argument("--vae_opt", type=str, default="Adam")
+        parser.add_argument("--vae_opt", type=str, default="SGD")
         # loss function in {'BCELoss', 'MSELoss', 'CrossEntropyLoss'}
         parser.add_argument("--rec_loss", type=str, default="MSELoss")
         # learning rate
         parser.add_argument("--vae_lr", type=float, default=0.0005)
+        # KL loss coefficient
+        parser.add_argument("--kl_coef", type=float, default=1)
+        # voxel difference loss coefficient
+        parser.add_argument("--voxel_diff_coef", type=float, default=0.1)
         # number of unit per layer
         decoder_num_layer_unit = [1024, 512, 256, 128, 128]
         encoder_num_layer_unit = [32, 64, 128, 128, 256]
@@ -1355,9 +1378,21 @@ class VAE_train(BaseModel):
         reconstructed_data = self.add_noise_to_samples(reconstructed_data)
 
         vae_rec_loss = self.criterion_reconstruct(reconstructed_data, dataset_batch)
+        self.record_loss(vae_rec_loss.detach().cpu().numpy(), loss_name="rec_loss")
+
+        # scale loss with voxel difference function
+        voxel_diff = torch.mean(
+            torch.abs(
+                torch.sum(reconstructed_data > 0, (1, 2, 3, 4))
+                - torch.sum(dataset_batch > 0, (1, 2, 3, 4))
+            ).float()
+        )
+        self.record_loss(voxel_diff.detach().cpu().numpy(), loss_name="voxel_diff")
+        vae_rec_loss = vae_rec_loss * (1 + config.voxel_diff_coef * voxel_diff)
 
         # add KL loss
-        KL = self.calculate_KL_loss(mu, logVar)
+        KL = self.vae.calculate_KL_loss(mu, logVar) * config.kl_coef
+        self.record_loss(KL.detach().cpu().numpy(), loss_name="KL loss")
 
         vae_loss = vae_rec_loss + KL
 
@@ -1413,6 +1448,7 @@ class VAEGAN(BaseModel):
         see also Discriminator class, BaseModel setup_Discriminator()
     config.vae_opt : string
         the string in ['Adam', 'SGD'], setup the optimizer of the VAE
+        Using 'Adam' may cause VAE KL loss go to inf.
     config.dis_opt : string
         the string in ['Adam', 'SGD'], setup the optimizer of the Discriminator
     config.label_loss : string
@@ -1431,6 +1467,8 @@ class VAEGAN(BaseModel):
         the learning_rate of the VAE
     config.d_lr : float
         the learning_rate of the Discriminator
+    config.kl_coef : float
+        the coefficient of the KL loss in the final VAE loss
     config.decoder_num_layer_unit : int/list
         the decoder_num_layer_unit for BaseModel setup_VAE()
         see also Generator class, BaseModel setup_VAE()
@@ -1475,8 +1513,8 @@ class VAEGAN(BaseModel):
         parser.add_argument("--vae_encoder_layer", type=int, default=1)
         parser.add_argument("--d_layer", type=int, default=1)
         # optimizer in {"Adam", "SGD"}
-        parser.add_argument("--vae_opt", type=str, default="Adam")
-        parser.add_argument("--dis_opt", type=str, default="Adam")
+        parser.add_argument("--vae_opt", type=str, default="SGD")
+        parser.add_argument("--dis_opt", type=str, default="SGD")
         # loss function in {'BCELoss', 'MSELoss', 'CrossEntropyLoss'}
         parser.add_argument("--label_loss", type=str, default="BCELoss")
         parser.add_argument("--rec_loss", type=str, default="MSELoss")
@@ -1485,6 +1523,8 @@ class VAEGAN(BaseModel):
         # learning rate
         parser.add_argument("--vae_lr", type=float, default=0.0005)
         parser.add_argument("--d_lr", type=float, default=0.00005)
+        # KL loss coefficient
+        parser.add_argument("--kl_coef", type=float, default=1)
         # number of unit per layer
         decoder_num_layer_unit = [1024, 512, 256, 128, 128]
         encoder_num_layer_unit = [32, 64, 128, 128, 256]
@@ -1610,7 +1650,7 @@ class VAEGAN(BaseModel):
             vae_rec_loss = self.criterion_reconstruct(reconstructed_data, dataset_batch)
 
             # add KL loss
-            KL = self.calculate_KL_loss(mu, logVar)
+            KL = self.vae.calculate_KL_loss(mu, logVar) * config.kl_coef
             vae_rec_loss += KL
 
             # output of the vae should fool discriminator
@@ -2766,7 +2806,7 @@ class CVAEGAN(VAEGAN):
             vae_rec_loss = self.criterion_reconstruct(reconstructed_data, dataset_batch)
 
             # add KL loss
-            KL = self.calculate_KL_loss(mu, logVar)
+            KL = self.vae.calculate_KL_loss(mu, logVar) * config.kl_coef
             vae_rec_loss += KL
 
             # output of the vae should fool discriminator
@@ -3243,7 +3283,7 @@ class VAE(nn.Module):
         = noise reparameterization of the output of the encoder + one-hot class vector
 
     reference: https://github.com/YixinChen-AI/CVAE-GAN-zoos-PyTorch-Beginner/blob/master/CVAE-GAN/CVAE-GAN.py
-    This class is based on the VAE in the CVAEGAN
+    reference: https://github.com/PyTorchLightning/pytorch-lightning-bolts/blob/master/pl_bolts/models/autoencoders/basic_vae/basic_vae_module.py
 
     Attributes
     ----------
@@ -3280,6 +3320,7 @@ class VAE(nn.Module):
     def noise_reparameterize(self, mean, logvar):
         """
         noise reparameterization of the VAE
+        reference: https://github.com/PyTorchLightning/pytorch-lightning-bolts/blob/master/pl_bolts/models/autoencoders/basic_vae/basic_vae_module.py
 
         Parameters
         ----------
@@ -3289,6 +3330,20 @@ class VAE(nn.Module):
         eps = torch.randn(mean.shape).type_as(mean)
         z = mean + eps * torch.exp(logvar / 2.0)
         return z
+
+    def calculate_KL_loss(self, mu, logVar):
+        """
+        calculate KL loss for VAE based on the mean and logvar used for noise_reparameterize()
+        reference: https://github.com/PyTorchLightning/pytorch-lightning-bolts/blob/master/pl_bolts/models/autoencoders/basic_vae/basic_vae_module.py
+        See VAE class
+
+        Parameters
+        ----------
+        mu : torch.Tensor
+        logVar : torch.Tensor
+        """
+        KL = 0.5 * torch.sum(mu ** 2 + torch.exp(logVar) - 1.0 - logVar)
+        return KL
 
     def forward(self, x, c=None, output_all=False):
         """
@@ -3322,6 +3377,7 @@ class VAE(nn.Module):
 
         x_mean = self.encoder_mean(f)
         x_logvar = self.encoder_logvar(f)
+
         x_mean = self.encoder_mean_dropout(x_mean)
         x_logvar = self.encoder_logvar_dropout(x_logvar)
 
