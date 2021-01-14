@@ -16,7 +16,7 @@ from torch.utils.data import DataLoader, TensorDataset
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 device
 
-
+# TODO: add doc for other_loss_dict
 class BaseModel(pl.LightningModule):
     """
     Base model
@@ -191,6 +191,8 @@ class BaseModel(pl.LightningModule):
         self.opt_config_list = []
         # record loss of each model component in training_step
         self.model_ep_loss_list = []
+        # record other losses specified by the record_loss function in training_step
+        self.other_loss_dict = {}
 
         # for instance noise
         self.noise_magnitude = self.config.instance_noise
@@ -613,6 +615,9 @@ class BaseModel(pl.LightningModule):
             self.model_ep_loss_list[idx] = []
             self.model_list[idx].train()
 
+        for i in self.other_loss_dict:
+            self.other_loss_dict[i] = []
+
         # calc instance noise
         # check add_noise_to_samples() and generate_noise_for_samples()
         if self.noise_magnitude > 0:
@@ -684,6 +689,10 @@ class BaseModel(pl.LightningModule):
             loss = np.mean(self.model_ep_loss_list[idx])
             loss_name = self.model_name_list[idx] + " loss"
             log_dict[loss_name] = loss
+
+        for i in self.other_loss_dict:
+            loss = np.mean(self.other_loss_dict[i])
+            log_dict[i] = loss
 
         # boolean whether to log image/3D object
         log_media = self.current_epoch % self.config.log_interval == 0
@@ -939,11 +948,14 @@ class BaseModel(pl.LightningModule):
         KL = 0.5 * torch.sum(mu ** 2 + torch.exp(logVar) - 1.0 - logVar)
         return KL
 
-    def record_loss(self, loss, optimizer_idx):
+    def record_loss(self, loss, optimizer_idx=0, loss_name=None):
         """
         save loss to list for updating loss on wandb log
         this function will be called in the training_step()
         Note that the optimizer_idx is also the model component index in self.model_list
+
+        if the loss_name is set, new log item will be added instead of replacing any of the loss
+            of the model components. the optimizer_idx will be ignored.
 
         Parameters
         ----------
@@ -953,7 +965,13 @@ class BaseModel(pl.LightningModule):
             the index of the optimizer called in training_step()
             this is also the model index in self.model_list
         """
-        self.model_ep_loss_list[optimizer_idx].append(loss)
+        if loss_name:
+            if loss_name in self.other_loss_dict:
+                self.other_loss_dict[loss_name].append(loss)
+            else:
+                self.other_loss_dict[loss_name] = [loss]
+        else:
+            self.model_ep_loss_list[optimizer_idx].append(loss)
 
     def apply_accuracy_hack(self, dloss, dout_real, dout_fake):
         """
@@ -1325,6 +1343,7 @@ class VAE_train(BaseModel):
         reconstructed_data = self.add_noise_to_samples(reconstructed_data)
 
         vae_rec_loss = self.criterion_reconstruct(reconstructed_data, dataset_batch)
+        self.record_loss(vae_rec_loss.detach().cpu().numpy(), loss_name="rec_loss")
 
         # scale loss with voxel difference function
         voxel_diff = torch.mean(
@@ -1333,10 +1352,12 @@ class VAE_train(BaseModel):
                 - torch.sum(dataset_batch > 0, (1, 2, 3, 4))
             ).float()
         )
+        self.record_loss(voxel_diff.detach().cpu().numpy(), loss_name="voxel_diff")
         vae_rec_loss = vae_rec_loss * (1 + config.voxel_diff_coef * voxel_diff)
 
         # add KL loss
         KL = self.calculate_KL_loss(mu, logVar) * config.kl_coef
+        self.record_loss(KL.detach().cpu().numpy(), loss_name="KL loss")
 
         vae_loss = vae_rec_loss + KL
 
