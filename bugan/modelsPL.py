@@ -1373,7 +1373,7 @@ class VAE_train(BaseModel):
 
         batch_size = dataset_batch.shape[0]
 
-        reconstructed_data, mu, logVar = self.vae(dataset_batch, output_all=True)
+        reconstructed_data, z, mu, logVar = self.vae(dataset_batch, output_all=True)
         # add instance noise
         reconstructed_data = self.add_noise_to_samples(reconstructed_data)
 
@@ -1391,7 +1391,7 @@ class VAE_train(BaseModel):
         vae_rec_loss = vae_rec_loss * (1 + config.voxel_diff_coef * voxel_diff)
 
         # add KL loss
-        KL = self.vae.calculate_KL_loss(mu, logVar) * config.kl_coef
+        KL = self.vae.calculate_KL_loss(z, mu, logVar) * config.kl_coef
         self.record_loss(KL.detach().cpu().numpy(), loss_name="KL loss")
 
         vae_loss = vae_rec_loss + KL
@@ -1643,14 +1643,14 @@ class VAEGAN(BaseModel):
             #   VAE
             ############
 
-            reconstructed_data, mu, logVar = self.vae(dataset_batch, output_all=True)
+            reconstructed_data, z, mu, logVar = self.vae(dataset_batch, output_all=True)
             # add noise to data
             reconstructed_data = self.add_noise_to_samples(reconstructed_data)
 
             vae_rec_loss = self.criterion_reconstruct(reconstructed_data, dataset_batch)
 
             # add KL loss
-            KL = self.vae.calculate_KL_loss(mu, logVar) * config.kl_coef
+            KL = self.vae.calculate_KL_loss(z, mu, logVar) * config.kl_coef
             vae_rec_loss += KL
 
             # output of the vae should fool discriminator
@@ -2797,7 +2797,7 @@ class CVAEGAN(VAEGAN):
             #   generator
             ############
 
-            reconstructed_data, mu, logVar = self.vae(
+            reconstructed_data, z, mu, logVar = self.vae(
                 dataset_batch, dataset_indices, output_all=True
             )
             # add noise to data
@@ -2806,7 +2806,7 @@ class CVAEGAN(VAEGAN):
             vae_rec_loss = self.criterion_reconstruct(reconstructed_data, dataset_batch)
 
             # add KL loss
-            KL = self.vae.calculate_KL_loss(mu, logVar) * config.kl_coef
+            KL = self.vae.calculate_KL_loss(z, mu, logVar) * config.kl_coef
             vae_rec_loss += KL
 
             # output of the vae should fool discriminator
@@ -3327,11 +3327,14 @@ class VAE(nn.Module):
         mean : torch.Tensor of shape (B, Z)
         logvar : torch.Tensor of shape (B, Z)
         """
-        eps = torch.randn(mean.shape).type_as(mean)
-        z = mean + eps * torch.exp(logvar / 2.0)
+        # eps = torch.randn(mean.shape).type_as(mean)
+        # z = mean + eps * torch.exp(logvar / 2.0)
+        std = torch.exp(logvar / 2)
+        q = torch.distributions.Normal(mean, std)
+        z = q.rsample()
         return z
 
-    def calculate_KL_loss(self, mu, logVar):
+    def calculate_KL_loss(self, z, mu, logVar):
         """
         calculate KL loss for VAE based on the mean and logvar used for noise_reparameterize()
         reference: https://github.com/PyTorchLightning/pytorch-lightning-bolts/blob/master/pl_bolts/models/autoencoders/basic_vae/basic_vae_module.py
@@ -3342,8 +3345,17 @@ class VAE(nn.Module):
         mu : torch.Tensor
         logVar : torch.Tensor
         """
-        KL = 0.5 * torch.sum(mu ** 2 + torch.exp(logVar) - 1.0 - logVar)
-        return KL
+        # KL = 0.5 * torch.sum(mu ** 2 + torch.exp(logVar) - 1.0 - logVar)
+        std = torch.exp(logVar / 2)
+        p = torch.distributions.Normal(torch.zeros_like(mu), torch.ones_like(std))
+        q = torch.distributions.Normal(mu, std)
+
+        log_pz = p.log_prob(z)
+        log_qz = q.log_prob(z)
+
+        kl = log_qz - log_pz
+        kl = kl.mean()
+        return kl
 
     def forward(self, x, c=None, output_all=False):
         """
@@ -3381,16 +3393,18 @@ class VAE(nn.Module):
         x_mean = self.encoder_mean_dropout(x_mean)
         x_logvar = self.encoder_logvar_dropout(x_logvar)
 
-        x = self.noise_reparameterize(x_mean, x_logvar)
-        x = self.decoder_input_dropout(x)
+        z = self.noise_reparameterize(x_mean, x_logvar)
+        z = self.decoder_input_dropout(z)
 
         # handle class vector
         if c is not None:
-            x = BaseModel.merge_latent_and_class_vector(x, c, self.num_classes)
+            x = BaseModel.merge_latent_and_class_vector(z, c, self.num_classes)
+        else:
+            x = z
 
         x = self.vae_decoder(x)
         if output_all:
-            return x, x_mean, x_logvar
+            return x, z, x_mean, x_logvar
         else:
             return x
 
