@@ -3314,7 +3314,6 @@ class VAE(nn.Module):
         self.encoder_mean_dropout = nn.Dropout(dropout_prob)
         self.encoder_logvar_dropout = nn.Dropout(dropout_prob)
 
-        self.decoder_input_dropout = nn.Dropout(dropout_prob)
         self.vae_decoder = decoder
 
     def noise_reparameterize(self, mean, logvar):
@@ -3394,7 +3393,6 @@ class VAE(nn.Module):
         x_logvar = self.encoder_logvar_dropout(x_logvar)
 
         z = self.noise_reparameterize(x_mean, x_logvar)
-        z = self.decoder_input_dropout(z)
 
         # handle class vector
         if c is not None:
