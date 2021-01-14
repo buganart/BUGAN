@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -euxo pipefail
+nix-build container.nix
+docker load --input result
+docker tag bugan-api:0.1.0 buganart/bugan-test-api:0.1.0
+
