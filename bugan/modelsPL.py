@@ -3256,7 +3256,7 @@ class VAE(nn.Module):
             the output vector of the encoder + one-hot class vector
     """
 
-    def __init__(self, encoder, decoder, num_classes=None):
+    def __init__(self, encoder, decoder, num_classes=None, dropout_prob=0.3):
         super(VAE, self).__init__()
         assert encoder.input_size == decoder.output_size
         self.sample_size = decoder.output_size
@@ -3267,8 +3267,14 @@ class VAE(nn.Module):
             assert (self.decoder_z_size - self.encoder_z_size) == self.num_classes
         # VAE
         self.vae_encoder = encoder
+        self.encoder_output_dropout = nn.Dropout(dropout_prob)
+
         self.encoder_mean = nn.Linear(self.encoder_z_size, self.encoder_z_size)
         self.encoder_logvar = nn.Linear(self.encoder_z_size, self.encoder_z_size)
+        self.encoder_mean_dropout = nn.Dropout(dropout_prob)
+        self.encoder_logvar_dropout = nn.Dropout(dropout_prob)
+
+        self.decoder_input_dropout = nn.Dropout(dropout_prob)
         self.vae_decoder = decoder
 
     def noise_reparameterize(self, mean, logvar):
@@ -3312,9 +3318,15 @@ class VAE(nn.Module):
 
         # VAE
         f = self.vae_encoder(x)
+        f = self.encoder_output_dropout(f)
+
         x_mean = self.encoder_mean(f)
         x_logvar = self.encoder_logvar(f)
+        x_mean = self.encoder_mean_dropout(x_mean)
+        x_logvar = self.encoder_logvar_dropout(x_logvar)
+
         x = self.noise_reparameterize(x_mean, x_logvar)
+        x = self.decoder_input_dropout(x)
 
         # handle class vector
         if c is not None:
