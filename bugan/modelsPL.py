@@ -3307,12 +3307,12 @@ class VAE(nn.Module):
             assert (self.decoder_z_size - self.encoder_z_size) == self.num_classes
         # VAE
         self.vae_encoder = encoder
-        self.encoder_output_dropout = nn.Dropout(dropout_prob)
+        # self.encoder_output_dropout = nn.Dropout(dropout_prob)
 
         self.encoder_mean = nn.Linear(self.encoder_z_size, self.encoder_z_size)
         self.encoder_logvar = nn.Linear(self.encoder_z_size, self.encoder_z_size)
-        self.encoder_mean_dropout = nn.Dropout(dropout_prob)
-        self.encoder_logvar_dropout = nn.Dropout(dropout_prob)
+        # self.encoder_mean_dropout = nn.Dropout(dropout_prob)
+        # self.encoder_logvar_dropout = nn.Dropout(dropout_prob)
 
         self.vae_decoder = decoder
 
@@ -3384,13 +3384,13 @@ class VAE(nn.Module):
 
         # VAE
         f = self.vae_encoder(x)
-        f = self.encoder_output_dropout(f)
+        # f = self.encoder_output_dropout(f)
 
         x_mean = self.encoder_mean(f)
         x_logvar = self.encoder_logvar(f)
 
-        x_mean = self.encoder_mean_dropout(x_mean)
-        x_logvar = self.encoder_logvar_dropout(x_logvar)
+        # x_mean = self.encoder_mean_dropout(x_mean)
+        # x_logvar = self.encoder_logvar_dropout(x_logvar)
 
         z = self.noise_reparameterize(x_mean, x_logvar)
 
