@@ -478,6 +478,7 @@ class BaseModel(pl.LightningModule):
         """
         return torch loss function based on the string loss_option
         the returned loss assume input to be logit (before sigmoid/tanh)
+        the returned loss reduction method: mean over batch, sum over other dimenisons
 
         Parameters
         ----------
@@ -491,11 +492,22 @@ class BaseModel(pl.LightningModule):
         """
 
         if loss_option == "BCELoss":
-            loss = nn.BCEWithLogitsLoss(reduction="mean")
+            loss = (
+                lambda gen, data: nn.BCEWithLogitsLoss(reduction="sum")(gen, data)
+                / data.shape[0]
+            )
         elif loss_option == "MSELoss":
-            loss = lambda gen, data: nn.MSELoss(reduction="mean")(F.tanh(gen), data)
+            loss = (
+                lambda gen, data: torch.sum(
+                    nn.MSELoss(reduction="none")(F.tanh(gen), data)
+                )
+                / data.shape[0]
+            )
         elif loss_option == "CrossEntropyLoss":
-            loss = nn.CrossEntropyLoss(reduction="mean")
+            loss = (
+                lambda gen, data: nn.CrossEntropyLoss(reduction="sum")(gen, data)
+                / data.shape[0]
+            )
         else:
             raise Exception(
                 "loss_option must be in ['BCELoss', 'MSELoss', 'CrossEntropyLoss']. Current "
@@ -1275,15 +1287,13 @@ class VAE_train(BaseModel):
         parser.add_argument("--vae_decoder_layer", type=int, default=1)
         parser.add_argument("--vae_encoder_layer", type=int, default=1)
         # optimizer in {"Adam", "SGD"}
-        parser.add_argument("--vae_opt", type=str, default="SGD")
+        parser.add_argument("--vae_opt", type=str, default="Adam")
         # loss function in {'BCELoss', 'MSELoss', 'CrossEntropyLoss'}
         parser.add_argument("--rec_loss", type=str, default="MSELoss")
         # learning rate
-        parser.add_argument("--vae_lr", type=float, default=0.0005)
+        parser.add_argument("--vae_lr", type=float, default=1e-5)
         # KL loss coefficient
         parser.add_argument("--kl_coef", type=float, default=1)
-        # voxel difference loss coefficient
-        parser.add_argument("--voxel_diff_coef", type=float, default=0.1)
         # number of unit per layer
         decoder_num_layer_unit = [1024, 512, 256, 128, 128]
         encoder_num_layer_unit = [32, 64, 128, 128, 256]
@@ -1313,8 +1323,58 @@ class VAE_train(BaseModel):
             learning_rate=config.vae_lr,
         )
 
-        # loss function
-        self.criterion_reconstruct = self.get_loss_function_with_logit(config.rec_loss)
+        # loss function is modified to handle pos_weight
+        if config.rec_loss == "BCELoss":
+            self.criterion_reconstruct = (
+                lambda gen, data: nn.BCEWithLogitsLoss(
+                    reduction="sum", pos_weight=self.calculate_pos_weight(data)
+                )(gen, data)
+                / data.shape[0]
+            )
+        else:
+            self.criterion_reconstruct = (
+                lambda gen, data: torch.sum(
+                    nn.MSELoss(reduction="none")(F.tanh(gen), data)
+                    * self.calculate_pos_weight(data)
+                )
+                / data.shape[0]
+            )
+
+    def calculate_pos_weight(self, data):
+        """
+        calc pos_weight (negative weigth = 1, positive weight = num_zeros/num_ones)
+        assume BCELoss: data in [0,1], and MSELoss: data in [-1,1]
+
+        Parameters
+        ----------
+        data : torch.Tensor
+            the input data tensor from the dataset_batch
+            if the datamodule is in datamodule_process class,
+                the input should be unconditional, int the form [array]
+                where array is in shape (B, 1, res, res, res)
+                B = config.batch_size, res = config.resolution
+
+        Returns
+        -------
+        pos_weight : torch.Tensor
+            the shape of pos_weight for BCELoss is a number (shape [1])
+            the shape of pos_weight for MSELoss is (B, 1, res, res, res)
+            (negative weigth = 1, positive weight = num_zeros/num_ones)
+        """
+        if self.config.rec_loss == "BCELoss":
+            # assume data in [0,1]
+            num_ones = torch.sum(data)
+            num_zeros = torch.sum(1 - data)
+            pos_weight = num_zeros / num_ones
+        else:
+            # assume data in [-1,1], scale back to [0,1]
+            target = (data + 1) / 2
+            #
+            num_ones = torch.sum(target)
+            num_zeros = torch.sum(1 - target)
+            pos_weight = num_zeros / num_ones - 1
+            pos_weight = (target * pos_weight) + 1
+        return pos_weight
 
     def forward(self, x):
         """
@@ -1368,27 +1428,20 @@ class VAE_train(BaseModel):
             the loss of the VAE.
         """
         config = self.config
-        # add noise to data
-        dataset_batch = self.add_noise_to_samples(dataset_batch)
+        # # add noise to data
+        # dataset_batch = self.add_noise_to_samples(dataset_batch)
 
         batch_size = dataset_batch.shape[0]
 
         reconstructed_data, z, mu, logVar = self.vae(dataset_batch, output_all=True)
-        # add instance noise
-        reconstructed_data = self.add_noise_to_samples(reconstructed_data)
+        # # add instance noise
+        # reconstructed_data = self.add_noise_to_samples(reconstructed_data)
 
+        # for BCELoss, the "target" should be in [0,1]
+        if config.rec_loss == "BCELoss":
+            dataset_batch = (dataset_batch + 1) / 2
         vae_rec_loss = self.criterion_reconstruct(reconstructed_data, dataset_batch)
         self.record_loss(vae_rec_loss.detach().cpu().numpy(), loss_name="rec_loss")
-
-        # scale loss with voxel difference function
-        voxel_diff = torch.mean(
-            torch.abs(
-                torch.sum(reconstructed_data > 0, (1, 2, 3, 4))
-                - torch.sum(dataset_batch > 0, (1, 2, 3, 4))
-            ).float()
-        )
-        self.record_loss(voxel_diff.detach().cpu().numpy(), loss_name="voxel_diff")
-        vae_rec_loss = vae_rec_loss * (1 + config.voxel_diff_coef * voxel_diff)
 
         # add KL loss
         KL = self.vae.calculate_log_prob_loss(z, mu, logVar) * config.kl_coef
@@ -3351,8 +3404,8 @@ class VAE(nn.Module):
         mu : torch.Tensor
         logVar : torch.Tensor
         """
-        # # reference: https://github.com/YixinChen-AI/CVAE-GAN-zoos-PyTorch-Beginner/blob/master/CVAE-GAN/CVAE-GAN.py
-        # loss = 0.5 * torch.sum(mu ** 2 + torch.exp(logVar) - 1.0 - logVar)
+        # reference: https://github.com/YixinChen-AI/CVAE-GAN-zoos-PyTorch-Beginner/blob/master/CVAE-GAN/CVAE-GAN.py
+        loss = 0.5 * torch.sum(mu ** 2 + torch.exp(logVar) - 1.0 - logVar)
 
         # # reference: https://github.com/PyTorchLightning/pytorch-lightning-bolts/blob/master/pl_bolts/models/autoencoders/basic_vae/basic_vae_module.py
         # std = torch.exp(logVar / 2)
@@ -3366,12 +3419,12 @@ class VAE(nn.Module):
         # loss = kl.mean()
 
         # # reference: https://github.com/tensorflow/docs-l10n/blob/master/site/zh-cn/tutorials/generative/cvae.ipynb
-        log2pi = torch.log(2 * torch.tensor(np.pi))
-        logpz = torch.sum(0.5 * (z ** 2 + log2pi), axis=1)
-        logqz_x = torch.sum(
-            0.5 * ((z - mu) ** 2.0 * torch.exp(-logVar) + logVar + log2pi), axis=1
-        )
-        loss = torch.mean(logpz - logqz_x)
+        # log2pi = torch.log(2 * torch.tensor(np.pi))
+        # logpz = torch.sum(0.5 * (z ** 2 + log2pi), axis=1)
+        # logqz_x = torch.sum(
+        #     0.5 * ((z - mu) ** 2.0 * torch.exp(-logVar) + logVar + log2pi), axis=1
+        # )
+        # loss = torch.mean(logpz - logqz_x)
         return loss
 
     def forward(self, x, c=None, output_all=False):
