@@ -1391,7 +1391,7 @@ class VAE_train(BaseModel):
         vae_rec_loss = vae_rec_loss * (1 + config.voxel_diff_coef * voxel_diff)
 
         # add KL loss
-        KL = self.vae.calculate_KL_loss(z, mu, logVar) * config.kl_coef
+        KL = self.vae.calculate_log_prob_loss(z, mu, logVar) * config.kl_coef
         self.record_loss(KL.detach().cpu().numpy(), loss_name="KL loss")
 
         vae_loss = vae_rec_loss + KL
@@ -1650,7 +1650,7 @@ class VAEGAN(BaseModel):
             vae_rec_loss = self.criterion_reconstruct(reconstructed_data, dataset_batch)
 
             # add KL loss
-            KL = self.vae.calculate_KL_loss(z, mu, logVar) * config.kl_coef
+            KL = self.vae.calculate_log_prob_loss(z, mu, logVar) * config.kl_coef
             vae_rec_loss += KL
 
             # output of the vae should fool discriminator
@@ -2806,7 +2806,7 @@ class CVAEGAN(VAEGAN):
             vae_rec_loss = self.criterion_reconstruct(reconstructed_data, dataset_batch)
 
             # add KL loss
-            KL = self.vae.calculate_KL_loss(z, mu, logVar) * config.kl_coef
+            KL = self.vae.calculate_log_prob_loss(z, mu, logVar) * config.kl_coef
             vae_rec_loss += KL
 
             # output of the vae should fool discriminator
@@ -3284,6 +3284,7 @@ class VAE(nn.Module):
 
     reference: https://github.com/YixinChen-AI/CVAE-GAN-zoos-PyTorch-Beginner/blob/master/CVAE-GAN/CVAE-GAN.py
     reference: https://github.com/PyTorchLightning/pytorch-lightning-bolts/blob/master/pl_bolts/models/autoencoders/basic_vae/basic_vae_module.py
+    reference: https://github.com/tensorflow/docs-l10n/blob/master/site/zh-cn/tutorials/generative/cvae.ipynb
 
     Attributes
     ----------
@@ -3307,12 +3308,12 @@ class VAE(nn.Module):
             assert (self.decoder_z_size - self.encoder_z_size) == self.num_classes
         # VAE
         self.vae_encoder = encoder
-        # self.encoder_output_dropout = nn.Dropout(dropout_prob)
+        self.encoder_output_dropout = nn.Dropout(dropout_prob)
 
         self.encoder_mean = nn.Linear(self.encoder_z_size, self.encoder_z_size)
         self.encoder_logvar = nn.Linear(self.encoder_z_size, self.encoder_z_size)
-        # self.encoder_mean_dropout = nn.Dropout(dropout_prob)
-        # self.encoder_logvar_dropout = nn.Dropout(dropout_prob)
+        self.encoder_mean_dropout = nn.Dropout(dropout_prob)
+        self.encoder_logvar_dropout = nn.Dropout(dropout_prob)
 
         self.vae_decoder = decoder
 
@@ -3320,23 +3321,29 @@ class VAE(nn.Module):
         """
         noise reparameterization of the VAE
         reference: https://github.com/PyTorchLightning/pytorch-lightning-bolts/blob/master/pl_bolts/models/autoencoders/basic_vae/basic_vae_module.py
+        reference: https://github.com/tensorflow/docs-l10n/blob/master/site/zh-cn/tutorials/generative/cvae.ipynb
 
         Parameters
         ----------
         mean : torch.Tensor of shape (B, Z)
         logvar : torch.Tensor of shape (B, Z)
         """
-        # eps = torch.randn(mean.shape).type_as(mean)
-        # z = mean + eps * torch.exp(logvar / 2.0)
-        std = torch.exp(logvar / 2)
-        q = torch.distributions.Normal(mean, std)
-        z = q.rsample()
+        # reference: https://github.com/YixinChen-AI/CVAE-GAN-zoos-PyTorch-Beginner/blob/master/CVAE-GAN/CVAE-GAN.py
+        # reference: https://github.com/tensorflow/docs-l10n/blob/master/site/zh-cn/tutorials/generative/cvae.ipynb
+        eps = torch.randn(mean.shape).type_as(mean)
+        z = mean + eps * torch.exp(logvar / 2.0)
+
+        # # reference: https://github.com/PyTorchLightning/pytorch-lightning-bolts/blob/master/pl_bolts/models/autoencoders/basic_vae/basic_vae_module.py
+        # std = torch.exp(logvar / 2)
+        # q = torch.distributions.Normal(mean, std)
+        # z = q.rsample()
         return z
 
-    def calculate_KL_loss(self, z, mu, logVar):
+    def calculate_log_prob_loss(self, z, mu, logVar):
         """
-        calculate KL loss for VAE based on the mean and logvar used for noise_reparameterize()
+        calculate log_prob loss (KL/ELBO??) for VAE based on the mean and logvar used for noise_reparameterize()
         reference: https://github.com/PyTorchLightning/pytorch-lightning-bolts/blob/master/pl_bolts/models/autoencoders/basic_vae/basic_vae_module.py
+        reference: https://github.com/tensorflow/docs-l10n/blob/master/site/zh-cn/tutorials/generative/cvae.ipynb
         See VAE class
 
         Parameters
@@ -3344,17 +3351,28 @@ class VAE(nn.Module):
         mu : torch.Tensor
         logVar : torch.Tensor
         """
-        # KL = 0.5 * torch.sum(mu ** 2 + torch.exp(logVar) - 1.0 - logVar)
-        std = torch.exp(logVar / 2)
-        p = torch.distributions.Normal(torch.zeros_like(mu), torch.ones_like(std))
-        q = torch.distributions.Normal(mu, std)
+        # # reference: https://github.com/YixinChen-AI/CVAE-GAN-zoos-PyTorch-Beginner/blob/master/CVAE-GAN/CVAE-GAN.py
+        # loss = 0.5 * torch.sum(mu ** 2 + torch.exp(logVar) - 1.0 - logVar)
 
-        log_pz = p.log_prob(z)
-        log_qz = q.log_prob(z)
+        # # reference: https://github.com/PyTorchLightning/pytorch-lightning-bolts/blob/master/pl_bolts/models/autoencoders/basic_vae/basic_vae_module.py
+        # std = torch.exp(logVar / 2)
+        # p = torch.distributions.Normal(torch.zeros_like(mu), torch.ones_like(std))
+        # q = torch.distributions.Normal(mu, std)
 
-        kl = log_qz - log_pz
-        kl = kl.mean()
-        return kl
+        # log_pz = p.log_prob(z)
+        # log_qz = q.log_prob(z)
+
+        # kl = log_qz - log_pz
+        # loss = kl.mean()
+
+        # # reference: https://github.com/tensorflow/docs-l10n/blob/master/site/zh-cn/tutorials/generative/cvae.ipynb
+        log2pi = torch.log(2 * torch.tensor(np.pi))
+        logpz = torch.sum(0.5 * (z ** 2 + log2pi), axis=1)
+        logqz_x = torch.sum(
+            0.5 * ((z - mu) ** 2.0 * torch.exp(-logVar) + logVar + log2pi), axis=1
+        )
+        loss = torch.mean(logpz - logqz_x)
+        return loss
 
     def forward(self, x, c=None, output_all=False):
         """
@@ -3384,13 +3402,13 @@ class VAE(nn.Module):
 
         # VAE
         f = self.vae_encoder(x)
-        # f = self.encoder_output_dropout(f)
+        f = self.encoder_output_dropout(f)
 
         x_mean = self.encoder_mean(f)
         x_logvar = self.encoder_logvar(f)
 
-        # x_mean = self.encoder_mean_dropout(x_mean)
-        # x_logvar = self.encoder_logvar_dropout(x_logvar)
+        x_mean = self.encoder_mean_dropout(x_mean)
+        x_logvar = self.encoder_logvar_dropout(x_logvar)
 
         z = self.noise_reparameterize(x_mean, x_logvar)
 
