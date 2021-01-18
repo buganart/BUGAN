@@ -60,6 +60,8 @@ class BaseModel(pl.LightningModule):
         a placeholder for config.instance_noise (see below)
     instance_noise : None/torch.Tensor
         a placeholder for instance_noise generated per batch (see config.instance_noise_per_batch below)
+    log_reconstruct : boolean
+        if True, log input mesh and reconstructed mesh. If False, log sample mesh from random latent vector
     config : Namespace
         dictionary of training parameters
     config.batch_size : int
@@ -200,6 +202,9 @@ class BaseModel(pl.LightningModule):
         # for instance noise
         self.noise_magnitude = self.config.instance_noise
         self.instance_noise = None
+
+        # whether to log input mesh and reconstructed mesh instead of sample mesh from random z
+        self.log_reconstruct = False
 
     def setup_config_arguments(self, config):
         """
@@ -799,7 +804,7 @@ class BaseModel(pl.LightningModule):
                     ] = std
             else:
                 # log uncondition model data
-                if isinstance(self, VAE_train):
+                if self.log_reconstruct:
                     # for VAE, log both input and reconstructed samples instead of just generated samples
                     # sample only 1 batch
                     sample_input = self.trainer.datamodule.sample_data(
@@ -879,7 +884,7 @@ class BaseModel(pl.LightningModule):
         config = self.config
 
         dataset_indices = None
-        if len(dataset_batch) > 1:
+        if hasattr(self.config, "num_classes") and self.config.num_classes > 0:
             # dataset_batch was a list: [array, index]
             dataset_batch, dataset_indices = dataset_batch
             dataset_batch = dataset_batch.float()
@@ -1322,6 +1327,9 @@ class VAE_train(BaseModel):
             optimizer_option=config.vae_opt,
             learning_rate=config.vae_lr,
         )
+
+        # log input mesh and reconstructed mesh
+        self.log_reconstruct = True
 
         # loss function is modified to handle pos_weight
         if config.rec_loss == "BCELoss":

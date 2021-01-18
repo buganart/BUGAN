@@ -366,7 +366,7 @@ def data_module(isConditionalData, config, wandb_init_run, data_path, tmp_path):
         )
     ],
 )
-@pytest.mark.parametrize("isConditionalData", [False])
+@pytest.mark.parametrize("isConditionalData", [True])
 @pytest.mark.parametrize("data_process_format", ["zip"])
 def test_vaegan_training_loop_full(device, config, data_module):
     model = VAEGAN(config).to(device)
@@ -396,7 +396,7 @@ def test_vaegan_training_loop_full(device, config, data_module):
     ],
 )
 @pytest.mark.parametrize("data_process_format", ["zip"])
-@pytest.mark.parametrize("isConditionalData", [False])
+@pytest.mark.parametrize("isConditionalData", [True])
 def test_vae_training_loop_full(device, config, data_module):
     model = VAE_train(config).to(device)
     trainer = pl.Trainer(max_epochs=1)
@@ -423,7 +423,7 @@ def test_vae_training_loop_full(device, config, data_module):
     ],
 )
 @pytest.mark.parametrize("data_process_format", ["zip"])
-@pytest.mark.parametrize("isConditionalData", [False])
+@pytest.mark.parametrize("isConditionalData", [True])
 def test_gan_training_loop_full(device, config, data_module):
     model = GAN(config).to(device)
     trainer = pl.Trainer(max_epochs=1)
@@ -450,7 +450,7 @@ def test_gan_training_loop_full(device, config, data_module):
     ],
 )
 @pytest.mark.parametrize("data_process_format", ["zip"])
-@pytest.mark.parametrize("isConditionalData", [False])
+@pytest.mark.parametrize("isConditionalData", [True])
 def test_gan_wloss_training_loop_full(device, config, data_module):
     model = GAN_Wloss(config).to(device)
     trainer = pl.Trainer(max_epochs=1)
@@ -477,7 +477,7 @@ def test_gan_wloss_training_loop_full(device, config, data_module):
     ],
 )
 @pytest.mark.parametrize("data_process_format", ["zip"])
-@pytest.mark.parametrize("isConditionalData", [False])
+@pytest.mark.parametrize("isConditionalData", [True])
 def test_gan_wloss_gp_training_loop_full(device, config, data_module):
     model = GAN_Wloss_GP(config).to(device)
     trainer = pl.Trainer(max_epochs=1)
