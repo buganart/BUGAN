@@ -1436,14 +1436,14 @@ class VAE_train(BaseModel):
             the loss of the VAE.
         """
         config = self.config
-        # # add noise to data
-        # dataset_batch = self.add_noise_to_samples(dataset_batch)
+        # add noise to data
+        dataset_batch = self.add_noise_to_samples(dataset_batch)
 
         batch_size = dataset_batch.shape[0]
 
         reconstructed_data, z, mu, logVar = self.vae(dataset_batch, output_all=True)
-        # # add instance noise
-        # reconstructed_data = self.add_noise_to_samples(reconstructed_data)
+        # add instance noise
+        reconstructed_data = self.add_noise_to_samples(reconstructed_data)
 
         # for BCELoss, the "target" should be in [0,1]
         if config.rec_loss == "BCELoss":
@@ -1574,16 +1574,16 @@ class VAEGAN(BaseModel):
         parser.add_argument("--vae_encoder_layer", type=int, default=1)
         parser.add_argument("--d_layer", type=int, default=1)
         # optimizer in {"Adam", "SGD"}
-        parser.add_argument("--vae_opt", type=str, default="SGD")
-        parser.add_argument("--dis_opt", type=str, default="SGD")
+        parser.add_argument("--vae_opt", type=str, default="Adam")
+        parser.add_argument("--dis_opt", type=str, default="Adam")
         # loss function in {'BCELoss', 'MSELoss', 'CrossEntropyLoss'}
         parser.add_argument("--label_loss", type=str, default="BCELoss")
         parser.add_argument("--rec_loss", type=str, default="MSELoss")
         # accuracy_hack
         parser.add_argument("--accuracy_hack", type=float, default=1.1)
         # learning rate
-        parser.add_argument("--vae_lr", type=float, default=0.0005)
-        parser.add_argument("--d_lr", type=float, default=0.00005)
+        parser.add_argument("--vae_lr", type=float, default=1e-5)
+        parser.add_argument("--d_lr", type=float, default=1e-5)
         # KL loss coefficient
         parser.add_argument("--kl_coef", type=float, default=1)
         # number of unit per layer
@@ -1628,7 +1628,58 @@ class VAEGAN(BaseModel):
 
         # loss function
         self.criterion_label = self.get_loss_function_with_logit(config.label_loss)
-        self.criterion_reconstruct = self.get_loss_function_with_logit(config.rec_loss)
+        # rec loss function is modified to handle pos_weight
+        if config.rec_loss == "BCELoss":
+            self.criterion_reconstruct = (
+                lambda gen, data: nn.BCEWithLogitsLoss(
+                    reduction="sum", pos_weight=self.calculate_pos_weight(data)
+                )(gen, data)
+                / data.shape[0]
+            )
+        else:
+            self.criterion_reconstruct = (
+                lambda gen, data: torch.sum(
+                    nn.MSELoss(reduction="none")(F.tanh(gen), data)
+                    * self.calculate_pos_weight(data)
+                )
+                / data.shape[0]
+            )
+
+    def calculate_pos_weight(self, data):
+        """
+        calc pos_weight (negative weigth = 1, positive weight = num_zeros/num_ones)
+        assume BCELoss: data in [0,1], and MSELoss: data in [-1,1]
+
+        Parameters
+        ----------
+        data : torch.Tensor
+            the input data tensor from the dataset_batch
+            if the datamodule is in datamodule_process class,
+                the input should be unconditional, int the form [array]
+                where array is in shape (B, 1, res, res, res)
+                B = config.batch_size, res = config.resolution
+
+        Returns
+        -------
+        pos_weight : torch.Tensor
+            the shape of pos_weight for BCELoss is a number (shape [1])
+            the shape of pos_weight for MSELoss is (B, 1, res, res, res)
+            (negative weigth = 1, positive weight = num_zeros/num_ones)
+        """
+        if self.config.rec_loss == "BCELoss":
+            # assume data in [0,1]
+            num_ones = torch.sum(data)
+            num_zeros = torch.sum(1 - data)
+            pos_weight = num_zeros / num_ones
+        else:
+            # assume data in [-1,1], scale back to [0,1]
+            target = (data + 1) / 2
+            #
+            num_ones = torch.sum(target)
+            num_zeros = torch.sum(1 - target)
+            pos_weight = num_zeros / num_ones - 1
+            pos_weight = (target * pos_weight) + 1
+        return pos_weight
 
     def forward(self, x):
         """
@@ -1692,6 +1743,7 @@ class VAEGAN(BaseModel):
         dloss : torch.Tensor of shape [1]
             the loss of the discriminator.
         """
+
         config = self.config
         # add noise to data
         dataset_batch = self.add_noise_to_samples(dataset_batch)
@@ -1708,10 +1760,16 @@ class VAEGAN(BaseModel):
             # add noise to data
             reconstructed_data = self.add_noise_to_samples(reconstructed_data)
 
+            # for BCELoss, the "target" should be in [0,1]
+            if config.rec_loss == "BCELoss":
+                dataset_batch = (dataset_batch + 1) / 2
+
             vae_rec_loss = self.criterion_reconstruct(reconstructed_data, dataset_batch)
+            self.record_loss(vae_rec_loss.detach().cpu().numpy(), loss_name="rec_loss")
 
             # add KL loss
             KL = self.vae.calculate_log_prob_loss(z, mu, logVar) * config.kl_coef
+            self.record_loss(KL.detach().cpu().numpy(), loss_name="KL loss")
             vae_rec_loss += KL
 
             # output of the vae should fool discriminator
