@@ -3381,15 +3381,15 @@ class VAE(nn.Module):
         mean : torch.Tensor of shape (B, Z)
         logvar : torch.Tensor of shape (B, Z)
         """
-        # reference: https://github.com/YixinChen-AI/CVAE-GAN-zoos-PyTorch-Beginner/blob/master/CVAE-GAN/CVAE-GAN.py
-        # reference: https://github.com/tensorflow/docs-l10n/blob/master/site/zh-cn/tutorials/generative/cvae.ipynb
-        eps = torch.randn(mean.shape).type_as(mean)
-        z = mean + eps * torch.exp(logvar / 2.0)
+        # # reference: https://github.com/YixinChen-AI/CVAE-GAN-zoos-PyTorch-Beginner/blob/master/CVAE-GAN/CVAE-GAN.py
+        # # reference: https://github.com/tensorflow/docs-l10n/blob/master/site/zh-cn/tutorials/generative/cvae.ipynb
+        # eps = torch.randn(mean.shape).type_as(mean)
+        # z = mean + eps * torch.exp(logvar / 2.0)
 
-        # # reference: https://github.com/PyTorchLightning/pytorch-lightning-bolts/blob/master/pl_bolts/models/autoencoders/basic_vae/basic_vae_module.py
-        # std = torch.exp(logvar / 2)
-        # q = torch.distributions.Normal(mean, std)
-        # z = q.rsample()
+        # reference: https://github.com/PyTorchLightning/pytorch-lightning-bolts/blob/master/pl_bolts/models/autoencoders/basic_vae/basic_vae_module.py
+        std = torch.exp(logvar / 2)
+        q = torch.distributions.Normal(mean, std)
+        z = q.rsample()
         return z
 
     def calculate_log_prob_loss(self, z, mu, logVar):
@@ -3404,19 +3404,19 @@ class VAE(nn.Module):
         mu : torch.Tensor
         logVar : torch.Tensor
         """
-        # reference: https://github.com/YixinChen-AI/CVAE-GAN-zoos-PyTorch-Beginner/blob/master/CVAE-GAN/CVAE-GAN.py
-        loss = 0.5 * torch.sum(mu ** 2 + torch.exp(logVar) - 1.0 - logVar)
+        # # reference: https://github.com/YixinChen-AI/CVAE-GAN-zoos-PyTorch-Beginner/blob/master/CVAE-GAN/CVAE-GAN.py
+        # loss = 0.5 * torch.sum(mu ** 2 + torch.exp(logVar) - 1.0 - logVar)
 
-        # # reference: https://github.com/PyTorchLightning/pytorch-lightning-bolts/blob/master/pl_bolts/models/autoencoders/basic_vae/basic_vae_module.py
-        # std = torch.exp(logVar / 2)
-        # p = torch.distributions.Normal(torch.zeros_like(mu), torch.ones_like(std))
-        # q = torch.distributions.Normal(mu, std)
+        # reference: https://github.com/PyTorchLightning/pytorch-lightning-bolts/blob/master/pl_bolts/models/autoencoders/basic_vae/basic_vae_module.py
+        std = torch.exp(logVar / 2)
+        p = torch.distributions.Normal(torch.zeros_like(mu), torch.ones_like(std))
+        q = torch.distributions.Normal(mu, std)
 
-        # log_pz = p.log_prob(z)
-        # log_qz = q.log_prob(z)
+        log_pz = p.log_prob(z)
+        log_qz = q.log_prob(z)
 
-        # kl = log_qz - log_pz
-        # loss = kl.mean()
+        kl = log_qz - log_pz
+        loss = kl.mean()
 
         # # reference: https://github.com/tensorflow/docs-l10n/blob/master/site/zh-cn/tutorials/generative/cvae.ipynb
         # log2pi = torch.log(2 * torch.tensor(np.pi))
