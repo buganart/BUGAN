@@ -175,6 +175,26 @@ class BaseModel(pl.LightningModule):
 
         return parser
 
+    @staticmethod
+    def combine_namespace(base, update):
+        """
+        helper function to combine Namespace object
+        values in base will be overwritten by values in update
+
+        Parameters
+        ----------
+        base : Namespace
+        update : Namespace
+
+        Returns
+        -------
+        Namespace
+            the Namespace with default arguments from base replaced by arguments in update
+        """
+        base = vars(base)
+        base.update(vars(update))
+        return Namespace(**base)
+
     #####
     #   __init__() related functions
     #####
@@ -233,27 +253,8 @@ class BaseModel(pl.LightningModule):
         # add missing default parameters
         parser = self.add_model_specific_args(ArgumentParser())
         args = parser.parse_args([])
-        config = self.combine_namespace(args, config)
+        config = BaseModel.combine_namespace(args, config)
         return config
-
-    def combine_namespace(self, base, update):
-        """
-        helper function to combine Namespace object
-        values in base will be overwritten by values in update
-
-        Parameters
-        ----------
-        base : Namespace
-        update : Namespace
-
-        Returns
-        -------
-        Namespace
-            the Namespace with default arguments from base replaced by arguments in update
-        """
-        base = vars(base)
-        base.update(vars(update))
-        return Namespace(**base)
 
     def setup_Generator(
         self,

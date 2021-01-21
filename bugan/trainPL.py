@@ -2,6 +2,7 @@ import io
 import os
 from io import BytesIO
 import sys
+import warnings
 import zipfile
 import trimesh
 import numpy as np
@@ -20,6 +21,21 @@ from torch.utils.data import DataLoader, TensorDataset
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 device
 
+VALID_CONFIG_KEYWORDS = [
+    "aug_rotation_type",
+    "data_augmentation",
+    "aug_rotation_axis",
+    "data_location",
+    "selected_model",
+    "project_name",
+    "num_classes",
+    "seed",
+    "epochs",
+    "resume_id",
+    "dataset",
+    "rev_number",
+]
+
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import WandbLogger
 
@@ -34,6 +50,48 @@ from bugan.modelsPL import (
     CGAN,
     CVAEGAN,
 )
+
+
+def _get_models(model_name):
+    if model_name == "VAEGAN":
+        MODEL_CLASS = VAEGAN
+    elif model_name == "GAN":
+        MODEL_CLASS = GAN
+    elif model_name == "VAE":
+        MODEL_CLASS = VAE_train
+    elif model_name == "WGAN":
+        MODEL_CLASS = GAN_Wloss
+    elif model_name == "WGAN_GP":
+        MODEL_CLASS = GAN_Wloss_GP
+    elif model_name == "CGAN":
+        MODEL_CLASS = CGAN
+    else:
+        MODEL_CLASS = CVAEGAN
+    return MODEL_CLASS
+
+
+def get_model_argument_parser(model_name):
+    MODEL_CLASS = _get_models(model_name)
+    return MODEL_CLASS.add_model_specific_args(ArgumentParser())
+
+
+def _validate_model_config(config):
+    parser = get_model_argument_parser(config.selected_model)
+    args = parser.parse_args([])
+    # check argument and print warning if config arguments not in valid args keys
+    args_keys = vars(args).keys()
+    valid_config_keys = VALID_CONFIG_KEYWORDS + list(args_keys)
+    for k in vars(config):
+        if k not in valid_config_keys:
+            warnings.warn(f"config argument '{k}' is not one of model arguments.")
+
+
+def setup_config_arguments(config):
+    MODEL_CLASS = _get_models(config.selected_model)
+    parser = MODEL_CLASS.add_model_specific_args(ArgumentParser())
+    args = parser.parse_args([])
+    config = MODEL_CLASS.combine_namespace(args, config)
+    return config
 
 
 def get_resume_run_config(project_name, resume_id):
@@ -95,20 +153,10 @@ def setup_model(config, run):
     checkpoint_path = str(Path(run.dir).absolute() / "checkpoint.ckpt")
     selected_model = config.selected_model
     # model
-    if selected_model == "VAEGAN":
-        MODEL_CLASS = VAEGAN
-    elif selected_model == "GAN":
-        MODEL_CLASS = GAN
-    elif selected_model == "VAE":
-        MODEL_CLASS = VAE_train
-    elif selected_model == "WGAN":
-        MODEL_CLASS = GAN_Wloss
-    elif selected_model == "WGAN_GP":
-        MODEL_CLASS = GAN_Wloss_GP
-    elif selected_model == "CGAN":
-        MODEL_CLASS = CGAN
-    else:
-        MODEL_CLASS = CVAEGAN
+    MODEL_CLASS = _get_models(selected_model)
+
+    # validate config
+    _validate_model_config(config)
 
     if config.resume_id:
         # Download file from the wandb cloud.
@@ -130,6 +178,8 @@ def train(config, run, model, dataModule, extra_trainer_args):
     wandb_logger = WandbLogger(
         experiment=run, log_model=True, save_dir=Path(run.dir).absolute()
     )
+    # update config by filling in missing model argument by default values
+    config = setup_config_arguments(config)
     # log config
     wandb.config.update(config)
 
