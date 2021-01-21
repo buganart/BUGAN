@@ -16,6 +16,10 @@ from torch.utils.data import DataLoader, TensorDataset
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 device
 
+DEFAULT_NUM_LAYER_UNIT = [512, 512, 256, 256, 128]
+DEFAULT_NUM_LAYER_UNIT_REV = DEFAULT_NUM_LAYER_UNIT.copy()
+DEFAULT_NUM_LAYER_UNIT_REV.reverse()
+
 
 class BaseModel(pl.LightningModule):
     """
@@ -1301,8 +1305,8 @@ class VAE_train(BaseModel):
         # KL loss coefficient
         parser.add_argument("--kl_coef", type=float, default=1)
         # number of unit per layer
-        decoder_num_layer_unit = [1024, 512, 256, 128, 128]
-        encoder_num_layer_unit = [32, 64, 128, 128, 256]
+        decoder_num_layer_unit = DEFAULT_NUM_LAYER_UNIT
+        encoder_num_layer_unit = DEFAULT_NUM_LAYER_UNIT_REV
         parser.add_argument("--decoder_num_layer_unit", default=decoder_num_layer_unit)
         parser.add_argument("--encoder_num_layer_unit", default=encoder_num_layer_unit)
 
@@ -1588,9 +1592,9 @@ class VAEGAN(BaseModel):
         # KL loss coefficient
         parser.add_argument("--kl_coef", type=float, default=1)
         # number of unit per layer
-        decoder_num_layer_unit = [1024, 512, 256, 128, 128]
-        encoder_num_layer_unit = [32, 64, 128, 128, 256]
-        dis_num_layer_unit = [32, 64, 128, 128, 256]
+        decoder_num_layer_unit = DEFAULT_NUM_LAYER_UNIT
+        encoder_num_layer_unit = DEFAULT_NUM_LAYER_UNIT_REV
+        dis_num_layer_unit = DEFAULT_NUM_LAYER_UNIT_REV
 
         parser.add_argument("--decoder_num_layer_unit", default=decoder_num_layer_unit)
         parser.add_argument("--encoder_num_layer_unit", default=encoder_num_layer_unit)
@@ -1915,8 +1919,8 @@ class GAN(BaseModel):
         parser.add_argument("--g_lr", type=float, default=0.0025)
         parser.add_argument("--d_lr", type=float, default=0.00005)
         # number of unit per layer
-        gen_num_layer_unit = [1024, 512, 256, 128, 128]
-        dis_num_layer_unit = [32, 64, 128, 128, 256]
+        gen_num_layer_unit = DEFAULT_NUM_LAYER_UNIT
+        dis_num_layer_unit = DEFAULT_NUM_LAYER_UNIT_REV
 
         parser.add_argument("--gen_num_layer_unit", default=gen_num_layer_unit)
         parser.add_argument("--dis_num_layer_unit", default=dis_num_layer_unit)
@@ -3295,7 +3299,7 @@ class Discriminator(nn.Module):
                     + " elements."
                 )
             if len(num_layer_unit) > self.num_blocks:
-                num_layer_unit = num_layer_unit[: self.num_blocks]
+                num_layer_unit = num_layer_unit[-self.num_blocks :]
                 print(
                     "For input_size="
                     + str(input_size)
