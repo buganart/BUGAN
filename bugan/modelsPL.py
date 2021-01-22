@@ -3097,7 +3097,7 @@ class Generator(nn.Module):
             self.fc_channel = z_size  # 16
             self.fc_size = 1
         else:
-            self.fc_channel = 8  # 16
+            self.fc_channel = z_size  # 16
             self.fc_size = 4
 
         self.output_size = output_size
