@@ -251,7 +251,7 @@ class DataModule_process(pl.LightningDataModule):
                     sample_class_index.append(index)
             except:
                 failed += 1
-                print("Failed to load {path}")
+                print(f"Failed to load {path}")
 
         if self.num_classes is not None:
             return samples, sample_class_index, failed, class_list
