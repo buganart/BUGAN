@@ -1763,15 +1763,19 @@ class VAEGAN(BaseModel):
             #   VAE
             ############
 
-            reconstructed_data, z, mu, logVar = self.vae(dataset_batch, output_all=True)
-            # add noise to data
-            reconstructed_data = self.add_noise_to_samples(reconstructed_data)
+            reconstructed_data_logit, z, mu, logVar = self.vae(
+                dataset_batch, output_all=True
+            )
 
             # for BCELoss, the "target" should be in [0,1]
             if config.rec_loss == "BCELoss":
-                dataset_batch = (dataset_batch + 1) / 2
-
-            vae_rec_loss = self.criterion_reconstruct(reconstructed_data, dataset_batch)
+                vae_rec_loss = self.criterion_reconstruct(
+                    reconstructed_data_logit, (dataset_batch + 1) / 2
+                )
+            else:
+                vae_rec_loss = self.criterion_reconstruct(
+                    reconstructed_data_logit, dataset_batch
+                )
             self.record_loss(vae_rec_loss.detach().cpu().numpy(), loss_name="rec_loss")
 
             # add KL loss
@@ -1780,7 +1784,7 @@ class VAEGAN(BaseModel):
             vae_rec_loss += KL
 
             # output of the vae should fool discriminator
-            vae_out_d = self.discriminator(F.tanh(reconstructed_data))
+            vae_out_d = self.discriminator(F.tanh(reconstructed_data_logit))
             vae_d_loss = self.criterion_label(vae_out_d, real_label)
 
             vae_loss = (vae_rec_loss + vae_d_loss) / 2
@@ -1798,9 +1802,7 @@ class VAEGAN(BaseModel):
             # latent noise vector
             z = torch.randn(batch_size, latent_size).float().type_as(dataset_batch)
             tree_fake = F.tanh(self.vae.generate_sample(z))
-            # add noise to data
-            tree_fake = self.add_noise_to_samples(tree_fake)
-
+            
             # fake data (data from generator)
             # detach so no update to generator
             dout_fake = self.discriminator(tree_fake.clone().detach())
@@ -2841,7 +2843,22 @@ class CVAEGAN(VAEGAN):
         # loss function
         self.criterion_label = self.get_loss_function_with_logit(config.label_loss)
         self.criterion_class = self.get_loss_function_with_logit(config.class_loss)
-        self.criterion_reconstruct = self.get_loss_function_with_logit(config.rec_loss)
+        # rec loss function is modified to handle pos_weight
+        if config.rec_loss == "BCELoss":
+            self.criterion_reconstruct = (
+                lambda gen, data: nn.BCEWithLogitsLoss(
+                    reduction="sum", pos_weight=self.calculate_pos_weight(data)
+                )(gen, data)
+                / data.shape[0]
+            )
+        else:
+            self.criterion_reconstruct = (
+                lambda gen, data: torch.sum(
+                    nn.MSELoss(reduction="none")(F.tanh(gen), data)
+                    * self.calculate_pos_weight(data)
+                )
+                / data.shape[0]
+            )
 
     def forward(self, x, c):
         """
@@ -2923,23 +2940,31 @@ class CVAEGAN(VAEGAN):
             #   generator
             ############
 
-            reconstructed_data, z, mu, logVar = self.vae(
+            reconstructed_data_logit, z, mu, logVar = self.vae(
                 dataset_batch, dataset_indices, output_all=True
             )
-            # add noise to data
-            reconstructed_data = self.add_noise_to_samples(F.tanh(reconstructed_data))
 
-            vae_rec_loss = self.criterion_reconstruct(reconstructed_data, dataset_batch)
+            # for BCELoss, the "target" should be in [0,1]
+            if config.rec_loss == "BCELoss":
+                vae_rec_loss = self.criterion_reconstruct(
+                    reconstructed_data_logit, (dataset_batch + 1) / 2
+                )
+            else:
+                vae_rec_loss = self.criterion_reconstruct(
+                    reconstructed_data_logit, dataset_batch
+                )
+            self.record_loss(vae_rec_loss.detach().cpu().numpy(), loss_name="rec_loss")
 
             # add KL loss
             KL = self.vae.calculate_log_prob_loss(z, mu, logVar) * config.kl_coef
+            self.record_loss(KL.detach().cpu().numpy(), loss_name="KL loss")
             vae_rec_loss += KL
 
             # output of the vae should fool discriminator
-            vae_out_d = self.discriminator(reconstructed_data)
+            vae_out_d = self.discriminator(F.tanh(reconstructed_data_logit))
             vae_d_loss = self.criterion_label(vae_out_d, real_label)
             # tree_fake on Cla
-            vae_out_c = self.classifier(reconstructed_data)
+            vae_out_c = self.classifier(F.tanh(reconstructed_data_logit))
             vae_c_loss = self.criterion_class(vae_out_c, dataset_indices)
 
             vae_loss = (vae_rec_loss + vae_d_loss + vae_c_loss) / 3
@@ -2966,8 +2991,6 @@ class CVAEGAN(VAEGAN):
 
             # detach so no update to generator
             tree_fake = F.tanh(self.vae.vae_decoder(z)).clone().detach()
-            # add noise to data
-            tree_fake = self.add_noise_to_samples(tree_fake)
 
             # real data (data from dataloader)
             dout_real = self.discriminator(dataset_batch)
