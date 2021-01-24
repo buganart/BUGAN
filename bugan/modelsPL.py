@@ -904,6 +904,8 @@ class BaseModel(pl.LightningModule):
         # calculate loss for model components
         loss = self.calculate_loss(dataset_batch, dataset_indices, optimizer_idx)
 
+        # check loss is not NaN (raise Exception if isNaN)
+        assert not torch.any(torch.isnan(loss))
         # record loss
         self.record_loss(loss.detach().cpu().numpy(), optimizer_idx)
         return loss
