@@ -1802,7 +1802,7 @@ class VAEGAN(BaseModel):
             # latent noise vector
             z = torch.randn(batch_size, latent_size).float().type_as(dataset_batch)
             tree_fake = F.tanh(self.vae.generate_sample(z))
-            
+
             # fake data (data from generator)
             # detach so no update to generator
             dout_fake = self.discriminator(tree_fake.clone().detach())
