@@ -25,7 +25,6 @@ class BaseModel(pl.LightningModule):
     """
     Base model
     The parent of all training models
-
     This model manages settings that shares among all training models, including
     1) setup model components (optimizer, setup on_epoch / on_batch, logging, ...)
     2) wandb logging (log when epoch end)
@@ -35,7 +34,6 @@ class BaseModel(pl.LightningModule):
     *) Note that __init__() and training_step should be implemented in child model
     *) Assumption: the input mesh array is in [-1,1], with -1 means no voxel and 1 means has voxel,
         but most of the time the input is [0,1], and the array is scaled in self.training_step()
-
     Attributes
     ----------
     model_list : list of nn.Module
@@ -127,13 +125,11 @@ class BaseModel(pl.LightningModule):
         ArgumentParser containing default values for all necessary argument
             The arguments here will be added to config if missing.
             If config already have the arguments, the values won't be replaced.
-
         Parameters
         ----------
         parent_parser : ArgumentParser
             This will usually be the empty ArgumentParser or the ArgumentParser from the ChildModel.add_model_specific_args()
             Then, the arguments here will be added to this ArgumentParser
-
         Returns
         -------
         parser : ArgumentParser
@@ -149,9 +145,9 @@ class BaseModel(pl.LightningModule):
 
         # label noise
         # real/fake label flip probability
-        parser.add_argument("--label_flip_prob", type=float, default=0.1)
+        parser.add_argument("--label_flip_prob", type=float, default=0.0)
         # real/fake label noise magnitude
-        parser.add_argument("--label_noise", type=float, default=0.2)
+        parser.add_argument("--label_noise", type=float, default=0.0)
 
         # instance noise (add noise to real data/generate data)
         # generate instance noise once per batch?
@@ -160,15 +156,15 @@ class BaseModel(pl.LightningModule):
         parser.add_argument(
             "--linear_annealed_instance_noise_epoch", type=int, default=1000
         )
-        parser.add_argument("--instance_noise", type=float, default=0.3)
+        parser.add_argument("--instance_noise", type=float, default=0.0)
 
         # default Generator/Discriminator parameters
         # latent vector size
         parser.add_argument("--z_size", type=int, default=128)
         # activation default leakyReLU
-        parser.add_argument("--activation_leakyReLU_slope", type=float, default=0.1)
+        parser.add_argument("--activation_leakyReLU_slope", type=float, default=0.0)
         # Dropout probability
-        parser.add_argument("--dropout_prob", type=float, default=0.3)
+        parser.add_argument("--dropout_prob", type=float, default=0.0)
         # spectral_norm
         parser.add_argument("--spectral_norm", type=bool, default=False)
         # use_simple_3dgan_struct
@@ -184,12 +180,10 @@ class BaseModel(pl.LightningModule):
         """
         helper function to combine Namespace object
         values in base will be overwritten by values in update
-
         Parameters
         ----------
         base : Namespace
         update : Namespace
-
         Returns
         -------
         Namespace
@@ -238,12 +232,10 @@ class BaseModel(pl.LightningModule):
             and then add only the missing parameter values to the user config dict
         (the values in add_model_specific_args() will be overwritten by values in user config dict)
         * this function should be in every child model __init__() right after super().__init__()
-
         Parameters
         ----------
         config : Namespace
             the config containing only user specified arguments
-
         Returns
         -------
         config : Namespace
@@ -272,7 +264,6 @@ class BaseModel(pl.LightningModule):
         """
         function to set Generator for the Model
         this function will be used in ChildModel to set up Generator, its optimizer, and wandbLog data
-
         Parameters
         ----------
         model_name : string
@@ -295,11 +286,9 @@ class BaseModel(pl.LightningModule):
             if None, unconditional data. The input vector size is the same as latent vector size
             if int, conditional data. The input vector size = latent vector size + number of classes
                 (class vector assume to be one-hot)
-
         Returns
         -------
         generator : nn.Module
-
         """
         config = self.config
         if not num_classes:
@@ -335,7 +324,6 @@ class BaseModel(pl.LightningModule):
         """
         function to set Discriminator for the Model
         this function will be used in ChildModel to set up Discriminator, its optimizer, and wandbLog data
-
         Parameters
         ----------
         model_name : string
@@ -356,11 +344,9 @@ class BaseModel(pl.LightningModule):
             the learning_rate of the Discriminator optimizer
         output_size : int
             the final output vector size. see also Discriminator class
-
         Returns
         -------
         discriminator : nn.Module
-
         """
         config = self.config
 
@@ -397,7 +383,6 @@ class BaseModel(pl.LightningModule):
         this function will be used in ChildModel to set up VAE, its optimizer, and wandbLog data
         Note that the VAE is made by a generator and a discriminator, so this function shares
             lots of similarities with the setup_Discriminator() and setup_Generator()
-
         Parameters
         ----------
         model_name : string
@@ -419,11 +404,9 @@ class BaseModel(pl.LightningModule):
             the string in ['Adam', 'SGD'], setup the optimizer of the VAE
         learning_rate : float
             the learning_rate of the VAE optimizer
-
         Returns
         -------
         vae : nn.Module
-
         """
         config = self.config
 
@@ -466,7 +449,6 @@ class BaseModel(pl.LightningModule):
         record (model_name_list, model_ep_loss_list) for logging loss
         * this function will be called when initializing model components
             in setup_Generator/Discriminator/VAE
-
         Parameters
         ----------
         model : nn.Module
@@ -489,12 +471,10 @@ class BaseModel(pl.LightningModule):
         return torch loss function based on the string loss_option
         the returned loss assume input to be logit (before sigmoid/tanh)
         the returned loss reduction method: mean over batch, sum over other dimenisons
-
         Parameters
         ----------
         loss_option : string
             loss_option in ['BCELoss', 'MSELoss', 'CrossEntropyLoss']
-
         Returns
         -------
         loss : nn Loss Function
@@ -532,12 +512,10 @@ class BaseModel(pl.LightningModule):
         """
         default function for pl.LightningModule to setup optimizer
         will be called automatically in pl.Trainer.fit()
-
         The optimizers will be setup based on the self.opt_config_list on
             the model components in self.model_list.
             (self.opt_config_list[i] for the optimizer of the component self.model_list[i])
         if the attribute self.config.cyclicLR_magnitude exists, also set cyclicLR schedulers
-
         Parameters
         ----------
         self.model_list : list of nn.Module
@@ -546,7 +524,6 @@ class BaseModel(pl.LightningModule):
             if exists, set all model optimizers with cyclicLR scheduler
             the base_lr = model_lr / cyclicLR_magnitude
             the max_lr = model_lr * cyclicLR_magnitude
-
         Returns
         -------
         optimizer_list : list of torch.optim optimizer
@@ -589,7 +566,6 @@ class BaseModel(pl.LightningModule):
     def get_model_optimizer(self, model, optimizer_option, lr):
         """
         return torch optimizer based on the string optimizer_option and the learning rate
-
         Parameters
         ----------
         model : nn.Module
@@ -598,7 +574,6 @@ class BaseModel(pl.LightningModule):
             the string in ['Adam', 'SGD'], setup the optimizer of the model
         lr : float
             the learning_rate of the model optimizer
-
         Returns
         -------
         torch.optim Optimizer
@@ -624,7 +599,6 @@ class BaseModel(pl.LightningModule):
         default function for pl.LightningModule to run on the start of every train epoch
         here the function just setup for recording the loss of model components
             and the instance noise magnitude for every epoch
-
         Parameters
         ----------
         self.model_list : list of nn.Module
@@ -636,7 +610,6 @@ class BaseModel(pl.LightningModule):
                 linear_annealed_instance_noise_epoch and instance_noise
         self.config.linear_annealed_instance_noise_epoch : int
         self.config.instance_noise : float
-
         """
 
         # reset ep_loss
@@ -667,14 +640,12 @@ class BaseModel(pl.LightningModule):
         default function for pl.LightningModule to run on the start of every train batch
         here the function just setup the placeholder for instance_noise when config.instance_noise_per_batch=True
         if config.instance_noise_per_batch=False, self.instance_noise will always be None
-
         Parameters
         ----------
         self.instance_noise : None/torch.Tensor
             a placeholder for instance_noise generated per batch (see self.config.instance_noise_per_batch)
             same noise will be applied to every generated data and real data in the same batch
                 when config.instance_noise_per_batch=True
-
         batch : tuple
         batch_idx : int
         dataloader_idx : int
@@ -690,7 +661,6 @@ class BaseModel(pl.LightningModule):
         """
         default function for pl.LightningModule to run on the end of every train epoch
         here the function just setup the log information as dictionary and log it to wandb
-
         Parameters
         ----------
         self.current_epoch : int
@@ -754,7 +724,6 @@ class BaseModel(pl.LightningModule):
         3) images of all generated tree
         4) meshes of all generated tree
         5) mean of per voxel std over generated trees
-
         Parameters
         ----------
         class_list : list of string
@@ -864,7 +833,6 @@ class BaseModel(pl.LightningModule):
         """
         default function for pl.LightningModule to train the model
         the model takes the dataset_batch to calculate the loss of the model components
-
         Parameters
         ----------
         dataset_batch : torch.Tensor
@@ -914,7 +882,6 @@ class BaseModel(pl.LightningModule):
         """
         function to calculate loss of each of the model components
         the model_name of the component: self.model_name_list[optimizer_idx]
-
         Parameters
         ----------
         dataset_batch : torch.Tensor
@@ -949,7 +916,6 @@ class BaseModel(pl.LightningModule):
             this function also add noise to the labels,
             so true:[1-label_noise,1], false:[0,label_noise]
             also, flip label with P(config.label_flip_prob)
-
         Parameters
         ----------
         dataset_batch : torch.Tensor
@@ -960,8 +926,6 @@ class BaseModel(pl.LightningModule):
         self.config.label_flip_prob : float
             create label noise by occassionally flip real/generated labels for Discriminator
             if the value=0.2, this means the label has probability of 0.2 to flip
-
-
         Returns
         -------
         real_label : torch.Tensor
@@ -1002,10 +966,8 @@ class BaseModel(pl.LightningModule):
         save loss to list for updating loss on wandb log
         this function will be called in the training_step()
         Note that the optimizer_idx is also the model component index in self.model_list
-
         if the loss_name is set, new log item will be added instead of replacing any of the loss
             of the model components. the optimizer_idx will be ignored.
-
         Parameters
         ----------
         loss : numpy array shape [1]
@@ -1033,7 +995,6 @@ class BaseModel(pl.LightningModule):
         stop update by return 0 loss
         * the parameter config.accuracy_hack is not in BaseModel.add_model_specific_args().
             Please add accuracy_hack in the child class.
-
         Parameters
         ----------
         dloss : torch.Tensor
@@ -1044,7 +1005,6 @@ class BaseModel(pl.LightningModule):
         dout_fake : torch.Tensor
             the discriminator output of the fake data (the generated data from the Generator)
             the tensor value is assume to be logit (fake if value < 0)
-
         Returns
         -------
         dloss : torch.Tensor
@@ -1070,7 +1030,6 @@ class BaseModel(pl.LightningModule):
         given latent_vector (B, Z) and class_vector (B),
         reshape class_vector to one-hot (B, num_classes),
         and merge with latent_vector
-
         Parameters
         ----------
         latent_vector : torch.Tensor
@@ -1078,7 +1037,6 @@ class BaseModel(pl.LightningModule):
         class_vector : torch.Tensor
             the class vector with shape (B,), where each value is the class index integer
         num_classes : int
-
         Returns
         -------
         z : torch.Tensor
@@ -1102,8 +1060,6 @@ class BaseModel(pl.LightningModule):
         """
         add instance noise to data (real data from dataset / generated data from model)
         create and add instance noise which has the same shape as the data
-
-
         Parameters
         ----------
         data : torch.Tensor
@@ -1122,8 +1078,6 @@ class BaseModel(pl.LightningModule):
             if self.config.instance_noise_per_batch=True, the generated noise will be recorded in self.instance_noise
                 and applied to every data in the same batch (will reset to None when next batch start).
             if self.config.instance_noise_per_batch=False, self.instance_noise should always be None.
-
-
         Returns
         -------
         data : torch.Tensor
@@ -1160,7 +1114,6 @@ class BaseModel(pl.LightningModule):
             to generate trees of the class with index c
         this function will generate n trees per call (n = num_trees),
             each tree is in shape [res, res, res] (res = config.resolution)
-
         Parameters
         ----------
         generator : nn.Module
@@ -1173,7 +1126,6 @@ class BaseModel(pl.LightningModule):
             the total number of classes in dataset
         num_trees : int
             the number of trees to generate
-
         Returns
         -------
         result : numpy.ndarray shape [num_trees, res, res, res]
@@ -1238,7 +1190,6 @@ class VAE_train(BaseModel):
     data will be processed by the encoder to be a latent vector, and the decoder will
         take the latent vector to reconstruct the data back.
     The model will train on the reconstruction loss between the original data and the reconstructed data
-
     Attributes
     ----------
     config : Namespace
@@ -1280,13 +1231,11 @@ class VAE_train(BaseModel):
         ArgumentParser containing default values for all necessary argument
             The arguments here will be added to config if missing.
             If config already have the arguments, the values won't be replaced.
-
         Parameters
         ----------
         parent_parser : ArgumentParser
             This will usually be the empty ArgumentParser or the ArgumentParser from the ChildModel.add_model_specific_args()
             Then, the arguments here will be added to this ArgumentParser
-
         Returns
         -------
         parser : ArgumentParser
@@ -1359,7 +1308,6 @@ class VAE_train(BaseModel):
         """
         calc pos_weight (negative weigth = 1, positive weight = num_zeros/num_ones)
         assume BCELoss: data in [0,1], and MSELoss: data in [-1,1]
-
         Parameters
         ----------
         data : torch.Tensor
@@ -1368,7 +1316,6 @@ class VAE_train(BaseModel):
                 the input should be unconditional, int the form [array]
                 where array is in shape (B, 1, res, res, res)
                 B = config.batch_size, res = config.resolution
-
         Returns
         -------
         pos_weight : torch.Tensor
@@ -1395,7 +1342,6 @@ class VAE_train(BaseModel):
         """
         default function for nn.Module to run output=model(input)
         defines how the model process data input to output using model components
-
         Parameters
         ----------
         x : torch.Tensor
@@ -1404,7 +1350,6 @@ class VAE_train(BaseModel):
                 the input should be unconditional, int the form [array]
                 where array is in shape (B, 1, res, res, res)
                 B = config.batch_size, res = config.resolution
-
         Returns
         -------
         x : torch.Tensor of shape (B, 1, res, res, res)
@@ -1417,7 +1362,6 @@ class VAE_train(BaseModel):
         """
         function to calculate loss of each of the model components
         the model_name of the component: self.model_name_list[optimizer_idx]
-
         Parameters
         ----------
         dataset_batch : torch.Tensor
@@ -1434,7 +1378,6 @@ class VAE_train(BaseModel):
             the index of the optimizer
             the optimizer_idx is based on the setup order of model components
             the model_name of the component: self.model_name_list[optimizer_idx]
-
         self.criterion_reconstruct : nn Loss function
             the loss function based on config.rec_loss to calculate the loss of VAE
         Returns
@@ -1471,12 +1414,10 @@ class VAE_train(BaseModel):
         the function to generate tree
         this function specifies the generator module of this model and pass to the parent generate_tree()
             see BaseModel generate_tree()
-
         Parameters
         ----------
         num_trees : int
             the number of trees to generate
-
         Returns
         -------
         result : numpy.ndarray shape [num_trees, res, res, res]
@@ -1493,14 +1434,10 @@ class VAEGAN(BaseModel):
     data will be processed by the encoder to be a latent vector, and the decoder will
         take the latent vector to reconstruct the data back. Finally, the discriminator
         will give the score of the reconstructed data on how close it is to real data
-
     The VAE part of the model will train on the reconstruction loss between the original data and the reconstructed data
     The discriminator part will train on prediction loss on classifying reconstructed data and real data
-
     reference: https://github.com/YixinChen-AI/CVAE-GAN-zoos-PyTorch-Beginner/blob/master/CVAE-GAN/CVAE-GAN.py
     this model is based on CVAEGAN, but with classifier removed and train on unconditional data
-
-
     Attributes
     ----------
     config : Namespace
@@ -1562,13 +1499,11 @@ class VAEGAN(BaseModel):
         ArgumentParser containing default values for all necessary argument
             The arguments here will be added to config if missing.
             If config already have the arguments, the values won't be replaced.
-
         Parameters
         ----------
         parent_parser : ArgumentParser
             This will usually be the empty ArgumentParser or the ArgumentParser from the ChildModel.add_model_specific_args()
             Then, the arguments here will be added to this ArgumentParser
-
         Returns
         -------
         parser : ArgumentParser
@@ -1656,7 +1591,6 @@ class VAEGAN(BaseModel):
         """
         calc pos_weight (negative weigth = 1, positive weight = num_zeros/num_ones)
         assume BCELoss: data in [0,1], and MSELoss: data in [-1,1]
-
         Parameters
         ----------
         data : torch.Tensor
@@ -1665,7 +1599,6 @@ class VAEGAN(BaseModel):
                 the input should be unconditional, int the form [array]
                 where array is in shape (B, 1, res, res, res)
                 B = config.batch_size, res = config.resolution
-
         Returns
         -------
         pos_weight : torch.Tensor
@@ -1692,7 +1625,6 @@ class VAEGAN(BaseModel):
         """
         default function for nn.Module to run output=model(input)
         defines how the model process data input to output using model components
-
         Parameters
         ----------
         x : torch.Tensor
@@ -1701,7 +1633,6 @@ class VAEGAN(BaseModel):
                 the input should be unconditional, int the form [array]
                 where array is in shape (B, 1, res, res, res)
                 B = config.batch_size, res = config.resolution
-
         Returns
         -------
         x : torch.Tensor of shape (B, 1)
@@ -1719,7 +1650,6 @@ class VAEGAN(BaseModel):
         """
         function to calculate loss of each of the model components
         the model_name of the component: self.model_name_list[optimizer_idx]
-
         Parameters
         ----------
         dataset_batch : torch.Tensor
@@ -1737,12 +1667,10 @@ class VAEGAN(BaseModel):
             the optimizer_idx is based on the setup order of model components
             the model_name of the component: self.model_name_list[optimizer_idx]
             here self.vae=0, self.discriminator=1
-
         self.criterion_label : nn Loss function
             the loss function based on config.label_loss to calculate the loss of discriminator
         self.criterion_reconstruct : nn Loss function
             the loss function based on config.rec_loss to calculate the loss of VAE
-
         Returns
         -------
         vae_loss : torch.Tensor of shape [1]
@@ -1822,12 +1750,10 @@ class VAEGAN(BaseModel):
         the function to generate tree
         this function specifies the generator module of this model and pass to the parent generate_tree()
             see BaseModel generate_tree()
-
         Parameters
         ----------
         num_trees : int
             the number of trees to generate
-
         Returns
         -------
         result : numpy.ndarray shape [num_trees, res, res, res]
@@ -1844,10 +1770,8 @@ class GAN(BaseModel):
     a random noise latent vector will be geenerated as the input of the model, and the generator will
         take the latent vector to the construct meshes. Then, the discriminator
         will give the score of the generated meshes on how close it is to real data
-
     The generator part of the model will train on how good the generated data fool the discriminator
     The discriminator part will train on prediction loss on classifying generated data and real data
-
     Attributes
     ----------
     config : Namespace
@@ -1895,13 +1819,11 @@ class GAN(BaseModel):
         ArgumentParser containing default values for all necessary argument
             The arguments here will be added to config if missing.
             If config already have the arguments, the values won't be replaced.
-
         Parameters
         ----------
         parent_parser : ArgumentParser
             This will usually be the empty ArgumentParser or the ArgumentParser from the ChildModel.add_model_specific_args()
             Then, the arguments here will be added to this ArgumentParser
-
         Returns
         -------
         parser : ArgumentParser
@@ -1964,13 +1886,11 @@ class GAN(BaseModel):
         """
         default function for nn.Module to run output=model(input)
         defines how the model process data input to output using model components
-
         Parameters
         ----------
         x : torch.Tensor
             the input latent noise tensor in shape (B, Z)
             B = config.batch_size, Z = config.z_size
-
         Returns
         -------
         x : torch.Tensor of shape (B, 1)
@@ -1986,7 +1906,6 @@ class GAN(BaseModel):
         """
         function to calculate loss of each of the model components
         the model_name of the component: self.model_name_list[optimizer_idx]
-
         Parameters
         ----------
         dataset_batch : torch.Tensor
@@ -2004,10 +1923,8 @@ class GAN(BaseModel):
             the optimizer_idx is based on the setup order of model components
             the model_name of the component: self.model_name_list[optimizer_idx]
             here self.generator=0, self.discriminator=1
-
         self.criterion_label : nn Loss function
             the loss function based on config.label_loss to calculate the loss of generator/discriminator
-
         Returns
         -------
         gloss : torch.Tensor of shape [1]
@@ -2075,12 +1992,10 @@ class GAN(BaseModel):
         the function to generate tree
         this function specifies the generator module of this model and pass to the parent generate_tree()
             see BaseModel generate_tree()
-
         Parameters
         ----------
         num_trees : int
             the number of trees to generate
-
         Returns
         -------
         result : numpy.ndarray shape [num_trees, res, res, res]
@@ -2094,11 +2009,9 @@ class GAN_Wloss(GAN):
     """
     GAN with Wasserstein loss
     This model is similar to the GAN model, but using Wasserstein loss to train
-
     reference: https://developers.google.com/machine-learning/gan/loss
     'Discriminator training just tries to make the output bigger for real instances than for fake instances,
     WGAN discriminator is actually called a "critic" instead of a "discriminator".'
-
     Attributes
     ----------
     config : Namespace
@@ -2114,13 +2027,11 @@ class GAN_Wloss(GAN):
         ArgumentParser containing default values for all necessary argument
             The arguments here will be added to config if missing.
             If config already have the arguments, the values won't be replaced.
-
         Parameters
         ----------
         parent_parser : ArgumentParser
             This will usually be the empty ArgumentParser or the ArgumentParser from the ChildModel.add_model_specific_args()
             Then, the arguments here will be added to this ArgumentParser
-
         Returns
         -------
         parser : ArgumentParser
@@ -2136,10 +2047,8 @@ class GAN_Wloss(GAN):
         """
         default function for pl.LightningModule to setup optimizer
         will be called automatically in pl.Trainer.fit()
-
         The optimizers for WGAN need to add restriction of parameter values
         for c = config.clip_value, the optimizer clip all parameters in the model to be in [-c,c]
-
         Parameters
         ----------
         config.clip_value : float
@@ -2169,7 +2078,6 @@ class GAN_Wloss(GAN):
         """
         function to calculate loss of each of the model components
         the model_name of the component: self.model_name_list[optimizer_idx]
-
         Parameters
         ----------
         dataset_batch : torch.Tensor
@@ -2187,7 +2095,6 @@ class GAN_Wloss(GAN):
             the optimizer_idx is based on the setup order of model components
             the model_name of the component: self.model_name_list[optimizer_idx]
             here self.generator=0, self.discriminator=1
-
         Returns
         -------
         gloss : torch.Tensor of shape [1]
@@ -2248,11 +2155,9 @@ class GAN_Wloss_GP(GAN):
     GAN with Wasserstein loss with gradient penalty
     This model is similar to the GAN model, but using Wasserstein loss to train
     WGAN_GP use gradient penalty instead of clip value
-
     reference: https://developers.google.com/machine-learning/gan/loss
     'Discriminator training just tries to make the output bigger for real instances than for fake instances,
     WGAN discriminator is actually called a "critic" instead of a "discriminator".'
-
     Attributes
     ----------
     config : Namespace
@@ -2269,13 +2174,11 @@ class GAN_Wloss_GP(GAN):
         ArgumentParser containing default values for all necessary argument
             The arguments here will be added to config if missing.
             If config already have the arguments, the values won't be replaced.
-
         Parameters
         ----------
         parent_parser : ArgumentParser
             This will usually be the empty ArgumentParser or the ArgumentParser from the ChildModel.add_model_specific_args()
             Then, the arguments here will be added to this ArgumentParser
-
         Returns
         -------
         parser : ArgumentParser
@@ -2291,9 +2194,7 @@ class GAN_Wloss_GP(GAN):
         """
         GP for gradient_penalty
         WGAN_GP use gradient penalty to add model parameter restriction instead of clipping values
-
         calculate gradient penalty based on real sample and generated sample
-
         Parameters
         ----------
         real_tree : torch.Tensor
@@ -2344,7 +2245,6 @@ class GAN_Wloss_GP(GAN):
         """
         function to calculate loss of each of the model components
         the model_name of the component: self.model_name_list[optimizer_idx]
-
         Parameters
         ----------
         dataset_batch : torch.Tensor
@@ -2362,7 +2262,6 @@ class GAN_Wloss_GP(GAN):
             the optimizer_idx is based on the setup order of model components
             the model_name of the component: self.model_name_list[optimizer_idx]
             here self.generator=0, self.discriminator=1
-
         Returns
         -------
         gloss : torch.Tensor of shape [1]
@@ -2430,13 +2329,10 @@ class CGAN(GAN):
         take the latent vector to the construct meshes. Then, the discriminator
         will give the score of the generated meshes on how close it is to real data, and the
         classifier will give the score of generated meshes on how close it is to each class
-
     The generator part of the model will train on how good the generated data fool the discriminator
     The discriminator part will train on prediction loss on classifying generated data and real data
     The classifier part will train on classification loss on classifying generated data and real data to each class
-
     See also GAN for the attributes of generator and discriminator
-
     Attributes
     ----------
     config : Namespace
@@ -2466,13 +2362,11 @@ class CGAN(GAN):
         ArgumentParser containing default values for all necessary argument
             The arguments here will be added to config if missing.
             If config already have the arguments, the values won't be replaced.
-
         Parameters
         ----------
         parent_parser : ArgumentParser
             This will usually be the empty ArgumentParser or the ArgumentParser from the ChildModel.add_model_specific_args()
             Then, the arguments here will be added to this ArgumentParser
-
         Returns
         -------
         parser : ArgumentParser
@@ -2529,7 +2423,6 @@ class CGAN(GAN):
         """
         default function for nn.Module to run output=model(input)
         defines how the model process data input to output using model components
-
         Parameters
         ----------
         x : torch.Tensor
@@ -2562,7 +2455,6 @@ class CGAN(GAN):
         """
         function to calculate loss of each of the model components
         the model_name of the component: self.model_name_list[optimizer_idx]
-
         Parameters
         ----------
         dataset_batch : torch.Tensor
@@ -2580,12 +2472,10 @@ class CGAN(GAN):
             the optimizer_idx is based on the setup order of model components
             the model_name of the component: self.model_name_list[optimizer_idx]
             here self.generator=0, self.discriminator=1, self.classifier=2
-
         self.criterion_label : nn Loss function
             the loss function based on config.label_loss to calculate the loss of generator/discriminator
         self.criterion_class : nn Loss function
             the loss function based on config.class_loss to calculate the loss of classifier
-
         Returns
         -------
         gloss : torch.Tensor of shape [1]
@@ -2713,7 +2603,6 @@ class CGAN(GAN):
         the function to generate tree
         this function specifies the generator module of this model and pass to the parent generate_tree()
             see BaseModel generate_tree()
-
         Parameters
         ----------
         num_trees : int
@@ -2722,7 +2611,6 @@ class CGAN(GAN):
             the class index of the class to generate
                 the class index is based on the datamodule.class_list
                 see datamodulePL.py datamodule_process class
-
         Returns
         -------
         result : numpy.ndarray shape [num_trees, res, res, res]
@@ -2743,14 +2631,11 @@ class CVAEGAN(VAEGAN):
     the vae will take the input and class label to reconstruct meshes. Then, the discriminator
         will give the score of the generated meshes on how close it is to real data, and the
         classifier will give the score of generated meshes on how close it is to each class
-
     The vae part of the model will train on how good the reconstructed data fool the discriminator,
         match the class_label, and how the reconstructed data looks like the input data
     The discriminator part will train on prediction loss on classifying generated data and real data
     The classifier part will train on classification loss on classifying generated data and real data to each class
-
     See also GAN for the attributes of generator and discriminator
-
     Attributes
     ----------
     config : Namespace
@@ -2782,13 +2667,11 @@ class CVAEGAN(VAEGAN):
         ArgumentParser containing default values for all necessary argument
             The arguments here will be added to config if missing.
             If config already have the arguments, the values won't be replaced.
-
         Parameters
         ----------
         parent_parser : ArgumentParser
             This will usually be the empty ArgumentParser or the ArgumentParser from the ChildModel.add_model_specific_args()
             Then, the arguments here will be added to this ArgumentParser
-
         Returns
         -------
         parser : ArgumentParser
@@ -2864,7 +2747,6 @@ class CVAEGAN(VAEGAN):
         """
         default function for nn.Module to run output=model(input)
         defines how the model process data input to output using model components
-
         Parameters
         ----------
         x : torch.Tensor
@@ -2893,7 +2775,6 @@ class CVAEGAN(VAEGAN):
         """
         function to calculate loss of each of the model components
         the model_name of the component: self.model_name_list[optimizer_idx]
-
         Parameters
         ----------
         dataset_batch : torch.Tensor
@@ -2911,14 +2792,12 @@ class CVAEGAN(VAEGAN):
             the optimizer_idx is based on the setup order of model components
             the model_name of the component: self.model_name_list[optimizer_idx]
             here self.generator=0, self.discriminator=1, self.classifier=2
-
         self.criterion_label : nn Loss function
             the loss function based on config.label_loss to calculate the loss of generator/discriminator
         self.criterion_class : nn Loss function
             the loss function based on config.class_loss to calculate the loss of classifier
         self.criterion_reconstruct : nn Loss function
             the loss function based on config.rec_loss to calculate the loss of VAE
-
         Returns
         -------
         vae_loss : torch.Tensor of shape [1]
@@ -3034,7 +2913,6 @@ class CVAEGAN(VAEGAN):
         the function to generate tree
         this function specifies the generator module of this model and pass to the parent generate_tree()
             see BaseModel generate_tree()
-
         Parameters
         ----------
         num_trees : int
@@ -3043,7 +2921,6 @@ class CVAEGAN(VAEGAN):
             the class index of the class to generate
                 the class index is based on the datamodule.class_list
                 see datamodulePL.py datamodule_process class
-
         Returns
         -------
         result : numpy.ndarray shape [num_trees, res, res, res]
@@ -3066,7 +2943,6 @@ class Generator(nn.Module):
     """
     The generator class
     This class serves as the generator and VAE decoder of models above
-
     Attributes
     ----------
     layer_per_block : int
@@ -3105,7 +2981,7 @@ class Generator(nn.Module):
         z_size=128,
         output_size=64,
         num_layer_unit=32,
-        dropout_prob=0.3,
+        dropout_prob=0.0,
         spectral_norm=False,
         use_simple_3dgan_struct=False,
         activations=nn.LeakyReLU(0.0, True),
@@ -3222,7 +3098,6 @@ class Generator(nn.Module):
         """
         default function for nn.Module to run output=model(input)
         defines how the model process data input to output using model components
-
         Parameters
         ----------
         x : torch.Tensor
@@ -3247,7 +3122,6 @@ class Discriminator(nn.Module):
     """
     The Discriminator class
     This class serves as the discriminator, the classifier, and VAE encoder of models above
-
     Attributes
     ----------
     layer_per_block : int
@@ -3287,7 +3161,7 @@ class Discriminator(nn.Module):
         output_size=1,
         input_size=64,
         num_layer_unit=16,
-        dropout_prob=0.3,
+        dropout_prob=0.0,
         spectral_norm=False,
         use_simple_3dgan_struct=False,
         activations=nn.LeakyReLU(0.0, True),
@@ -3402,13 +3276,11 @@ class Discriminator(nn.Module):
         """
         default function for nn.Module to run output=model(input)
         defines how the model process data input to output using model components
-
         Parameters
         ----------
         x : torch.Tensor
             the input data tensor in shape (B, 1, R, R, R)
                 B = config.batch_size, R = input_size
-
         Returns
         -------
         x : torch.Tensor
@@ -3430,11 +3302,9 @@ class VAE(nn.Module):
         = noise reparameterization of the output of the encoder
     if the VAE is conditional, the latent vector of the decoder
         = noise reparameterization of the output of the encoder + one-hot class vector
-
     reference: https://github.com/YixinChen-AI/CVAE-GAN-zoos-PyTorch-Beginner/blob/master/CVAE-GAN/CVAE-GAN.py
     reference: https://github.com/PyTorchLightning/pytorch-lightning-bolts/blob/master/pl_bolts/models/autoencoders/basic_vae/basic_vae_module.py
     reference: https://github.com/tensorflow/docs-l10n/blob/master/site/zh-cn/tutorials/generative/cvae.ipynb
-
     Attributes
     ----------
     encoder : nn.Module
@@ -3446,7 +3316,7 @@ class VAE(nn.Module):
             the output vector of the encoder + one-hot class vector
     """
 
-    def __init__(self, encoder, decoder, num_classes=None, dropout_prob=0.3):
+    def __init__(self, encoder, decoder, num_classes=None, dropout_prob=0.0):
         super(VAE, self).__init__()
         assert encoder.input_size == decoder.output_size
         self.sample_size = decoder.output_size
@@ -3471,7 +3341,6 @@ class VAE(nn.Module):
         noise reparameterization of the VAE
         reference: https://github.com/PyTorchLightning/pytorch-lightning-bolts/blob/master/pl_bolts/models/autoencoders/basic_vae/basic_vae_module.py
         reference: https://github.com/tensorflow/docs-l10n/blob/master/site/zh-cn/tutorials/generative/cvae.ipynb
-
         Parameters
         ----------
         mean : torch.Tensor of shape (B, Z)
@@ -3494,7 +3363,6 @@ class VAE(nn.Module):
         reference: https://github.com/PyTorchLightning/pytorch-lightning-bolts/blob/master/pl_bolts/models/autoencoders/basic_vae/basic_vae_module.py
         reference: https://github.com/tensorflow/docs-l10n/blob/master/site/zh-cn/tutorials/generative/cvae.ipynb
         See VAE class
-
         Parameters
         ----------
         mu : torch.Tensor
@@ -3527,7 +3395,6 @@ class VAE(nn.Module):
         """
         default function for nn.Module to run output=model(input)
         defines how the model process data input to output using model components
-
         Parameters
         ----------
         x : torch.Tensor
@@ -3538,7 +3405,6 @@ class VAE(nn.Module):
                 each element is the class index of the input x
         output_all : boolean
             whether to also output x_mean and x_logvar
-
         Returns
         -------
         x : torch.Tensor of shape (B, 1, R, R, R)
@@ -3576,7 +3442,6 @@ class VAE(nn.Module):
     def generate_sample(self, z, c=None):
         """
         the function to generate sample given a latent vector (and class index)
-
         Parameters
         ----------
         z : torch.Tensor
@@ -3585,7 +3450,6 @@ class VAE(nn.Module):
         c : torch.Tensor
             the input class tensor in shape (B,)
                 each element is the class index of the input x
-
         Returns
         -------
         x : torch.Tensor
