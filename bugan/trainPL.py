@@ -133,7 +133,7 @@ def init_wandb_run(config, run_dir="./", mode="run"):
     print("run id: " + str(wandb.run.id))
     print("run name: " + str(wandb.run.name))
     wandb.watch_called = False
-    run.tags.append(selected_model)
+    run.tags = run.tags + (selected_model,)
     return run, config
 
 
