@@ -25,6 +25,8 @@ from bugan.trainPL import (
     setup_datamodule,
     setup_model,
     train,
+    save_config,
+    load_config,
 )
 from test_data_loader import data_path
 
@@ -552,7 +554,7 @@ def test_trainPL_script(data_path, tmp_path, resume_id):
         aug_rotation_type="random rotation",
         data_augmentation=True,
         aug_rotation_axis=(0, 1, 0),
-        data_location=data_path,
+        data_location=str(data_path),
         selected_model="GAN",
         log_interval=1,
         log_num_samples=1,
@@ -602,6 +604,12 @@ def test_trainPL_script(data_path, tmp_path, resume_id):
 
     if torch.cuda.is_available():
         extra_trainer_args["gpus"] = None
+
+    # test save/load config
+    save_config(config, run)
+    filepath = str(Path(run.dir).absolute() / "config.json")
+    loaded = load_config(filepath)
+    assert loaded.aug_rotation_type == config.aug_rotation_type
 
     train(config, run, model, dataModule, extra_trainer_args)
 

@@ -3,6 +3,7 @@ import os
 from io import BytesIO
 import sys
 import warnings
+import json
 import zipfile
 import trimesh
 import numpy as np
@@ -39,7 +40,11 @@ VALID_CONFIG_KEYWORDS = [
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import WandbLogger
 
-from bugan.functionsPL import load_checkpoint_from_cloud, SaveWandbCallback
+from bugan.functionsPL import (
+    save_checkpoint_to_cloud,
+    load_checkpoint_from_cloud,
+    SaveWandbCallback,
+)
 from bugan.datamodulePL import DataModule_process
 from bugan.modelsPL import (
     VAEGAN,
@@ -68,6 +73,21 @@ def _get_models(model_name):
     else:
         MODEL_CLASS = CVAEGAN
     return MODEL_CLASS
+
+
+def save_config(config, run):
+    filepath = str(Path(run.dir).absolute() / "config.json")
+    config_dict = vars(config)
+    with open(filepath, "w") as fp:
+        json.dump(config_dict, fp)
+    save_checkpoint_to_cloud(filepath)
+
+
+def load_config(filepath):
+    with open(filepath, "r") as fp:
+        config_dict = json.load(fp)
+        return Namespace(**config_dict)
+    return None
 
 
 def get_model_argument_parser(model_name):
@@ -182,6 +202,7 @@ def train(config, run, model, dataModule, extra_trainer_args):
     config = setup_config_arguments(config)
     # log config
     wandb.config.update(config)
+    save_config(config, run)
 
     checkpoint_path = str(Path(run.dir).absolute() / "checkpoint.ckpt")
     callbacks = [SaveWandbCallback(config.log_interval, checkpoint_path)]
