@@ -1474,6 +1474,8 @@ class VAEGAN(BaseModel):
         the learning_rate of the Discriminator
     config.kl_coef : float
         the coefficient of the KL loss in the final VAE loss
+    config.d_rec_coef : float
+        the coefficient of the Discriminator loss compared to the reconstruction loss
     config.decoder_num_layer_unit : int/list
         the decoder_num_layer_unit for BaseModel setup_VAE()
         see also Generator class, BaseModel setup_VAE()
@@ -1528,6 +1530,9 @@ class VAEGAN(BaseModel):
         parser.add_argument("--d_lr", type=float, default=1e-5)
         # KL loss coefficient
         parser.add_argument("--kl_coef", type=float, default=1)
+        # Discriminator loss coefficient (compared to rec_loss)
+        parser.add_argument("--d_rec_coef", type=float, default=1)
+
         # number of unit per layer
         decoder_num_layer_unit = DEFAULT_NUM_LAYER_UNIT
         encoder_num_layer_unit = DEFAULT_NUM_LAYER_UNIT_REV
@@ -1712,9 +1717,20 @@ class VAEGAN(BaseModel):
             vae_rec_loss += KL
 
             # output of the vae should fool discriminator
-            vae_out_d = self.discriminator(F.tanh(reconstructed_data_logit))
-            vae_d_loss = self.criterion_label(vae_out_d, real_label)
+            vae_out_d1 = self.discriminator(F.tanh(reconstructed_data_logit))
+            vae_d_loss1 = self.criterion_label(vae_out_d1, real_label)
+            ##### generate fake trees
+            latent_size = self.vae.decoder_z_size
+            # latent noise vector
+            z = torch.randn(batch_size, latent_size).float().type_as(dataset_batch)
+            tree_fake = F.tanh(self.vae.generate_sample(z))
+            # output of the vae should fool discriminator
+            vae_out_d2 = self.discriminator(tree_fake)
+            vae_d_loss2 = self.criterion_label(vae_out_d2, real_label)
 
+            vae_d_loss = (vae_d_loss1 + vae_d_loss2) / 2
+
+            vae_d_loss = vae_d_loss * config.d_rec_coef
             vae_loss = (vae_rec_loss + vae_d_loss) / 2
 
             return vae_loss
@@ -2682,6 +2698,8 @@ class CVAEGAN(VAEGAN):
         parser.add_argument("--num_classes", type=int, default=10)
         # loss function in {'BCELoss', 'MSELoss', 'CrossEntropyLoss'}
         parser.add_argument("--class_loss", type=str, default="CrossEntropyLoss")
+        # Classifier loss coefficient (compared to rec_loss)
+        parser.add_argument("--c_rec_coef", type=float, default=1)
 
         return VAEGAN.add_model_specific_args(parser)
 
@@ -2840,12 +2858,26 @@ class CVAEGAN(VAEGAN):
             vae_rec_loss += KL
 
             # output of the vae should fool discriminator
-            vae_out_d = self.discriminator(F.tanh(reconstructed_data_logit))
-            vae_d_loss = self.criterion_label(vae_out_d, real_label)
+            vae_out_d1 = self.discriminator(F.tanh(reconstructed_data_logit))
+            vae_d_loss1 = self.criterion_label(vae_out_d1, real_label)
+            ##### generate fake trees
+            # latent noise vector
+            z = torch.randn(batch_size, config.z_size).float().type_as(dataset_batch)
+            z = self.merge_latent_and_class_vector(
+                z, dataset_indices, self.config.num_classes
+            )
+            tree_fake = F.tanh(self.vae.generate_sample(z))
+            # output of the vae should fool discriminator
+            vae_out_d2 = self.discriminator(tree_fake)
+            vae_d_loss2 = self.criterion_label(vae_out_d2, real_label)
+            vae_d_loss = (vae_d_loss1 + vae_d_loss2) / 2
+
             # tree_fake on Cla
             vae_out_c = self.classifier(F.tanh(reconstructed_data_logit))
             vae_c_loss = self.criterion_class(vae_out_c, dataset_indices)
 
+            vae_d_loss = vae_d_loss * config.d_rec_coef
+            vae_c_loss = vae_c_loss * config.c_rec_coef
             vae_loss = (vae_rec_loss + vae_d_loss + vae_c_loss) / 3
 
             return vae_loss
