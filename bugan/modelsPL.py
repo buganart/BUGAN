@@ -1713,7 +1713,7 @@ class VAEGAN(BaseModel):
 
             # add KL loss
             KL = self.vae.calculate_log_prob_loss(z, mu, logVar) * config.kl_coef
-            self.record_loss(KL.detach().cpu().numpy(), loss_name="KL loss")
+            self.record_loss(KL.detach().cpu().numpy(), loss_name="KL_loss")
             vae_rec_loss += KL
 
             # output of the vae should fool discriminator
@@ -1731,6 +1731,7 @@ class VAEGAN(BaseModel):
             vae_d_loss = (vae_d_loss1 + vae_d_loss2) / 2
 
             vae_d_loss = vae_d_loss * config.d_rec_coef
+            self.record_loss(vae_d_loss.detach().cpu().numpy(), loss_name="vae_d_loss")
             vae_loss = (vae_rec_loss + vae_d_loss) / 2
 
             return vae_loss
@@ -2877,7 +2878,9 @@ class CVAEGAN(VAEGAN):
             vae_c_loss = self.criterion_class(vae_out_c, dataset_indices)
 
             vae_d_loss = vae_d_loss * config.d_rec_coef
+            self.record_loss(vae_d_loss.detach().cpu().numpy(), loss_name="vae_d_loss")
             vae_c_loss = vae_c_loss * config.c_rec_coef
+            self.record_loss(vae_c_loss.detach().cpu().numpy(), loss_name="vae_c_loss")
             vae_loss = (vae_rec_loss + vae_d_loss + vae_c_loss) / 3
 
             return vae_loss
