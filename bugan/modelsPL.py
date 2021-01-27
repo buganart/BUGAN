@@ -1,5 +1,4 @@
 from bugan.functionsPL import *
-import bugan
 
 import numpy as np
 
@@ -14,6 +13,8 @@ from argparse import Namespace, ArgumentParser
 from torch.utils.data import DataLoader, TensorDataset
 
 import pkgutil
+import io
+import json
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 device
@@ -253,7 +254,7 @@ class BaseModel(pl.LightningModule):
             )
             try:
                 # replace default argument with stored args file
-                data = pkgutil.get_data(bugan, default_args_filename)
+                data = pkgutil.get_data("bugan", default_args_filename)
                 fp = io.BytesIO(data)
                 default_args = json.load(fp)
                 default_args = Namespace(**default_args)
