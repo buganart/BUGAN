@@ -75,15 +75,23 @@ def _get_models(model_name):
     return MODEL_CLASS
 
 
-def save_config(config, run):
-    filepath = str(Path(run.dir).absolute() / "config.json")
-    config_dict = vars(config)
+def save_model_args(config, run):
+    filepath = str(Path(run.dir).absolute() / "model_args.json")
+
+    # save only the model argument (args in parser)
+    parser = get_model_argument_parser(config.selected_model)
+    args_keys = vars(parser.parse_args([])).keys()
+    config = vars(config)
+    config_dict = {}
+    for k in args_keys:
+        config_dict[k] = config[k]
+
     with open(filepath, "w") as fp:
         json.dump(config_dict, fp)
     save_checkpoint_to_cloud(filepath)
 
 
-def load_config(filepath):
+def load_model_args(filepath):
     with open(filepath, "r") as fp:
         config_dict = json.load(fp)
         return Namespace(**config_dict)
@@ -202,7 +210,7 @@ def train(config, run, model, dataModule, extra_trainer_args):
     config = setup_config_arguments(config)
     # log config
     wandb.config.update(config)
-    save_config(config, run)
+    save_model_args(config, run)
 
     checkpoint_path = str(Path(run.dir).absolute() / "checkpoint.ckpt")
     callbacks = [SaveWandbCallback(config.log_interval, checkpoint_path)]

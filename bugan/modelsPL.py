@@ -1,5 +1,5 @@
 from bugan.functionsPL import *
-
+import bugan
 
 import numpy as np
 
@@ -12,6 +12,8 @@ import pytorch_lightning as pl
 
 from argparse import Namespace, ArgumentParser
 from torch.utils.data import DataLoader, TensorDataset
+
+import pkgutil
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 device
@@ -242,13 +244,28 @@ class BaseModel(pl.LightningModule):
             the config containing all necessary arguments for the Model,
             with default arguments from add_model_specific_args() replaced by user specified arguments
         """
-        if hasattr(config, "cyclicLR_magnitude"):
-            resolution = config.resolution
-        else:
-            resolution = 32
         # add missing default parameters
         parser = self.add_model_specific_args(ArgumentParser())
         args = parser.parse_args([])
+        if hasattr(config, "selected_model"):
+            default_args_filename = (
+                "model_args_default/" + config.selected_model + "_default.json"
+            )
+            try:
+                # replace default argument with stored args file
+                data = pkgutil.get_data(bugan, default_args_filename)
+                fp = io.BytesIO(data)
+                default_args = json.load(fp)
+                default_args = Namespace(**default_args)
+                args = BaseModel.combine_namespace(args, default_args)
+                print(
+                    f"file {default_args_filename} found. Using stored arguments as model default."
+                )
+            except:
+                print(
+                    f"file {default_args_filename} not found. Using ArgumentParser arguments as model default."
+                )
+
         config = BaseModel.combine_namespace(args, config)
         return config
 

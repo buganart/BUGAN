@@ -25,8 +25,9 @@ from bugan.trainPL import (
     setup_datamodule,
     setup_model,
     train,
-    save_config,
-    load_config,
+    save_model_args,
+    load_model_args,
+    setup_config_arguments,
 )
 from test_data_loader import data_path
 
@@ -592,9 +593,7 @@ def test_trainPL_script(data_path, tmp_path, resume_id):
 
     run_dir = tmp_path / "wandb_run_dir"
     run_dir.mkdir()
-
     run, config = init_wandb_run(config, run_dir=run_dir, mode="offline")
-
     dataModule = setup_datamodule(
         config,
         tmp_folder=tmp_path / "datamodule_tmp_dir",
@@ -606,10 +605,12 @@ def test_trainPL_script(data_path, tmp_path, resume_id):
         extra_trainer_args["gpus"] = None
 
     # test save/load config
-    save_config(config, run)
-    filepath = str(Path(run.dir).absolute() / "config.json")
-    loaded = load_config(filepath)
-    assert loaded.aug_rotation_type == config.aug_rotation_type
+    config = setup_config_arguments(config)
+    save_model_args(config, run)
+    filepath = str(Path(run.dir).absolute() / "model_args.json")
+    loaded = load_model_args(filepath)
+
+    assert loaded.z_size == config.z_size
 
     train(config, run, model, dataModule, extra_trainer_args)
 
