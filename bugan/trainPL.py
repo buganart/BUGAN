@@ -11,6 +11,7 @@ from argparse import Namespace, ArgumentParser
 import wandb
 from pathlib import Path
 import pkg_resources
+import pprint
 
 import torch
 import torch.nn as nn
@@ -211,6 +212,7 @@ def train(config, run, model, dataModule, extra_trainer_args):
     # log config
     wandb.config.update(config)
     save_model_args(config, run)
+    pprint.pprint(vars(config))
 
     checkpoint_path = str(Path(run.dir).absolute() / "checkpoint.ckpt")
     callbacks = [SaveWandbCallback(config.log_interval, checkpoint_path)]

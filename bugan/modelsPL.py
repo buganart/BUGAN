@@ -165,7 +165,7 @@ class BaseModel(pl.LightningModule):
         # latent vector size
         parser.add_argument("--z_size", type=int, default=128)
         # activation default leakyReLU
-        parser.add_argument("--activation_leakyReLU_slope", type=float, default=0.0)
+        parser.add_argument("--activation_leakyReLU_slope", type=float, default=0.1)
         # Dropout probability
         parser.add_argument("--dropout_prob", type=float, default=0.0)
         # spectral_norm
