@@ -3087,7 +3087,7 @@ class Generator(nn.Module):
             raise Exception("num_layer_unit should be int of list of int.")
 
         # add initial self.fc_channel to num_layer_unit_list
-        num_layer_unit_list = [self.fc_channel] + num_layer_unit_list
+        num_layer_unit_list = [self.z_size] + num_layer_unit_list
         gen_module = []
         #
         for i in range(self.num_blocks):
@@ -3139,7 +3139,7 @@ class Generator(nn.Module):
         if not self.use_simple_3dgan_struct:
             self.gen_fc = nn.Linear(
                 self.z_size,
-                self.fc_channel * self.fc_size * self.fc_size * self.fc_size,
+                self.z_size,
             )
         else:
             # create simple layer (not used in training)
@@ -3162,11 +3162,14 @@ class Generator(nn.Module):
             the generated data in shape (B, 1, R, R, R) from the Generator based on latent vector x
             B = config.batch_size, R = output_size
         """
-        if not self.use_simple_3dgan_struct:
+        if self.use_simple_3dgan_struct:
+            x = x.view(
+                x.shape[0], self.fc_channel, self.fc_size, self.fc_size, self.fc_size
+            )
+        else:
             x = self.gen_fc(x)
-        x = x.view(
-            x.shape[0], self.fc_channel, self.fc_size, self.fc_size, self.fc_size
-        )
+            x = x.view(x.shape[0], self.z_size, 1, 1, 1)
+            x = nn.Upsample(scale_factor=4, mode="trilinear")(x)
         x = self.gen(x)
         return x
 
