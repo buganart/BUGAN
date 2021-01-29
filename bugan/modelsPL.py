@@ -1228,9 +1228,6 @@ class VAE_train(BaseModel):
         the learning_rate of the VAE
     config.kl_coef : float
         the coefficient of the KL loss in the final VAE loss
-    config.voxel_diff_coef : float
-        the coefficient of the voxel difference loss in the final VAE loss
-        added absolute voxel difference between data and reconstructed as a part of loss
     config.decoder_num_layer_unit : int/list
         the decoder_num_layer_unit for BaseModel setup_VAE()
         see also Generator class, BaseModel setup_VAE()
@@ -2892,8 +2889,11 @@ class CVAEGAN(VAEGAN):
             vae_d_loss = (vae_d_loss1 + vae_d_loss2) / 2
 
             # tree_fake on Cla
-            vae_out_c = self.classifier(F.tanh(reconstructed_data_logit))
-            vae_c_loss = self.criterion_class(vae_out_c, dataset_indices)
+            vae_out_c1 = self.classifier(F.tanh(reconstructed_data_logit))
+            vae_c_loss1 = self.criterion_class(vae_out_c1, dataset_indices)
+            vae_out_c2 = self.classifier(tree_fake)
+            vae_c_loss2 = self.criterion_class(vae_out_c2, dataset_indices)
+            vae_c_loss = (vae_c_loss1 + vae_c_loss2) / 2
 
             vae_d_loss = vae_d_loss * config.d_rec_coef
             self.record_loss(vae_d_loss.detach().cpu().numpy(), loss_name="vae_d_loss")
