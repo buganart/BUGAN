@@ -14,6 +14,7 @@ from bugan.modelsPL import (
     GAN,
     GAN_Wloss,
     GAN_Wloss_GP,
+    VAEGAN_Wloss_GP,
     CGAN,
     CVAEGAN,
 )
@@ -134,6 +135,23 @@ def test_gan_wloss_gp_forward(device):
     )
     model = GAN_Wloss_GP(config).to(device)
     x = torch.tensor(np.ones([2, 2], dtype=np.float32)).to(device)
+    y = model(x)
+    assert list(y.shape) == [2, 1]
+
+
+def test_vaegan_wloss_gp_forward(device):
+    config = Namespace(
+        resolution=32,
+        d_layer=1,
+        encoder_num_layer_unit=[2, 2, 2, 2],
+        decoder_num_layer_unit=[2, 2, 2, 2],
+        dis_num_layer_unit=[2, 2, 2, 2],
+        vae_decoder_layer=1,
+        vae_encoder_layer=1,
+        z_size=2,
+    )
+    model = VAEGAN_Wloss_GP(config).to(device)
+    x = torch.tensor(np.ones([2, 1, 32, 32, 32], dtype=np.float32)).to(device)
     y = model(x)
     assert list(y.shape) == [2, 1]
 
@@ -273,6 +291,27 @@ def test_gan_wloss_gp_training_step(device):
     loss_d = model.training_step(dataset_batch=[data], batch_idx=0, optimizer_idx=1)
     # tensor with single element has shape []
     assert list(loss_g.shape) == [] and not loss_g.isnan() and not loss_g.isinf()
+    assert list(loss_d.shape) == [] and not loss_d.isnan() and not loss_d.isinf()
+
+
+def test_vaegan_wloss_gp_training_step(device):
+    config = Namespace(
+        resolution=32,
+        d_layer=1,
+        encoder_num_layer_unit=[2, 2, 2, 2],
+        decoder_num_layer_unit=[2, 2, 2, 2],
+        dis_num_layer_unit=[2, 2, 2, 2],
+        vae_decoder_layer=1,
+        vae_encoder_layer=1,
+        z_size=2,
+    )
+    model = VAEGAN_Wloss_GP(config).to(device)
+    data = torch.tensor(np.ones([2, 1, 32, 32, 32], dtype=np.float32)).to(device)
+    model.on_train_epoch_start()
+    loss_vae = model.training_step(dataset_batch=[data], batch_idx=0, optimizer_idx=0)
+    loss_d = model.training_step(dataset_batch=[data], batch_idx=0, optimizer_idx=1)
+    # tensor with single element has shape []
+    assert list(loss_vae.shape) == [] and not loss_vae.isnan() and not loss_vae.isinf()
     assert list(loss_d.shape) == [] and not loss_d.isnan() and not loss_d.isinf()
 
 
@@ -483,6 +522,35 @@ def test_gan_wloss_training_loop_full(device, config, data_module):
 @pytest.mark.parametrize("isConditionalData", [True])
 def test_gan_wloss_gp_training_loop_full(device, config, data_module):
     model = GAN_Wloss_GP(config).to(device)
+    trainer = pl.Trainer(max_epochs=1)
+    trainer.fit(model, data_module)
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        Namespace(
+            resolution=32,
+            d_layer=1,
+            encoder_num_layer_unit=[1, 1, 1, 1],
+            decoder_num_layer_unit=[1, 1, 1, 1],
+            dis_num_layer_unit=[1, 1, 1, 1],
+            vae_decoder_layer=1,
+            vae_encoder_layer=1,
+            z_size=2,
+            # for dataloader
+            batch_size=1,
+            data_augmentation=True,
+            aug_rotation_type="random rotation",
+            aug_rotation_axis=(0, 1, 0),
+            log_interval=1,
+        )
+    ],
+)
+@pytest.mark.parametrize("isConditionalData", [True])
+@pytest.mark.parametrize("data_process_format", ["zip"])
+def test_vaegan_wloss_gp_training_loop_full(device, config, data_module):
+    model = VAEGAN_Wloss_GP(config).to(device)
     trainer = pl.Trainer(max_epochs=1)
     trainer.fit(model, data_module)
 

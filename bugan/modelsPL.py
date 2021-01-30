@@ -2222,7 +2222,8 @@ class GAN_Wloss_GP(GAN):
 
         return GAN.add_model_specific_args(parser)
 
-    def gradient_penalty(self, real_tree, generated_tree):
+    @staticmethod
+    def gradient_penalty(discriminator, gp_epsilon, real_tree, generated_tree):
         """
         GP for gradient_penalty
         WGAN_GP use gradient penalty to add model parameter restriction instead of clipping values
@@ -2250,7 +2251,7 @@ class GAN_Wloss_GP(GAN):
         interpolated = interpolated.requires_grad_().float()
 
         # calculate prob of interpolated trees
-        prob_interpolated = self.discriminator(interpolated)
+        prob_interpolated = discriminator(interpolated)
 
         # grad tensor (all 1 to backprop some values)
         grad_tensor = torch.ones(prob_interpolated.size()).float().type_as(real_tree)
@@ -2271,7 +2272,7 @@ class GAN_Wloss_GP(GAN):
         grad_norm = torch.sqrt(torch.sum(grad ** 2, dim=1) + 1e-10)
 
         # return gradient penalty
-        return self.config.gp_epsilon * ((grad_norm - 1) ** 2).mean()
+        return gp_epsilon * ((grad_norm - 1) ** 2).mean()
 
     def calculate_loss(self, dataset_batch, dataset_indices=None, optimizer_idx=0):
         """
@@ -2344,9 +2345,170 @@ class GAN_Wloss_GP(GAN):
             # detach so no update to generator
             dout_fake = self.discriminator(tree_fake.clone().detach())
 
-            gp = self.gradient_penalty(dataset_batch, tree_fake)
+            gp = self.gradient_penalty(
+                self.discriminator, self.config.gp_epsilon, dataset_batch, tree_fake
+            )
             # d should maximize diff of real vs fake (dout_real - dout_fake)
             dloss = dout_fake.mean() - dout_real.mean() + gp
+            return dloss
+
+
+class VAEGAN_Wloss_GP(VAEGAN):
+    """
+    GAN with Wasserstein loss with gradient penalty
+    This model is similar to the GAN model, but using Wasserstein loss to train
+    WGAN_GP use gradient penalty instead of clip value
+    reference: https://developers.google.com/machine-learning/gan/loss
+    'Discriminator training just tries to make the output bigger for real instances than for fake instances,
+    WGAN discriminator is actually called a "critic" instead of a "discriminator".'
+    Attributes
+    ----------
+    config : Namespace
+        dictionary of training parameters
+    config.gp_epsilon: float
+        to make Wasserstein loss work, restriction of parameter values is needed
+        gp_epsilon determines the scale of the calculated gradient penalty is used as the training loss
+        gp_loss = gp_epsilon * gradient_penalty
+    """
+
+    @staticmethod
+    def add_model_specific_args(parent_parser):
+        """
+        ArgumentParser containing default values for all necessary argument
+            The arguments here will be added to config if missing.
+            If config already have the arguments, the values won't be replaced.
+        Parameters
+        ----------
+        parent_parser : ArgumentParser
+            This will usually be the empty ArgumentParser or the ArgumentParser from the ChildModel.add_model_specific_args()
+            Then, the arguments here will be added to this ArgumentParser
+        Returns
+        -------
+        parser : ArgumentParser
+            the ArgumentParser with all arguments below.
+        """
+        parser = ArgumentParser(parents=[parent_parser], add_help=False)
+        # important argument
+        parser.add_argument("--gp_epsilon", type=float, default=2.0)
+
+        return VAEGAN.add_model_specific_args(parser)
+
+    def calculate_loss(self, dataset_batch, dataset_indices=None, optimizer_idx=0):
+        """
+        function to calculate loss of each of the model components
+        the model_name of the component: self.model_name_list[optimizer_idx]
+        Parameters
+        ----------
+        dataset_batch : torch.Tensor
+            the input mesh data from the datamodule scaled to [-1,1]
+                where array is in shape (B, 1, res, res, res)
+                B = config.batch_size, res = config.resolution
+            see datamodulePL.py datamodule_process class
+        dataset_indices : torch.Tensor
+            the input data indices for conditional data from the datamodule
+                where index is in shape (B,), each element is
+                the class index based on the datamodule class_list
+                None if the data/model is unconditional
+        optimizer_idx : int
+            the index of the optimizer
+            the optimizer_idx is based on the setup order of model components
+            the model_name of the component: self.model_name_list[optimizer_idx]
+            here self.vae=0, self.discriminator=1
+        self.criterion_label : nn Loss function
+            the loss function based on config.label_loss to calculate the loss of discriminator
+        self.criterion_reconstruct : nn Loss function
+            the loss function based on config.rec_loss to calculate the loss of VAE
+        Returns
+        -------
+        vae_loss : torch.Tensor of shape [1]
+            the loss of the VAE.
+        dloss : torch.Tensor of shape [1]
+            the loss of the discriminator.
+        """
+
+        config = self.config
+        # add noise to data
+        dataset_batch = self.add_noise_to_samples(dataset_batch)
+
+        # real_label, fake_label = self.create_real_fake_label(dataset_batch)
+        batch_size = dataset_batch.shape[0]
+
+        if optimizer_idx == 0:
+            ############
+            #   VAE
+            ############
+
+            reconstructed_data_logit, z, mu, logVar = self.vae(
+                dataset_batch, output_all=True
+            )
+
+            # for BCELoss, the "target" should be in [0,1]
+            if config.rec_loss == "BCELoss":
+                vae_rec_loss = self.criterion_reconstruct(
+                    reconstructed_data_logit, (dataset_batch + 1) / 2
+                )
+            else:
+                vae_rec_loss = self.criterion_reconstruct(
+                    reconstructed_data_logit, dataset_batch
+                )
+            self.record_loss(vae_rec_loss.detach().cpu().numpy(), loss_name="rec_loss")
+
+            # add KL loss
+            KL = self.vae.calculate_log_prob_loss(z, mu, logVar) * config.kl_coef
+            self.record_loss(KL.detach().cpu().numpy(), loss_name="KL_loss")
+            vae_rec_loss += KL
+
+            # output of the vae should fool discriminator
+            vae_out_d1 = self.discriminator(F.tanh(reconstructed_data_logit))
+            # vae_d_loss1 = self.criterion_label(vae_out_d1, real_label)
+            ##### generate fake trees
+            latent_size = self.vae.decoder_z_size
+            # latent noise vector
+            z = torch.randn(batch_size, latent_size).float().type_as(dataset_batch)
+            tree_fake = F.tanh(self.vae.generate_sample(z))
+            # output of the vae should fool discriminator
+            vae_out_d2 = self.discriminator(tree_fake)
+            # vae_d_loss2 = self.criterion_label(vae_out_d2, real_label)
+
+            # generator(vae) should maximize dout_fake
+            vae_d_loss = -(vae_out_d1.mean() + vae_out_d2.mean()) / 2
+
+            vae_d_loss = vae_d_loss * config.d_rec_coef
+            self.record_loss(vae_d_loss.detach().cpu().numpy(), loss_name="vae_d_loss")
+            vae_loss = (vae_rec_loss + vae_d_loss) / 2
+
+            return vae_loss
+
+        if optimizer_idx == 1:
+
+            ############
+            #   discriminator (and classifier if necessary)
+            ############
+
+            # generate fake trees
+            latent_size = self.vae.decoder_z_size
+            # latent noise vector
+            z = torch.randn(batch_size, latent_size).float().type_as(dataset_batch)
+            tree_fake = F.tanh(self.vae.generate_sample(z))
+
+            # fake data (data from generator)
+            # detach so no update to generator
+            dout_fake = self.discriminator(tree_fake.clone().detach())
+            # dloss_fake = self.criterion_label(dout_fake, fake_label)
+            # real data (data from dataloader)
+            dout_real = self.discriminator(dataset_batch)
+            # dloss_real = self.criterion_label(dout_real, real_label)
+
+            gp = GAN_Wloss_GP.gradient_penalty(
+                self.discriminator, self.config.gp_epsilon, dataset_batch, tree_fake
+            )
+            # d should maximize diff of real vs fake (dout_real - dout_fake)
+            dloss = dout_fake.mean() - dout_real.mean() + gp
+
+            # dloss = (dloss_fake + dloss_real) / 2  # scale the loss to one
+
+            # accuracy hack
+            # dloss = self.apply_accuracy_hack(dloss, dout_real, dout_fake)
             return dloss
 
 
