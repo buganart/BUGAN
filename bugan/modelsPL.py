@@ -3148,6 +3148,7 @@ class CVAEGAN(VAEGAN):
             generator, c=c, num_classes=config.num_classes, num_trees=num_trees
         )
 
+
 class CGAN_Wloss_GP(CGAN):
     """
     CGAN with Wasserstein loss with gradient penalty
@@ -3384,7 +3385,6 @@ class CVAEGAN_Wloss_GP(CVAEGAN):
 
         return CVAEGAN.add_model_specific_args(parser)
 
-
     def calculate_loss(self, dataset_batch, dataset_indices=None, optimizer_idx=0):
         """
         function to calculate loss of each of the model components
@@ -3466,7 +3466,7 @@ class CVAEGAN_Wloss_GP(CVAEGAN):
             # output of the vae should fool discriminator
             vae_out_d2 = self.discriminator(tree_fake)
             # vae_d_loss2 = self.criterion_label(vae_out_d2, real_label)
-            
+
             # generator(vae) should maximize dout_fake
             vae_d_loss = -(vae_out_d1.mean() + vae_out_d2.mean()) / 2
 
@@ -3548,8 +3548,6 @@ class CVAEGAN_Wloss_GP(CVAEGAN):
             # loss function (discriminator classify real data vs generated data)
             # closs = (closs_real + closs_fake) / 2
             return closs_real
-
-    
 
 
 #####
