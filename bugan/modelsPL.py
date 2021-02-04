@@ -3859,7 +3859,11 @@ class Generator(nn.Module):
             gen_fc_module.append(nn.Linear(self.z_size, num_fc_units))
             gen_fc_module.append(nn.LeakyReLU(0.1, True))
         else:
-            gen_module.append(self.ConvTLayer(self.z_size, unit_list[0]))
+            gen_module.append(
+                nn.ConvTranspose3d(
+                    self.z_size, unit_list[0], kernel_size=3, stride=1, padding=1
+                )
+            )
 
         # n layer conv/deconv
         for i in range(self.num_layers):
