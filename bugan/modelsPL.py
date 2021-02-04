@@ -3853,13 +3853,15 @@ class Generator(nn.Module):
 
         # 1 layers of fc on latent vector
         gen_fc_module = []
+        gen_module = []
         if self.fc_size > 1:
             num_fc_units = unit_list[0] * self.fc_size * self.fc_size * self.fc_size
             gen_fc_module.append(nn.Linear(self.z_size, num_fc_units))
             gen_fc_module.append(nn.LeakyReLU(0.1, True))
+        else:
+            gen_module.append(self.ConvTLayer(self.z_size, unit_list[0]))
 
         # n layer conv/deconv
-        gen_module = []
         for i in range(self.num_layers):
             gen_module.append(self.ConvTLayer(unit_list[i], unit_list[i + 1]))
 
