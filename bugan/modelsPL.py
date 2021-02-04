@@ -19,7 +19,7 @@ import json
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 device
 
-DEFAULT_NUM_LAYER_UNIT = [512, 512, 256, 256, 128]
+DEFAULT_NUM_LAYER_UNIT = [512, 256, 128, 64, 32]
 DEFAULT_NUM_LAYER_UNIT_REV = DEFAULT_NUM_LAYER_UNIT.copy()
 DEFAULT_NUM_LAYER_UNIT_REV.reverse()
 
@@ -170,6 +170,11 @@ class BaseModel(pl.LightningModule):
         parser.add_argument("--dropout_prob", type=float, default=0.0)
         # spectral_norm
         parser.add_argument("--spectral_norm", type=bool, default=False)
+        # arguments with multiple values
+        # kernel size of Generator/Discriminator
+        parser.add_argument("--kernel_size", default=3)
+        # fc size (see Generator/Discriminator)
+        parser.add_argument("--fc_size", default=2)
         # use_simple_3dgan_struct
         # reference: https://github.com/xchhuang/simple-pytorch-3dgan
         # basically both G and D will conv the input to volume (1,1,1),
@@ -273,11 +278,12 @@ class BaseModel(pl.LightningModule):
     def setup_Generator(
         self,
         model_name,
-        layer_per_block,
         num_layer_unit,
         optimizer_option,
         learning_rate,
         num_classes=None,
+        kernel_size=3,
+        fc_size=2,
     ):
         """
         function to set Generator for the Model
@@ -287,10 +293,6 @@ class BaseModel(pl.LightningModule):
         model_name : string
             model name string is recorded only for logging purpose
             only used when calling wandbLog() to log loss of each module in training_step()
-        layer_per_block : int
-            the number of ConvT-BatchNorm-activation-dropout layers before upsampling layer
-            only for config.use_simple_3dgan_struct=False.
-            see also Generator class
         num_layer_unit : int/list
             the number of unit in the ConvT layer
             if int, every ConvT will have the same specified number of unit.
@@ -313,16 +315,25 @@ class BaseModel(pl.LightningModule):
             z_size = config.z_size
         else:
             z_size = config.z_size + num_classes
+
+        if config.use_simple_3dgan_struct:
+            kernel_size = 4
+            fc_size = 1
+        else:
+            kernel_size = config.kernel_size
+            fc_size = config.fc_size
+
         generator = Generator(
-            layer_per_block=layer_per_block,
             z_size=z_size,
-            output_size=config.resolution,
+            resolution=config.resolution,
             num_layer_unit=num_layer_unit,
+            kernel_size=kernel_size,
+            fc_size=fc_size,
             dropout_prob=config.dropout_prob,
             spectral_norm=config.spectral_norm,
-            use_simple_3dgan_struct=config.use_simple_3dgan_struct,
             activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
         )
+
         # setup component in __init__() lists
         # for configure_optimizers() and record loss
         self.setup_model_component(
@@ -333,11 +344,12 @@ class BaseModel(pl.LightningModule):
     def setup_Discriminator(
         self,
         model_name,
-        layer_per_block,
         num_layer_unit,
         optimizer_option,
         learning_rate,
         output_size=1,
+        kernel_size=3,
+        fc_size=2,
     ):
         """
         function to set Discriminator for the Model
@@ -347,10 +359,6 @@ class BaseModel(pl.LightningModule):
         model_name : string
             model name string is recorded only for logging purpose
             only used when calling wandbLog() to log loss of each module in training_step()
-        layer_per_block : int
-            the number of Conv-BatchNorm-activation-dropout layers before pooling layer
-            only for config.use_simple_3dgan_struct=False.
-            see also Discriminator class
         num_layer_unit : int/list
             the number of unit in the Conv layer
             if int, every Conv will have the same specified number of unit.
@@ -368,14 +376,21 @@ class BaseModel(pl.LightningModule):
         """
         config = self.config
 
+        if config.use_simple_3dgan_struct:
+            kernel_size = 4
+            fc_size = 1
+        else:
+            kernel_size = config.kernel_size
+            fc_size = config.fc_size
+
         discriminator = Discriminator(
-            layer_per_block=layer_per_block,
             output_size=output_size,
-            input_size=config.resolution,
+            resolution=config.resolution,
             num_layer_unit=num_layer_unit,
+            kernel_size=kernel_size,
+            fc_size=fc_size,
             dropout_prob=config.dropout_prob,
             spectral_norm=config.spectral_norm,
-            use_simple_3dgan_struct=config.use_simple_3dgan_struct,
             activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
         )
         # setup component in __init__() lists
@@ -388,13 +403,13 @@ class BaseModel(pl.LightningModule):
     def setup_VAE(
         self,
         model_name,
-        encoder_layer_per_block,
         encoder_num_layer_unit,
-        decoder_layer_per_block,
         decoder_num_layer_unit,
         optimizer_option,
         learning_rate,
         num_classes=None,
+        kernel_size=[3, 3],
+        fc_size=[2, 2],
     ):
         """
         function to set VAE for the Model
@@ -406,15 +421,9 @@ class BaseModel(pl.LightningModule):
         model_name : string
             model name string is recorded only for logging purpose
             only used when calling wandbLog() to log loss of each module in training_step()
-        encoder_layer_per_block : int
-            same as the layer_per_block for setup_Discriminator()
-            see also Discriminator class
         encoder_num_layer_unit : int/list
             same as the num_layer_unit for setup_Discriminator()
             see also Discriminator class
-        decoder_layer_per_block : int
-            same as the layer_per_block for setup_Generator()
-            see also Generator class
         decoder_num_layer_unit : int/list
             same as the num_layer_unit for setup_Generator()
             see also Generator class
@@ -428,14 +437,18 @@ class BaseModel(pl.LightningModule):
         """
         config = self.config
 
+        if config.use_simple_3dgan_struct:
+            kernel_size = [4, 4]
+            fc_size = [1, 1]
+
         encoder = Discriminator(
-            layer_per_block=encoder_layer_per_block,
             output_size=config.z_size,
-            input_size=config.resolution,
+            resolution=config.resolution,
             num_layer_unit=encoder_num_layer_unit,
+            kernel_size=kernel_size[0],
+            fc_size=fc_size[0],
             dropout_prob=config.dropout_prob,
             spectral_norm=config.spectral_norm,
-            use_simple_3dgan_struct=config.use_simple_3dgan_struct,
             activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
         )
 
@@ -444,13 +457,13 @@ class BaseModel(pl.LightningModule):
             decoder_input_size = decoder_input_size + num_classes
 
         decoder = Generator(
-            layer_per_block=decoder_layer_per_block,
             z_size=decoder_input_size,
-            output_size=config.resolution,
+            resolution=config.resolution,
             num_layer_unit=decoder_num_layer_unit,
+            kernel_size=kernel_size[1],
+            fc_size=fc_size[1],
             dropout_prob=config.dropout_prob,
             spectral_norm=config.spectral_norm,
-            use_simple_3dgan_struct=config.use_simple_3dgan_struct,
             activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
         )
 
@@ -1150,7 +1163,7 @@ class BaseModel(pl.LightningModule):
             the generated samples
         """
         batch_size = self.config.batch_size
-        resolution = generator.output_size
+        resolution = generator.resolution
 
         if batch_size > num_trees:
             batch_size = num_trees
@@ -1212,12 +1225,6 @@ class VAE_train(BaseModel):
     ----------
     config : Namespace
         dictionary of training parameters
-    config.vae_decoder_layer : int
-        the decoder_layer_per_block for BaseModel setup_VAE(). Only for config.use_simple_3dgan_struct=False.
-        see also Generator class, BaseModel setup_VAE()
-    config.vae_encoder_layer : int
-        the encoder_layer_per_block for BaseModel setup_VAE(). Only for config.use_simple_3dgan_struct=False.
-        see also Discriminator class, BaseModel setup_VAE()
     config.vae_opt : string
         the string in ['Adam', 'SGD'], setup the optimizer of the VAE
         Using 'Adam' may cause VAE KL loss go to inf.
@@ -1259,9 +1266,6 @@ class VAE_train(BaseModel):
         parser = ArgumentParser(parents=[parent_parser], add_help=False)
         # model specific argument (VAE)
 
-        # number of layer per block
-        parser.add_argument("--vae_decoder_layer", type=int, default=1)
-        parser.add_argument("--vae_encoder_layer", type=int, default=1)
         # optimizer in {"Adam", "SGD"}
         parser.add_argument("--vae_opt", type=str, default="Adam")
         # loss function in {'BCELoss', 'MSELoss', 'CrossEntropyLoss'}
@@ -1286,17 +1290,20 @@ class VAE_train(BaseModel):
         config = self.setup_config_arguments(config)
         self.config = config
 
+        kernel_size = multiple_components_param(config.kernel_size, 2)
+        fc_size = multiple_components_param(config.fc_size, 2)
+
         # create components
         # set component as an attribute to the model
         # so PL can set tensor device type
         self.vae = self.setup_VAE(
             model_name="VAE",
-            encoder_layer_per_block=config.vae_encoder_layer,
             encoder_num_layer_unit=config.encoder_num_layer_unit,
-            decoder_layer_per_block=config.vae_decoder_layer,
             decoder_num_layer_unit=config.decoder_num_layer_unit,
             optimizer_option=config.vae_opt,
             learning_rate=config.vae_lr,
+            kernel_size=kernel_size,
+            fc_size=fc_size,
         )
 
         # log input mesh and reconstructed mesh
@@ -1457,15 +1464,6 @@ class VAEGAN(BaseModel):
     ----------
     config : Namespace
         dictionary of training parameters
-    config.vae_decoder_layer : int
-        the decoder_layer_per_block for BaseModel setup_VAE(). Only for config.use_simple_3dgan_struct=False.
-        see also Generator class, BaseModel setup_VAE()
-    config.vae_encoder_layer : int
-        the encoder_layer_per_block for BaseModel setup_VAE(). Only for config.use_simple_3dgan_struct=False.
-        see also Discriminator class, BaseModel setup_VAE()
-    config.d_layer : int
-        the layer_per_block for BaseModel setup_Discriminator(). Only for config.use_simple_3dgan_struct=False.
-        see also Discriminator class, BaseModel setup_Discriminator()
     config.vae_opt : string
         the string in ['Adam', 'SGD'], setup the optimizer of the VAE
         Using 'Adam' may cause VAE KL loss go to inf.
@@ -1528,10 +1526,6 @@ class VAEGAN(BaseModel):
         """
         parser = ArgumentParser(parents=[parent_parser], add_help=False)
 
-        # number of layer per block
-        parser.add_argument("--vae_decoder_layer", type=int, default=1)
-        parser.add_argument("--vae_encoder_layer", type=int, default=1)
-        parser.add_argument("--d_layer", type=int, default=1)
         # optimizer in {"Adam", "SGD"}
         parser.add_argument("--vae_opt", type=str, default="Adam")
         parser.add_argument("--dis_opt", type=str, default="Adam")
@@ -1568,24 +1562,28 @@ class VAEGAN(BaseModel):
         config = self.setup_config_arguments(config)
         self.config = config
 
+        kernel_size = multiple_components_param(config.kernel_size, 3)
+        fc_size = multiple_components_param(config.fc_size, 3)
+
         # create components
         # set component as an attribute to the model
         # so PL can set tensor device type
         self.vae = self.setup_VAE(
             model_name="VAE",
-            encoder_layer_per_block=config.vae_encoder_layer,
             encoder_num_layer_unit=config.encoder_num_layer_unit,
-            decoder_layer_per_block=config.vae_decoder_layer,
             decoder_num_layer_unit=config.decoder_num_layer_unit,
             optimizer_option=config.vae_opt,
             learning_rate=config.vae_lr,
+            kernel_size=kernel_size[:2],
+            fc_size=fc_size[:2],
         )
         self.discriminator = self.setup_Discriminator(
             "discriminator",
-            layer_per_block=config.d_layer,
             num_layer_unit=config.dis_num_layer_unit,
             optimizer_option=config.dis_opt,
             learning_rate=config.d_lr,
+            kernel_size=kernel_size[2],
+            fc_size=fc_size[2],
         )
 
         # loss function
@@ -1808,12 +1806,6 @@ class GAN(BaseModel):
     ----------
     config : Namespace
         dictionary of training parameters
-    config.g_layer : int
-        the layer_per_block for BaseModel setup_Generator(). Only for config.use_simple_3dgan_struct=False.
-        see also Generator class, BaseModel setup_VAE())
-    config.d_layer : int
-        the layer_per_block for BaseModel setup_Discriminator(). Only for config.use_simple_3dgan_struct=False.
-        see also Discriminator class, BaseModel setup_Discriminator()
     config.gen_opt : string
         the string in ['Adam', 'SGD'], setup the optimizer of the Generator
     config.dis_opt : string
@@ -1863,9 +1855,6 @@ class GAN(BaseModel):
         """
         parser = ArgumentParser(parents=[parent_parser], add_help=False)
 
-        # number of layer per block
-        parser.add_argument("--g_layer", type=int, default=1)
-        parser.add_argument("--d_layer", type=int, default=1)
         # optimizer in {"Adam", "SGD"}
         parser.add_argument("--gen_opt", type=str, default="Adam")
         parser.add_argument("--dis_opt", type=str, default="Adam")
@@ -1893,22 +1882,27 @@ class GAN(BaseModel):
         config = self.setup_config_arguments(config)
         self.config = config
 
+        kernel_size = multiple_components_param(config.kernel_size, 2)
+        fc_size = multiple_components_param(config.fc_size, 2)
+
         # create components
         # set component as an attribute to the model
         # so PL can set tensor device type
         self.generator = self.setup_Generator(
             "generator",
-            layer_per_block=config.g_layer,
             num_layer_unit=config.gen_num_layer_unit,
             optimizer_option=config.gen_opt,
             learning_rate=config.g_lr,
+            kernel_size=kernel_size[0],
+            fc_size=fc_size[0],
         )
         self.discriminator = self.setup_Discriminator(
             "discriminator",
-            layer_per_block=config.d_layer,
             num_layer_unit=config.dis_num_layer_unit,
             optimizer_option=config.dis_opt,
             learning_rate=config.d_lr,
+            kernel_size=kernel_size[1],
+            fc_size=fc_size[1],
         )
 
         # loss function
@@ -2582,31 +2576,37 @@ class CGAN(GAN):
         config = self.setup_config_arguments(config)
         self.config = config
 
+        kernel_size = multiple_components_param(config.kernel_size, 3)
+        fc_size = multiple_components_param(config.fc_size, 3)
+
         # create components
         # set component as an attribute to the model
         # so PL can set tensor device type
         self.generator = self.setup_Generator(
             "generator",
-            layer_per_block=config.g_layer,
             num_layer_unit=config.gen_num_layer_unit,
             optimizer_option=config.gen_opt,
             learning_rate=config.g_lr,
             num_classes=config.num_classes,
+            kernel_size=kernel_size[0],
+            fc_size=fc_size[0],
         )
         self.discriminator = self.setup_Discriminator(
             "discriminator",
-            layer_per_block=config.d_layer,
             num_layer_unit=config.dis_num_layer_unit,
             optimizer_option=config.dis_opt,
             learning_rate=config.d_lr,
+            kernel_size=kernel_size[1],
+            fc_size=fc_size[1],
         )
         self.classifier = self.setup_Discriminator(
             "classifier",
-            layer_per_block=config.d_layer,
             num_layer_unit=config.dis_num_layer_unit,
             optimizer_option=config.dis_opt,
             learning_rate=config.d_lr,
             output_size=config.num_classes,
+            kernel_size=kernel_size[2],
+            fc_size=fc_size[2],
         )
 
         # loss function
@@ -2889,34 +2889,39 @@ class CVAEGAN(VAEGAN):
         config = self.setup_config_arguments(config)
         self.config = config
 
+        kernel_size = multiple_components_param(config.kernel_size, 4)
+        fc_size = multiple_components_param(config.fc_size, 4)
+
         # create components
         # set component as an attribute to the model
         # so PL can set tensor device type
 
         self.vae = self.setup_VAE(
             model_name="VAE",
-            encoder_layer_per_block=config.vae_encoder_layer,
             encoder_num_layer_unit=config.encoder_num_layer_unit,
-            decoder_layer_per_block=config.vae_decoder_layer,
             decoder_num_layer_unit=config.decoder_num_layer_unit,
             optimizer_option=config.vae_opt,
             learning_rate=config.vae_lr,
             num_classes=config.num_classes,
+            kernel_size=kernel_size[:2],
+            fc_size=fc_size[:2],
         )
         self.discriminator = self.setup_Discriminator(
             "discriminator",
-            layer_per_block=config.d_layer,
             num_layer_unit=config.dis_num_layer_unit,
             optimizer_option=config.dis_opt,
             learning_rate=config.d_lr,
+            kernel_size=kernel_size[2],
+            fc_size=fc_size[2],
         )
         self.classifier = self.setup_Discriminator(
             "classifier",
-            layer_per_block=config.d_layer,
             num_layer_unit=config.dis_num_layer_unit,
             optimizer_option=config.dis_opt,
             learning_rate=config.d_lr,
             output_size=config.num_classes,
+            kernel_size=kernel_size[3],
+            fc_size=fc_size[3],
         )
 
         # loss function
@@ -3555,361 +3560,6 @@ class CVAEGAN_Wloss_GP(CVAEGAN):
 #####
 
 
-class Generator(nn.Module):
-    """
-    The generator class
-    This class serves as the generator and VAE decoder of models above
-    Attributes
-    ----------
-    layer_per_block : int
-        the number of ConvT-BatchNorm-activation-dropout layers before upsampling layer
-            only for config.use_simple_3dgan_struct=False.
-    z_size : int
-        the latent vector size of the model
-        latent vector size determines the size of the generated input, and the size of the compressed latent vector in VAE
-    output_size : int
-        the output size of the generator
-        given latent vector (B,Z), the output will be (B,1,R,R,R)
-            Z = z_size, R = output_size, B = batch_size
-    num_layer_unit : int/list
-        the number of unit in the ConvT layer
-            if int, every ConvT will have the same specified number of unit.
-            if list, every ConvT layer between the upsampling layers will have the specified number of unit.
-    dropout_prob : float
-        the dropout probability of the generator models (see torch Dropout3D)
-        the generator use ConvT-BatchNorm-activation-dropout structure
-    spectral_norm : boolean
-        whether to apply spectral_norm to the output of the conv layer (see SpectralNorm class below)
-        if True, the structure will become SpectralNorm(ConvT/Conv)-BatchNorm-activation-dropout
-    use_simple_3dgan_struct : boolean
-        whether to use simple_3dgan_struct for generator/discriminator
-        if True, discriminator will conv the input to volume (B,1,1,1,1),
-            and generator will start convT from volume (B,Z,1,1,1)
-        if False, discriminator will conv to (B,C,k,k,k), k=4, then flatten and connect with fc layer,
-            and generator will start connect with fc layer from (B,Z) to (B,C), and then reshape to (B,Ck,k,k,k) to start convT
-    activations : nn actication function
-        the actication function used for all layers except the last layer of all models
-    """
-
-    def __init__(
-        self,
-        layer_per_block=1,
-        z_size=128,
-        output_size=64,
-        num_layer_unit=32,
-        dropout_prob=0.0,
-        spectral_norm=False,
-        use_simple_3dgan_struct=False,
-        activations=nn.LeakyReLU(0.0, True),
-    ):
-        super(Generator, self).__init__()
-        self.z_size = z_size
-        self.use_simple_3dgan_struct = use_simple_3dgan_struct
-
-        # layer_per_block must be >= 1
-        if layer_per_block < 1:
-            layer_per_block = 1
-
-        if use_simple_3dgan_struct:
-            self.fc_channel = z_size  # 16
-            self.fc_size = 1
-        else:
-            self.fc_channel = 8  # 16
-            self.fc_size = 4
-
-        self.output_size = output_size
-        # need int(output_size / self.fc_size) upsampling to increase size
-        self.num_blocks = int(np.log2(output_size) - np.log2(self.fc_size))
-        if use_simple_3dgan_struct:
-            # minus 1 as the final conv block also double the volume
-            self.num_blocks = self.num_blocks - 1
-
-        if type(num_layer_unit) is list:
-            if len(num_layer_unit) < self.num_blocks:
-                raise Exception(
-                    "For output_size="
-                    + str(output_size)
-                    + ", the list of num_layer_unit should have "
-                    + str(self.num_blocks)
-                    + " elements."
-                )
-            if len(num_layer_unit) > self.num_blocks:
-                num_layer_unit = num_layer_unit[: self.num_blocks]
-                print(
-                    "For output_size="
-                    + str(output_size)
-                    + ", the list of num_layer_unit should have "
-                    + str(self.num_blocks)
-                    + " elements. Trimming num_layer_unit to "
-                    + str(num_layer_unit)
-                )
-            num_layer_unit_list = num_layer_unit
-        elif type(num_layer_unit) is int:
-            num_layer_unit_list = [num_layer_unit] * self.num_blocks
-        else:
-            raise Exception("num_layer_unit should be int of list of int.")
-
-        # add initial self.fc_channel to num_layer_unit_list
-        num_layer_unit_list = [self.fc_channel] + num_layer_unit_list
-        gen_module = []
-        #
-        for i in range(self.num_blocks):
-            num_layer_unit1, num_layer_unit2 = (
-                num_layer_unit_list[i],
-                num_layer_unit_list[i + 1],
-            )
-
-            for _ in range(layer_per_block):
-                if use_simple_3dgan_struct:
-                    conv_layer = nn.ConvTranspose3d(
-                        num_layer_unit1,
-                        num_layer_unit2,
-                        kernel_size=4,
-                        stride=2,
-                        padding=1,
-                    )
-                else:
-                    conv_layer = nn.ConvTranspose3d(
-                        num_layer_unit1, num_layer_unit2, 3, 1, padding=1
-                    )
-
-                if spectral_norm:
-                    gen_module.append(SpectralNorm(conv_layer))
-                else:
-                    gen_module.append(conv_layer)
-                gen_module.append(nn.BatchNorm3d(num_layer_unit2))
-                gen_module.append(activations)
-                gen_module.append(nn.Dropout3d(dropout_prob))
-                num_layer_unit1 = num_layer_unit2
-
-            if not use_simple_3dgan_struct:
-                gen_module.append(nn.Upsample(scale_factor=2, mode="trilinear"))
-
-        # remove tanh for loss with logit
-        if use_simple_3dgan_struct:
-            conv_layer = nn.ConvTranspose3d(
-                num_layer_unit1, 1, kernel_size=4, stride=2, padding=1
-            )
-        else:
-            conv_layer = nn.ConvTranspose3d(num_layer_unit1, 1, 3, 1, padding=1)
-
-        if spectral_norm:
-            gen_module.append(SpectralNorm(conv_layer))
-        else:
-            gen_module.append(conv_layer)
-        # gen_module.append(nn.tanh())
-
-        if not self.use_simple_3dgan_struct:
-            self.gen_fc = nn.Linear(
-                self.z_size,
-                self.fc_channel * self.fc_size * self.fc_size * self.fc_size,
-            )
-        else:
-            # create simple layer (not used in training)
-            self.gen_fc = nn.Linear(1, 1)
-
-        self.gen = nn.Sequential(*gen_module)
-
-    def forward(self, x):
-        """
-        default function for nn.Module to run output=model(input)
-        defines how the model process data input to output using model components
-        Parameters
-        ----------
-        x : torch.Tensor
-            the input latent noise tensor in shape (B, Z)
-            B = config.batch_size, Z = z_size
-        Returns
-        -------
-        x : torch.Tensor
-            the generated data in shape (B, 1, R, R, R) from the Generator based on latent vector x
-            B = config.batch_size, R = output_size
-        """
-        if not self.use_simple_3dgan_struct:
-            x = self.gen_fc(x)
-        x = x.view(
-            x.shape[0], self.fc_channel, self.fc_size, self.fc_size, self.fc_size
-        )
-        x = self.gen(x)
-        return x
-
-
-class Discriminator(nn.Module):
-    """
-    The Discriminator class
-    This class serves as the discriminator, the classifier, and VAE encoder of models above
-    Attributes
-    ----------
-    layer_per_block : int
-        the number of ConvT-BatchNorm-activation-dropout layers before upsampling layer
-            only for config.use_simple_3dgan_struct=False.
-    output_size : int
-        the output size of the discriminator
-        the input will be in the shape (B,S)
-            S = output_size, B = batch_size
-    input_size : int
-        the input size of the discriminator
-        the input will be in the shape (B,1,R,R,R)
-            R = input_size, B = batch_size
-    num_layer_unit : int/list
-        the number of unit in the ConvT layer
-            if int, every ConvT will have the same specified number of unit.
-            if list, every ConvT layer between the upsampling layers will have the specified number of unit.
-    dropout_prob : float
-        the dropout probability of the generator models (see torch Dropout3D)
-        the generator use ConvT-BatchNorm-activation-dropout structure
-    spectral_norm : boolean
-        whether to apply spectral_norm to the output of the conv layer (see SpectralNorm class below)
-        if True, the structure will become SpectralNorm(ConvT/Conv)-BatchNorm-activation-dropout
-    use_simple_3dgan_struct : boolean
-        whether to use simple_3dgan_struct for generator/discriminator
-        if True, discriminator will conv the input to volume (B,1,1,1,1),
-            and generator will start convT from volume (B,Z,1,1,1)
-        if False, discriminator will conv to (B,C,k,k,k), k=4, then flatten and connect with fc layer,
-            and generator will start connect with fc layer from (B,Z) to (B,C), and then reshape to (B,Ck,k,k,k) to start convT
-    activations : nn actication function
-        the actication function used for all layers except the last layer of all models
-    """
-
-    def __init__(
-        self,
-        layer_per_block=1,
-        output_size=1,
-        input_size=64,
-        num_layer_unit=16,
-        dropout_prob=0.0,
-        spectral_norm=False,
-        use_simple_3dgan_struct=False,
-        activations=nn.LeakyReLU(0.0, True),
-    ):
-        super(Discriminator, self).__init__()
-
-        self.use_simple_3dgan_struct = use_simple_3dgan_struct
-
-        # layer_per_block must be >= 1
-        if layer_per_block < 1:
-            layer_per_block = 1
-
-        if use_simple_3dgan_struct:
-            self.fc_size = 1
-        else:
-            self.fc_size = 4  # final height of the volume in conv layers before flatten
-
-        self.input_size = input_size
-        self.output_size = output_size
-        # need int(input_size / self.fc_size) upsampling to increase size
-        # minus 1 for the last conv layer (not in loop so batchnorm/dropout not applied after)
-        self.num_blocks = int(np.log2(input_size) - np.log2(self.fc_size))
-        if use_simple_3dgan_struct:
-            # minus 1 as the final conv block also cut the volume by half
-            self.num_blocks = self.num_blocks - 1
-
-        if type(num_layer_unit) is list:
-            if len(num_layer_unit) < self.num_blocks:
-                raise Exception(
-                    "For input_size="
-                    + str(input_size)
-                    + ", the list of num_layer_unit should have "
-                    + str(self.num_blocks)
-                    + " elements."
-                )
-            if len(num_layer_unit) > self.num_blocks:
-                num_layer_unit = num_layer_unit[-self.num_blocks :]
-                print(
-                    "For input_size="
-                    + str(input_size)
-                    + ", the list of num_layer_unit should have "
-                    + str(self.num_blocks)
-                    + " elements. Trimming num_layer_unit to "
-                    + str(num_layer_unit)
-                )
-            num_layer_unit_list = num_layer_unit
-        elif type(num_layer_unit) is int:
-            num_layer_unit_list = [num_layer_unit] * self.num_blocks
-        else:
-            raise Exception("num_layer_unit should be int of list of int.")
-
-        # add initial num_unit to num_layer_unit_list
-        num_layer_unit_list = [1] + num_layer_unit_list
-        dis_module = []
-        #
-        for i in range(self.num_blocks):
-            num_layer_unit1, num_layer_unit2 = (
-                num_layer_unit_list[i],
-                num_layer_unit_list[i + 1],
-            )
-
-            for _ in range(layer_per_block):
-                if use_simple_3dgan_struct:
-                    conv_layer = nn.Conv3d(
-                        num_layer_unit1,
-                        num_layer_unit2,
-                        kernel_size=4,
-                        stride=2,
-                        padding=1,
-                    )
-                else:
-                    conv_layer = nn.Conv3d(
-                        num_layer_unit1, num_layer_unit2, 3, 1, padding=1
-                    )
-
-                if spectral_norm:
-                    dis_module.append(SpectralNorm(conv_layer))
-                else:
-                    dis_module.append(conv_layer)
-
-                dis_module.append(nn.BatchNorm3d(num_layer_unit2))
-                dis_module.append(activations)
-                dis_module.append(nn.Dropout3d(dropout_prob))
-                num_layer_unit1 = num_layer_unit2
-
-            if not use_simple_3dgan_struct:
-                dis_module.append(nn.MaxPool3d((2, 2, 2)))
-
-        # # remove extra pool layer
-        # dis_module = dis_module[:-1]
-
-        if use_simple_3dgan_struct:
-            conv_layer = nn.Conv3d(
-                num_layer_unit1, self.output_size, kernel_size=4, stride=2, padding=1
-            )
-        else:
-            conv_layer = nn.Conv3d(num_layer_unit1, num_layer_unit1, 3, 1, padding=1)
-        dis_module.append(conv_layer)
-
-        self.dis = nn.Sequential(*dis_module)
-
-        if not self.use_simple_3dgan_struct:
-            self.dis_fc = nn.Linear(
-                num_layer_unit1 * self.fc_size * self.fc_size * self.fc_size,
-                self.output_size,
-            )
-        else:
-            # create simple layer (not used in training)
-            self.dis_fc = nn.Linear(1, 1)
-
-    def forward(self, x):
-        """
-        default function for nn.Module to run output=model(input)
-        defines how the model process data input to output using model components
-        Parameters
-        ----------
-        x : torch.Tensor
-            the input data tensor in shape (B, 1, R, R, R)
-                B = config.batch_size, R = input_size
-        Returns
-        -------
-        x : torch.Tensor
-            the discriminator score/logit of the input data
-                in shape (B, output_size)
-        """
-        x = self.dis(x)
-        x = x.view(x.shape[0], -1)
-        if not self.use_simple_3dgan_struct:
-            x = self.dis_fc(x)
-        return x
-
-
 class VAE(nn.Module):
     """
     The VAE class
@@ -3934,8 +3584,8 @@ class VAE(nn.Module):
 
     def __init__(self, encoder, decoder, num_classes=None, dropout_prob=0.0):
         super(VAE, self).__init__()
-        assert encoder.input_size == decoder.output_size
-        self.sample_size = decoder.output_size
+        assert encoder.resolution == decoder.resolution
+        self.resolution = decoder.resolution
         self.encoder_z_size = encoder.output_size
         self.decoder_z_size = decoder.z_size
         self.num_classes = num_classes
@@ -4080,6 +3730,335 @@ class VAE(nn.Module):
         return x
 
 
+# TODO: rewrite doc
+class Generator(nn.Module):
+    """
+    The generator class
+    This class serves as the generator and VAE decoder of models above
+    Attributes
+    ----------
+    z_size : int
+        the latent vector size of the model
+        latent vector size determines the size of the generated input, and the size of the compressed latent vector in VAE
+    resolution : int
+        the output size of the generator
+        given latent vector (B,Z), the output will be (B,1,R,R,R)
+            Z = z_size, R = resolution, B = batch_size
+    num_layer_unit : int/list
+        the number of unit in the ConvT layer
+            if int, every ConvT will have the same specified number of unit.
+            if list, every ConvT layer between the upsampling layers will have the specified number of unit.
+    dropout_prob : float
+        the dropout probability of the generator models (see torch Dropout3D)
+        the generator use ConvT-BatchNorm-activation-dropout structure
+    spectral_norm : boolean
+        whether to apply spectral_norm to the output of the conv layer (see SpectralNorm class below)
+        if True, the structure will become SpectralNorm(ConvT/Conv)-BatchNorm-activation-dropout
+    use_simple_3dgan_struct : boolean
+        whether to use simple_3dgan_struct for generator/discriminator
+        if True, discriminator will conv the input to volume (B,1,1,1,1),
+            and generator will start convT from volume (B,Z,1,1,1)
+        if False, discriminator will conv to (B,C,k,k,k), k=4, then flatten and connect with fc layer,
+            and generator will start connect with fc layer from (B,Z) to (B,C), and then reshape to (B,Ck,k,k,k) to start convT
+    activations : nn actication function
+        the actication function used for all layers except the last layer of all models
+    """
+
+    def ConvTLayer(self, in_channel, out_channel):
+        dropout_prob = self.dropout_prob
+        activations = self.activations
+        spectral_norm = self.spectral_norm
+        kernel_size = self.kernel_size
+
+        layer_module = []
+        # dropout
+        if dropout_prob > 0:
+            layer_module.append(nn.Dropout3d(dropout_prob))
+
+        # convT layer
+        if kernel_size == 3:
+            layer_module.append(nn.Upsample(scale_factor=2, mode="trilinear"))
+            conv_layer = nn.ConvTranspose3d(
+                in_channel, out_channel, kernel_size=3, stride=1, padding=1
+            )
+        elif kernel_size == 4:
+            conv_layer = nn.ConvTranspose3d(
+                in_channel, out_channel, kernel_size=4, stride=2, padding=1
+            )
+        else:
+            conv_layer = nn.ConvTranspose3d(
+                in_channel,
+                out_channel,
+                kernel_size=5,
+                stride=2,
+                padding=2,
+                output_padding=1,
+            )
+
+        # normalization
+        if spectral_norm:
+            # spectral norm
+            layer_module.append(SpectralNorm(conv_layer))
+        else:
+            # batch norm
+            layer_module.append(conv_layer)
+            layer_module.append(nn.BatchNorm3d(out_channel))
+
+        # activation
+        layer_module.append(activations)
+
+        return nn.Sequential(*layer_module)
+
+    def __init__(
+        self,
+        z_size=128,
+        resolution=64,
+        num_layer_unit=32,
+        kernel_size=3,
+        fc_size=2,
+        dropout_prob=0.0,
+        spectral_norm=False,
+        activations=nn.LeakyReLU(0.1, True),
+    ):
+        super(Generator, self).__init__()
+
+        self.z_size = z_size
+        self.fc_size = fc_size
+        self.resolution = resolution
+
+        self.dropout_prob = dropout_prob
+        self.activations = activations
+        self.spectral_norm = spectral_norm
+        self.kernel_size = kernel_size
+
+        # number of conv layer in the model
+        # if fc_size=2, resolution=32, it should be 4 layers
+        self.num_layers = int(np.log2(self.resolution)) - int(np.log2(self.fc_size))
+        unit_list_size = self.num_layers + 1
+
+        # check num_layer_unit list
+        if type(num_layer_unit) is list:
+            if len(num_layer_unit) < unit_list_size:
+                message = f"For resolution={resolution}, fc_size={fc_size}, the list of num_layer_unit should have {unit_list_size} elements."
+                raise Exception(message)
+            if len(num_layer_unit) > unit_list_size:
+                num_layer_unit = num_layer_unit[:unit_list_size]
+                message = f"For resolution={resolution}, fc_size={fc_size}, the list of num_layer_unit should have {unit_list_size} elements. Trimming num_layer_unit to {num_layer_unit}"
+                print(message)
+            unit_list = num_layer_unit
+        elif type(num_layer_unit) is int:
+            unit_list = [num_layer_unit] * unit_list_size
+        else:
+            raise Exception("num_layer_unit should be int of list of int.")
+
+        # 1 layers of fc on latent vector
+        gen_fc_module = []
+        if self.fc_size > 1:
+            num_fc_units = unit_list[0] * self.fc_size * self.fc_size * self.fc_size
+            gen_fc_module.append(nn.Linear(self.z_size, num_fc_units))
+            gen_fc_module.append(nn.LeakyReLU(0.1, True))
+
+        # n layer conv/deconv
+        gen_module = []
+        for i in range(self.num_layers):
+            gen_module.append(self.ConvTLayer(unit_list[i], unit_list[i + 1]))
+
+        # #final layer
+        gen_module.append(
+            nn.Conv3d(unit_list[-1], 1, kernel_size=3, stride=1, padding=1)
+        )
+
+        self.gen_fc_module = nn.Sequential(*gen_fc_module)
+        self.gen_module = nn.Sequential(*gen_module)
+
+        # placeholder
+        self.gen_fc = nn.Linear(1, 1)
+
+    def forward(self, x):
+        """
+        default function for nn.Module to run output=model(input)
+        defines how the model process data input to output using model components
+        Parameters
+        ----------
+        x : torch.Tensor
+            the input latent noise tensor in shape (B, Z)
+            B = config.batch_size, Z = z_size
+        Returns
+        -------
+        x : torch.Tensor
+            the generated data in shape (B, 1, R, R, R) from the Generator based on latent vector x
+            B = config.batch_size, R = resolution
+        """
+        if self.fc_size > 1:
+            x = self.gen_fc_module(x)
+        x = x.view(x.shape[0], -1, self.fc_size, self.fc_size, self.fc_size)
+        x = self.gen_module(x)
+        return x
+
+
+# TODO: rewrite doc
+class Discriminator(nn.Module):
+    """
+    The Discriminator class
+    This class serves as the discriminator, the classifier, and VAE encoder of models above
+    Attributes
+    ----------
+    output_size : int
+        the output size of the discriminator
+        the input will be in the shape (B,S)
+            S = output_size, B = batch_size
+    resolution : int
+        the input size of the discriminator
+        the input will be in the shape (B,1,R,R,R)
+            R = resolution, B = batch_size
+    num_layer_unit : int/list
+        the number of unit in the ConvT layer
+            if int, every ConvT will have the same specified number of unit.
+            if list, every ConvT layer between the upsampling layers will have the specified number of unit.
+    dropout_prob : float
+        the dropout probability of the generator models (see torch Dropout3D)
+        the generator use ConvT-BatchNorm-activation-dropout structure
+    spectral_norm : boolean
+        whether to apply spectral_norm to the output of the conv layer (see SpectralNorm class below)
+        if True, the structure will become SpectralNorm(ConvT/Conv)-BatchNorm-activation-dropout
+    activations : nn actication function
+        the actication function used for all layers except the last layer of all models
+    """
+
+    def ConvLayer(self, in_channel, out_channel):
+        dropout_prob = self.dropout_prob
+        activations = self.activations
+        spectral_norm = self.spectral_norm
+        kernel_size = self.kernel_size
+
+        layer_module = []
+        # dropout
+        if dropout_prob > 0:
+            layer_module.append(nn.Dropout3d(dropout_prob))
+
+        # convT layer
+        if kernel_size == 3:
+            layer_module.append(nn.MaxPool3d((2, 2, 2)))
+            conv_layer = nn.Conv3d(
+                in_channel, out_channel, kernel_size=3, stride=1, padding=1
+            )
+        elif kernel_size == 4:
+            conv_layer = nn.Conv3d(
+                in_channel, out_channel, kernel_size=4, stride=2, padding=1
+            )
+        else:
+            conv_layer = nn.Conv3d(
+                in_channel, out_channel, kernel_size=5, stride=2, padding=2
+            )
+
+        # normalization
+        if spectral_norm:
+            # spectral norm
+            layer_module.append(SpectralNorm(conv_layer))
+        else:
+            # batch norm
+            layer_module.append(conv_layer)
+            layer_module.append(nn.BatchNorm3d(out_channel))
+
+        # activation
+        layer_module.append(activations)
+
+        return nn.Sequential(*layer_module)
+
+    def __init__(
+        self,
+        output_size=1,
+        resolution=64,
+        num_layer_unit=16,
+        kernel_size=3,
+        fc_size=2,
+        dropout_prob=0.0,
+        spectral_norm=False,
+        activations=nn.LeakyReLU(0.1, True),
+    ):
+        super(Discriminator, self).__init__()
+
+        self.output_size = output_size
+        self.fc_size = fc_size
+        self.resolution = resolution
+
+        self.dropout_prob = dropout_prob
+        self.activations = activations
+        self.spectral_norm = spectral_norm
+        self.kernel_size = kernel_size
+
+        # number of conv layer in the model
+        # if fc_size=2, resolution=32, it should be 4 layers
+        self.num_layers = int(np.log2(self.resolution)) - int(np.log2(self.fc_size))
+        unit_list_size = self.num_layers + 1
+
+        # check num_layer_unit list
+        if type(num_layer_unit) is list:
+            if len(num_layer_unit) < unit_list_size:
+                message = f"For resolution={resolution}, fc_size={fc_size}, the list of num_layer_unit should have {unit_list_size} elements."
+                raise Exception(message)
+            if len(num_layer_unit) > unit_list_size:
+                num_layer_unit = num_layer_unit[:unit_list_size]
+                message = f"For resolution={resolution}, fc_size={fc_size}, the list of num_layer_unit should have {unit_list_size} elements. Trimming num_layer_unit to {num_layer_unit}"
+                print(message)
+            unit_list = num_layer_unit
+        elif type(num_layer_unit) is int:
+            unit_list = [num_layer_unit] * unit_list_size
+        else:
+            raise Exception("num_layer_unit should be int of list of int.")
+
+        # n layer conv/deconv
+        dis_module = []
+        dis_module.append(
+            nn.Conv3d(1, unit_list[0], kernel_size=3, stride=1, padding=1)
+        )
+        dis_module.append(nn.BatchNorm3d(unit_list[0]))
+        dis_module.append(self.activations)
+        for i in range(self.num_layers):
+            dis_module.append(self.ConvLayer(unit_list[i], unit_list[i + 1]))
+
+        # #final layer
+        dis_fc_module = []
+        if self.fc_size > 1:
+            # 1 layers of fc on latent vector
+            num_fc_units = unit_list[-1] * self.fc_size * self.fc_size * self.fc_size
+            dis_fc_module.append(nn.Linear(num_fc_units, self.output_size))
+        else:
+            # add 1 more conv layer in dis module
+            dis_module.append(
+                nn.Conv3d(
+                    unit_list[-1], self.output_size, kernel_size=3, stride=1, padding=1
+                )
+            )
+
+        self.dis_fc_module = nn.Sequential(*dis_fc_module)
+        self.dis_module = nn.Sequential(*dis_module)
+
+        # placeholder
+        self.dis_fc = nn.Linear(1, 1)
+
+    def forward(self, x):
+        """
+        default function for nn.Module to run output=model(input)
+        defines how the model process data input to output using model components
+        Parameters
+        ----------
+        x : torch.Tensor
+            the input data tensor in shape (B, 1, R, R, R)
+                B = config.batch_size, R = input_size
+        Returns
+        -------
+        x : torch.Tensor
+            the discriminator score/logit of the input data
+                in shape (B, output_size)
+        """
+        x = self.dis_module(x)
+        x = x.view(x.shape[0], -1)
+        if self.fc_size > 1:
+            x = self.dis_fc_module(x)
+        return x
+
+
 ###
 #       other modules
 ###
@@ -4148,3 +4127,13 @@ class SpectralNorm(nn.Module):
     def forward(self, *args):
         self._update_u_v()
         return self.module.forward(*args)
+
+
+def multiple_components_param(param, num_components):
+    if type(param) is int:
+        param = [param] * num_components
+    elif type(param) is list:
+        if len(param) != num_components:
+            message = f"parameter should have {num_components} elements."
+            raise Exception(message)
+    return param
