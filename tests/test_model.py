@@ -219,8 +219,9 @@ def test_vaegan_training_step(device):
     config = Namespace(
         resolution=32,
         encoder_num_layer_unit=[2, 2, 2, 2, 2],
-        decoder_num_layer_unit=[2, 2, 2, 2, 2],
+        decoder_num_layer_unit=[2, 2, 2, 2, 2, 2],
         dis_num_layer_unit=[2, 2, 2, 2, 2],
+        fc_size=[2, 1, 2],
         z_size=2,
     )
     model = VAEGAN(config).to(device)

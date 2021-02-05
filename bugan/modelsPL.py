@@ -319,9 +319,6 @@ class BaseModel(pl.LightningModule):
         if config.use_simple_3dgan_struct:
             kernel_size = 4
             fc_size = 1
-        else:
-            kernel_size = config.kernel_size
-            fc_size = config.fc_size
 
         generator = Generator(
             z_size=z_size,
@@ -379,9 +376,6 @@ class BaseModel(pl.LightningModule):
         if config.use_simple_3dgan_struct:
             kernel_size = 4
             fc_size = 1
-        else:
-            kernel_size = config.kernel_size
-            fc_size = config.fc_size
 
         discriminator = Discriminator(
             output_size=output_size,
