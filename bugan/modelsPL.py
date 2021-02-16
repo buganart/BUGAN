@@ -1536,8 +1536,8 @@ class VAEGAN(BaseModel):
         # Discriminator loss coefficient (compared to rec_loss)
         parser.add_argument("--d_rec_coef", type=float, default=1)
         # Feature Matching coefficient
-        parser.add_argument("--FMrec_coef", type=float, default=1)
-        parser.add_argument("--FMgan_coef", type=float, default=1)
+        parser.add_argument("--FMrec_coef", type=float, default=0)
+        parser.add_argument("--FMgan_coef", type=float, default=0)
 
         # number of unit per layer
         decoder_num_layer_unit = DEFAULT_NUM_LAYER_UNIT
@@ -1872,7 +1872,7 @@ class GAN(BaseModel):
         # accuracy_hack
         parser.add_argument("--accuracy_hack", type=float, default=1.1)
         # Feature Matching coefficient
-        parser.add_argument("--FMgan_coef", type=float, default=1)
+        parser.add_argument("--FMgan_coef", type=float, default=0)
         # learning rate
         parser.add_argument("--g_lr", type=float, default=0.0025)
         parser.add_argument("--d_lr", type=float, default=0.00005)
