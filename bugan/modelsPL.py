@@ -19,7 +19,7 @@ import json
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 device
 
-DEFAULT_NUM_LAYER_UNIT = [512, 256, 128, 64, 32]
+DEFAULT_NUM_LAYER_UNIT = [256, 512, 256, 128, 64]
 DEFAULT_NUM_LAYER_UNIT_REV = DEFAULT_NUM_LAYER_UNIT.copy()
 DEFAULT_NUM_LAYER_UNIT_REV.reverse()
 
@@ -1535,6 +1535,9 @@ class VAEGAN(BaseModel):
         parser.add_argument("--kl_coef", type=float, default=1)
         # Discriminator loss coefficient (compared to rec_loss)
         parser.add_argument("--d_rec_coef", type=float, default=1)
+        # Feature Matching coefficient
+        parser.add_argument("--FMrec_coef", type=float, default=1)
+        parser.add_argument("--FMgan_coef", type=float, default=1)
 
         # number of unit per layer
         decoder_num_layer_unit = DEFAULT_NUM_LAYER_UNIT
@@ -1598,6 +1601,8 @@ class VAEGAN(BaseModel):
                 )
                 / data.shape[0]
             )
+
+        self.criterion_FM = self.get_loss_function_with_logit("MSELoss")
 
     def calculate_pos_weight(self, data):
         """
@@ -1724,7 +1729,9 @@ class VAEGAN(BaseModel):
             vae_rec_loss += KL
 
             # output of the vae should fool discriminator
-            vae_out_d1 = self.discriminator(F.tanh(reconstructed_data_logit))
+            vae_out_d1, fc1 = self.discriminator(
+                F.tanh(reconstructed_data_logit), output_all=True
+            )
             vae_d_loss1 = self.criterion_label(vae_out_d1, real_label)
             ##### generate fake trees
             latent_size = self.vae.decoder_z_size
@@ -1732,14 +1739,22 @@ class VAEGAN(BaseModel):
             z = torch.randn(batch_size, latent_size).float().type_as(dataset_batch)
             tree_fake = F.tanh(self.vae.generate_sample(z))
             # output of the vae should fool discriminator
-            vae_out_d2 = self.discriminator(tree_fake)
+            vae_out_d2, fc2 = self.discriminator(tree_fake, output_all=True)
             vae_d_loss2 = self.criterion_label(vae_out_d2, real_label)
 
-            vae_d_loss = (vae_d_loss1 + vae_d_loss2) / 2
+            vae_d_loss = vae_d_loss1 + vae_d_loss2
 
             vae_d_loss = vae_d_loss * config.d_rec_coef
             self.record_loss(vae_d_loss.detach().cpu().numpy(), loss_name="vae_d_loss")
-            vae_loss = (vae_rec_loss + vae_d_loss) / 2
+
+            _, fc_real = self.discriminator(dataset_batch, output_all=True)
+
+            FM_rec = config.FMrec_coef * self.criterion_FM(fc1, fc_real)
+            FM_gan = config.FMgan_coef * self.criterion_FM(fc2, fc_real)
+            self.record_loss(FM_rec.detach().cpu().numpy(), loss_name="FM_rec")
+            self.record_loss(FM_gan.detach().cpu().numpy(), loss_name="FM_gan")
+
+            vae_loss = vae_rec_loss + vae_d_loss + FM_rec + FM_gan
 
             return vae_loss
 
@@ -1856,6 +1871,8 @@ class GAN(BaseModel):
         parser.add_argument("--label_loss", type=str, default="BCELoss")
         # accuracy_hack
         parser.add_argument("--accuracy_hack", type=float, default=1.1)
+        # Feature Matching coefficient
+        parser.add_argument("--FMgan_coef", type=float, default=1)
         # learning rate
         parser.add_argument("--g_lr", type=float, default=0.0025)
         parser.add_argument("--d_lr", type=float, default=0.00005)
@@ -1901,6 +1918,7 @@ class GAN(BaseModel):
 
         # loss function
         self.criterion_label = self.get_loss_function_with_logit(config.label_loss)
+        self.criterion_FM = self.get_loss_function_with_logit("MSELoss")
 
     def forward(self, x):
         """
@@ -1972,11 +1990,16 @@ class GAN(BaseModel):
             tree_fake = self.add_noise_to_samples(tree_fake)
 
             # tree_fake is already computed above
-            dout_fake = self.discriminator(tree_fake)
+            dout_fake, fc1 = self.discriminator(tree_fake, output_all=True)
             # generator should generate trees that discriminator think they are real
             gloss = self.criterion_label(dout_fake, real_label)
 
-            return gloss
+            # Feature Matching
+            _, fc_real = self.discriminator(dataset_batch, output_all=True)
+            FM_gan = config.FMgan_coef * self.criterion_FM(fc1, fc_real)
+            self.record_loss(FM_gan.detach().cpu().numpy(), loss_name="FM_gan")
+
+            return gloss + FM_gan
 
         if optimizer_idx == 1:
 
@@ -2139,11 +2162,16 @@ class GAN_Wloss(GAN):
             tree_fake = self.add_noise_to_samples(tree_fake)
 
             # tree_fake is already computed above
-            dout_fake = self.discriminator(tree_fake)
+            dout_fake, fc1 = self.discriminator(tree_fake, output_all=True)
 
             # generator should maximize dout_fake
             gloss = -dout_fake.mean()
-            return gloss
+
+            # Feature Matching
+            _, fc_real = self.discriminator(dataset_batch, output_all=True)
+            FM_gan = config.FMgan_coef * self.criterion_FM(fc1, fc_real)
+            self.record_loss(FM_gan.detach().cpu().numpy(), loss_name="FM_gan")
+            return gloss + FM_gan
 
         if optimizer_idx == 1:
 
@@ -2308,11 +2336,17 @@ class GAN_Wloss_GP(GAN):
             tree_fake = self.add_noise_to_samples(tree_fake)
 
             # tree_fake is already computed above
-            dout_fake = self.discriminator(tree_fake)
+            dout_fake, fc1 = self.discriminator(tree_fake, output_all=True)
 
             # generator should maximize dout_fake
             gloss = -dout_fake.mean()
-            return gloss
+
+            # Feature Matching
+            _, fc_real = self.discriminator(dataset_batch, output_all=True)
+            FM_gan = config.FMgan_coef * self.criterion_FM(fc1, fc_real)
+            self.record_loss(FM_gan.detach().cpu().numpy(), loss_name="FM_gan")
+
+            return gloss + FM_gan
 
         if optimizer_idx == 1:
 
@@ -2447,7 +2481,9 @@ class VAEGAN_Wloss_GP(VAEGAN):
             vae_rec_loss += KL
 
             # output of the vae should fool discriminator
-            vae_out_d1 = self.discriminator(F.tanh(reconstructed_data_logit))
+            vae_out_d1, fc1 = self.discriminator(
+                F.tanh(reconstructed_data_logit), output_all=True
+            )
             # vae_d_loss1 = self.criterion_label(vae_out_d1, real_label)
             ##### generate fake trees
             latent_size = self.vae.decoder_z_size
@@ -2455,7 +2491,7 @@ class VAEGAN_Wloss_GP(VAEGAN):
             z = torch.randn(batch_size, latent_size).float().type_as(dataset_batch)
             tree_fake = F.tanh(self.vae.generate_sample(z))
             # output of the vae should fool discriminator
-            vae_out_d2 = self.discriminator(tree_fake)
+            vae_out_d2, fc2 = self.discriminator(tree_fake, output_all=True)
             # vae_d_loss2 = self.criterion_label(vae_out_d2, real_label)
 
             # generator(vae) should maximize dout_fake
@@ -2463,7 +2499,15 @@ class VAEGAN_Wloss_GP(VAEGAN):
 
             vae_d_loss = vae_d_loss * config.d_rec_coef
             self.record_loss(vae_d_loss.detach().cpu().numpy(), loss_name="vae_d_loss")
-            vae_loss = (vae_rec_loss + vae_d_loss) / 2
+
+            # Feature Matching
+            _, fc_real = self.discriminator(dataset_batch, output_all=True)
+            FM_rec = config.FMrec_coef * self.criterion_FM(fc1, fc_real)
+            FM_gan = config.FMgan_coef * self.criterion_FM(fc2, fc_real)
+            self.record_loss(FM_rec.detach().cpu().numpy(), loss_name="FM_rec")
+            self.record_loss(FM_gan.detach().cpu().numpy(), loss_name="FM_gan")
+
+            vae_loss = vae_rec_loss + vae_d_loss + FM_rec + FM_gan
 
             return vae_loss
 
@@ -2606,6 +2650,7 @@ class CGAN(GAN):
         # loss function
         self.criterion_label = self.get_loss_function_with_logit(config.label_loss)
         self.criterion_class = self.get_loss_function_with_logit(config.class_loss)
+        self.criterion_FM = self.get_loss_function_with_logit("MSELoss")
 
     def forward(self, x, c):
         """
@@ -2702,7 +2747,7 @@ class CGAN(GAN):
             tree_fake = self.add_noise_to_samples(tree_fake)
 
             # tree_fake on Dis
-            dout_fake = self.discriminator(tree_fake)
+            dout_fake, fc1 = self.discriminator(tree_fake, output_all=True)
             # generator should generate trees that discriminator think they are real
             gloss_d = self.criterion_label(dout_fake, real_label)
 
@@ -2710,7 +2755,13 @@ class CGAN(GAN):
             cout_fake = self.classifier(tree_fake)
             gloss_c = self.criterion_class(cout_fake, c_fake)
 
-            gloss = (gloss_d + gloss_c) / 2
+            # Feature Matching
+            _, fc_real = self.discriminator(dataset_batch, output_all=True)
+            FM_gan = config.FMgan_coef * self.criterion_FM(fc1, fc_real)
+            self.record_loss(FM_gan.detach().cpu().numpy(), loss_name="FM_gan")
+
+            gloss = gloss_d + gloss_c + FM_gan
+
             return gloss
 
         if optimizer_idx == 1:
@@ -2937,6 +2988,7 @@ class CVAEGAN(VAEGAN):
                 )
                 / data.shape[0]
             )
+        self.criterion_FM = self.get_loss_function_with_logit("MSELoss")
 
     def forward(self, x, c):
         """
@@ -3035,7 +3087,9 @@ class CVAEGAN(VAEGAN):
             vae_rec_loss += KL
 
             # output of the vae should fool discriminator
-            vae_out_d1 = self.discriminator(F.tanh(reconstructed_data_logit))
+            vae_out_d1, fc1 = self.discriminator(
+                F.tanh(reconstructed_data_logit), output_all=True
+            )
             vae_d_loss1 = self.criterion_label(vae_out_d1, real_label)
             ##### generate fake trees
             # latent noise vector
@@ -3045,7 +3099,7 @@ class CVAEGAN(VAEGAN):
             )
             tree_fake = F.tanh(self.vae.generate_sample(z))
             # output of the vae should fool discriminator
-            vae_out_d2 = self.discriminator(tree_fake)
+            vae_out_d2, fc2 = self.discriminator(tree_fake, output_all=True)
             vae_d_loss2 = self.criterion_label(vae_out_d2, real_label)
             vae_d_loss = (vae_d_loss1 + vae_d_loss2) / 2
 
@@ -3060,7 +3114,15 @@ class CVAEGAN(VAEGAN):
             self.record_loss(vae_d_loss.detach().cpu().numpy(), loss_name="vae_d_loss")
             vae_c_loss = vae_c_loss * config.c_rec_coef
             self.record_loss(vae_c_loss.detach().cpu().numpy(), loss_name="vae_c_loss")
-            vae_loss = (vae_rec_loss + vae_d_loss + vae_c_loss) / 3
+
+            # Feature Matching
+            _, fc_real = self.discriminator(dataset_batch, output_all=True)
+            FM_rec = config.FMrec_coef * self.criterion_FM(fc1, fc_real)
+            FM_gan = config.FMgan_coef * self.criterion_FM(fc2, fc_real)
+            self.record_loss(FM_rec.detach().cpu().numpy(), loss_name="FM_rec")
+            self.record_loss(FM_gan.detach().cpu().numpy(), loss_name="FM_gan")
+
+            vae_loss = vae_rec_loss + vae_d_loss + vae_c_loss + FM_rec + FM_gan
 
             return vae_loss
 
@@ -3251,7 +3313,7 @@ class CGAN_Wloss_GP(CGAN):
             tree_fake = self.add_noise_to_samples(tree_fake)
 
             # tree_fake on Dis
-            dout_fake = self.discriminator(tree_fake)
+            dout_fake, fc1 = self.discriminator(tree_fake, output_all=True)
             # generator should generate trees that discriminator think they are real
             # gloss_d = self.criterion_label(dout_fake, real_label)
 
@@ -3261,7 +3323,12 @@ class CGAN_Wloss_GP(CGAN):
             cout_fake = self.classifier(tree_fake)
             gloss_c = self.criterion_class(cout_fake, c_fake)
 
-            gloss = (gloss_d + gloss_c) / 2
+            # Feature Matching
+            _, fc_real = self.discriminator(dataset_batch, output_all=True)
+            FM_gan = config.FMgan_coef * self.criterion_FM(fc1, fc_real)
+            self.record_loss(FM_gan.detach().cpu().numpy(), loss_name="FM_gan")
+
+            gloss = gloss_d + gloss_c + FM_gan
             return gloss
 
         if optimizer_idx == 1:
@@ -3453,7 +3520,9 @@ class CVAEGAN_Wloss_GP(CVAEGAN):
             vae_rec_loss += KL
 
             # output of the vae should fool discriminator
-            vae_out_d1 = self.discriminator(F.tanh(reconstructed_data_logit))
+            vae_out_d1, fc1 = self.discriminator(
+                F.tanh(reconstructed_data_logit), output_all=True
+            )
             # vae_d_loss1 = self.criterion_label(vae_out_d1, real_label)
             ##### generate fake trees
             # latent noise vector
@@ -3463,7 +3532,7 @@ class CVAEGAN_Wloss_GP(CVAEGAN):
             )
             tree_fake = F.tanh(self.vae.generate_sample(z))
             # output of the vae should fool discriminator
-            vae_out_d2 = self.discriminator(tree_fake)
+            vae_out_d2, fc2 = self.discriminator(tree_fake, output_all=True)
             # vae_d_loss2 = self.criterion_label(vae_out_d2, real_label)
 
             # generator(vae) should maximize dout_fake
@@ -3480,7 +3549,14 @@ class CVAEGAN_Wloss_GP(CVAEGAN):
             self.record_loss(vae_d_loss.detach().cpu().numpy(), loss_name="vae_d_loss")
             vae_c_loss = vae_c_loss * config.c_rec_coef
             self.record_loss(vae_c_loss.detach().cpu().numpy(), loss_name="vae_c_loss")
-            vae_loss = (vae_rec_loss + vae_d_loss + vae_c_loss) / 3
+
+            # Feature Matching
+            _, fc_real = self.discriminator(dataset_batch, output_all=True)
+            FM_rec = config.FMrec_coef * self.criterion_FM(fc1, fc_real)
+            FM_gan = config.FMgan_coef * self.criterion_FM(fc2, fc_real)
+            self.record_loss(FM_rec.detach().cpu().numpy(), loss_name="FM_rec")
+            self.record_loss(FM_gan.detach().cpu().numpy(), loss_name="FM_gan")
+            vae_loss = vae_rec_loss + vae_d_loss + vae_c_loss + FM_rec + FM_gan
 
             return vae_loss
 
@@ -4024,8 +4100,8 @@ class Discriminator(nn.Module):
             num_fc_units = unit_list[-1] * self.fc_size * self.fc_size * self.fc_size
             dis_fc_module.append(nn.Linear(num_fc_units, self.output_size))
         else:
-            # add 1 more conv layer in dis module
-            dis_module.append(
+            # add 1 more conv layer
+            dis_fc_module.append(
                 nn.Conv3d(
                     unit_list[-1], self.output_size, kernel_size=3, stride=1, padding=1
                 )
@@ -4037,7 +4113,7 @@ class Discriminator(nn.Module):
         # placeholder
         self.dis_fc = nn.Linear(1, 1)
 
-    def forward(self, x):
+    def forward(self, x, output_all=False):
         """
         default function for nn.Module to run output=model(input)
         defines how the model process data input to output using model components
@@ -4053,9 +4129,17 @@ class Discriminator(nn.Module):
                 in shape (B, output_size)
         """
         x = self.dis_module(x)
-        x = x.view(x.shape[0], -1)
+        fc = x.view(x.shape[0], -1)
         if self.fc_size > 1:
+            # dis_fc_module is fc layer
+            x = self.dis_fc_module(fc)
+        else:
+            # dis_fc_module is conv layer
             x = self.dis_fc_module(x)
+            x = x.view(x.shape[0], -1)
+
+        if output_all:
+            return x, fc
         return x
 
 
