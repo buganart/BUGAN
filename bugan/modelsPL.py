@@ -1748,7 +1748,7 @@ class VAEGAN(BaseModel):
             self.record_loss(vae_d_loss.detach().cpu().numpy(), loss_name="vae_d_loss")
 
             _, fc_real = self.discriminator(dataset_batch, output_all=True)
-
+            fc_real = fc_real.detach()
             FM_rec = config.FMrec_coef * self.criterion_FM(fc1, fc_real)
             FM_gan = config.FMgan_coef * self.criterion_FM(fc2, fc_real)
             self.record_loss(FM_rec.detach().cpu().numpy(), loss_name="FM_rec")
@@ -1996,6 +1996,7 @@ class GAN(BaseModel):
 
             # Feature Matching
             _, fc_real = self.discriminator(dataset_batch, output_all=True)
+            fc_real = fc_real.detach()
             FM_gan = config.FMgan_coef * self.criterion_FM(fc1, fc_real)
             self.record_loss(FM_gan.detach().cpu().numpy(), loss_name="FM_gan")
 
@@ -2169,6 +2170,7 @@ class GAN_Wloss(GAN):
 
             # Feature Matching
             _, fc_real = self.discriminator(dataset_batch, output_all=True)
+            fc_real = fc_real.detach()
             FM_gan = config.FMgan_coef * self.criterion_FM(fc1, fc_real)
             self.record_loss(FM_gan.detach().cpu().numpy(), loss_name="FM_gan")
             return gloss + FM_gan
@@ -2343,6 +2345,7 @@ class GAN_Wloss_GP(GAN):
 
             # Feature Matching
             _, fc_real = self.discriminator(dataset_batch, output_all=True)
+            fc_real = fc_real.detach()
             FM_gan = config.FMgan_coef * self.criterion_FM(fc1, fc_real)
             self.record_loss(FM_gan.detach().cpu().numpy(), loss_name="FM_gan")
 
@@ -2502,6 +2505,7 @@ class VAEGAN_Wloss_GP(VAEGAN):
 
             # Feature Matching
             _, fc_real = self.discriminator(dataset_batch, output_all=True)
+            fc_real = fc_real.detach()
             FM_rec = config.FMrec_coef * self.criterion_FM(fc1, fc_real)
             FM_gan = config.FMgan_coef * self.criterion_FM(fc2, fc_real)
             self.record_loss(FM_rec.detach().cpu().numpy(), loss_name="FM_rec")
@@ -2757,6 +2761,7 @@ class CGAN(GAN):
 
             # Feature Matching
             _, fc_real = self.discriminator(dataset_batch, output_all=True)
+            fc_real = fc_real.detach()
             FM_gan = config.FMgan_coef * self.criterion_FM(fc1, fc_real)
             self.record_loss(FM_gan.detach().cpu().numpy(), loss_name="FM_gan")
 
@@ -3117,6 +3122,7 @@ class CVAEGAN(VAEGAN):
 
             # Feature Matching
             _, fc_real = self.discriminator(dataset_batch, output_all=True)
+            fc_real = fc_real.detach()
             FM_rec = config.FMrec_coef * self.criterion_FM(fc1, fc_real)
             FM_gan = config.FMgan_coef * self.criterion_FM(fc2, fc_real)
             self.record_loss(FM_rec.detach().cpu().numpy(), loss_name="FM_rec")
@@ -3325,6 +3331,7 @@ class CGAN_Wloss_GP(CGAN):
 
             # Feature Matching
             _, fc_real = self.discriminator(dataset_batch, output_all=True)
+            fc_real = fc_real.detach()
             FM_gan = config.FMgan_coef * self.criterion_FM(fc1, fc_real)
             self.record_loss(FM_gan.detach().cpu().numpy(), loss_name="FM_gan")
 
@@ -3552,6 +3559,7 @@ class CVAEGAN_Wloss_GP(CVAEGAN):
 
             # Feature Matching
             _, fc_real = self.discriminator(dataset_batch, output_all=True)
+            fc_real = fc_real.detach()
             FM_rec = config.FMrec_coef * self.criterion_FM(fc1, fc_real)
             FM_gan = config.FMgan_coef * self.criterion_FM(fc2, fc_real)
             self.record_loss(FM_rec.detach().cpu().numpy(), loss_name="FM_rec")
