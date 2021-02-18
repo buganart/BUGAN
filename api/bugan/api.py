@@ -6,7 +6,13 @@ import click
 from flask import Flask, jsonify, request
 import requests
 
-from .example import generated_obj
+from example import generated_obj
+
+from argparse import Namespace
+import io
+
+from bugan.trainPL import init_wandb_run, setup_model, get_resume_run_config
+from bugan.functionsPL import netarray2mesh
 
 
 app = Flask(__name__)
@@ -17,9 +23,7 @@ BUNNY_URL = "https://graphics.stanford.edu/~mdfisher/Data/Meshes/bunny.obj"
 
 @app.route("/generate", methods=["post"])
 def generate():
-
     req = request.get_json(force=True)
-
     url = req.get("url", None)
 
     if url:
@@ -28,6 +32,30 @@ def generate():
         mesh = generated_obj
 
     return jsonify(mesh=mesh)
+
+
+@app.route("/generateMesh", methods=["post"])
+def vaegan_generate():
+    req = request.get_json(force=True)
+
+    run_id = req.get("run_id", None)
+    print("req:", req)
+    if run_id:
+        try:
+            config = get_resume_run_config("handtool-gan", run_id)
+        except:
+            config = get_resume_run_config("tree-gan", run_id)
+        run, config = init_wandb_run(config)
+        model, _ = setup_model(config, run)
+
+        mesh = model.generate_tree(num_trees=1)
+        sample_tree_bool_array = mesh[0] > 0
+        voxelmesh = netarray2mesh(sample_tree_bool_array)
+        voxelmeshfile = voxelmesh.export(file_type="obj")
+        return jsonify(mesh=io.StringIO(voxelmeshfile).getvalue())
+    else:
+        # return empty response: 204 No Content?
+        return ("", 204)
 
 
 # @app.route("/version", methods=["GET"])
