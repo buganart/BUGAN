@@ -1,4 +1,7 @@
 import os
+import io
+import sys
+import subprocess
 
 import click
 
@@ -9,7 +12,7 @@ import requests
 from example import generated_obj
 
 from argparse import Namespace
-import io
+
 
 from bugan.trainPL import init_wandb_run, setup_model, get_resume_run_config
 from bugan.functionsPL import netarray2mesh
@@ -19,6 +22,31 @@ app = Flask(__name__)
 app.config["SERVER_NAME"] = os.environ.get("SERVER_NAME")
 
 BUNNY_URL = "https://graphics.stanford.edu/~mdfisher/Data/Meshes/bunny.obj"
+
+
+def install_bugan_package(rev_number=None):
+    if rev_number:
+        subprocess.check_call(
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "install",
+                "--upgrade",
+                f"git+https://github.com/buganart/BUGAN.git@{rev_number}#egg=bugan",
+            ]
+        )
+    else:
+        subprocess.check_call(
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "install",
+                "--upgrade",
+                "git+https://github.com/buganart/BUGAN.git#egg=bugan",
+            ]
+        )
 
 
 @app.route("/generate", methods=["post"])
@@ -45,9 +73,11 @@ def vaegan_generate():
             config = get_resume_run_config("handtool-gan", run_id)
         except:
             config = get_resume_run_config("tree-gan", run_id)
-        run, config = init_wandb_run(config)
+        install_bugan_package(rev_number=config.rev_number)
+        config.resume_id = run_id
+        run, config = init_wandb_run(config, mode="offline")
         model, _ = setup_model(config, run)
-
+        model.eval()
         mesh = model.generate_tree(num_trees=1)
         sample_tree_bool_array = mesh[0] > 0
         voxelmesh = netarray2mesh(sample_tree_bool_array)
