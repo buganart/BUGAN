@@ -63,10 +63,11 @@ def generate():
 
 
 @app.route("/generateMesh", methods=["post"])
-def vaegan_generate():
+def generateMesh():
     req = request.get_json(force=True)
 
     run_id = req.get("run_id", None)
+    num_samples = int(req.get("num_samples", 1))
     print("req:", req)
     if run_id:
         try:
@@ -78,11 +79,14 @@ def vaegan_generate():
         run, config = init_wandb_run(config, mode="offline")
         model, _ = setup_model(config, run)
         model.eval()
-        mesh = model.generate_tree(num_trees=1)
-        sample_tree_bool_array = mesh[0] > 0
-        voxelmesh = netarray2mesh(sample_tree_bool_array)
-        voxelmeshfile = voxelmesh.export(file_type="obj")
-        return jsonify(mesh=io.StringIO(voxelmeshfile).getvalue())
+        mesh = model.generate_tree(num_trees=num_samples)
+        returnMeshes = []
+        for i in range(num_samples):
+            sample_tree_bool_array = mesh[i] > 0
+            voxelmesh = netarray2mesh(sample_tree_bool_array)
+            voxelmeshfile = voxelmesh.export(file_type="obj")
+            returnMeshes.append(io.StringIO(voxelmeshfile).getvalue())
+        return jsonify(mesh=returnMeshes)
     else:
         # return empty response: 204 No Content?
         return ("", 204)
