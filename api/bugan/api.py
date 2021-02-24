@@ -79,6 +79,7 @@ def generateMesh():
         run, config = init_wandb_run(config, mode="offline")
         model, _ = setup_model(config, run)
         model.eval()
+        run.finish()
         mesh = model.generate_tree(num_trees=num_samples)
         returnMeshes = []
         for i in range(num_samples):
