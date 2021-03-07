@@ -4,6 +4,7 @@ import sys
 import subprocess
 
 import click
+import time
 
 # import torch
 from flask import Flask, jsonify, request
@@ -14,8 +15,17 @@ from example import generated_obj
 from argparse import Namespace
 
 
-from bugan.trainPL import init_wandb_run, setup_model, get_resume_run_config
+from bugan.trainPL import (
+    init_wandb_run,
+    setup_model,
+    get_resume_run_config,
+    _get_models,
+)
 from bugan.functionsPL import netarray2mesh
+
+import torch
+import wandb
+from pathlib import Path
 
 
 app = Flask(__name__)
@@ -64,29 +74,94 @@ def generate():
 
 @app.route("/generateMesh", methods=["post"])
 def generateMesh():
+    message_steptime = []
     req = request.get_json(force=True)
 
     run_id = req.get("run_id", None)
     num_samples = int(req.get("num_samples", 1))
     print("req:", req)
     if run_id:
+        print("starting loading models....")
+        current_time = time.time()
+
         try:
             config = get_resume_run_config("handtool-gan", run_id)
         except:
             config = get_resume_run_config("tree-gan", run_id)
+
+        message = "finish loading config setting, time: "
+        step_time = time.time() - current_time
+        print(message, step_time)
+        message_steptime.append([message, step_time])
+        current_time = time.time()
+
         install_bugan_package(rev_number=config.rev_number)
+
+        message = "finish restoring bugan version for the model, time: "
+        step_time = time.time() - current_time
+        print(message, step_time)
+        message_steptime.append([message, step_time])
+        current_time = time.time()
+
         config.resume_id = run_id
-        run, config = init_wandb_run(config, mode="offline")
-        model, _ = setup_model(config, run)
-        model.eval()
-        run.finish()
+        api = wandb.Api()
+        run = api.run(f"bugan/{config.project_name}/{run_id}")
+
+        message = "finish restoring wandb run environment, time: "
+        step_time = time.time() - current_time
+        print(message, step_time)
+        message_steptime.append([message, step_time])
+        current_time = time.time()
+
+        fileReturnVal = run.file("checkpoint.ckpt").download(replace=True)
+
+        message = "finish restoring checkpoint file, time: "
+        step_time = time.time() - current_time
+        print(message, step_time)
+        message_steptime.append([message, step_time])
+        current_time = time.time()
+
+        MODEL_CLASS = _get_models(config.selected_model)
+        model = MODEL_CLASS.load_from_checkpoint(fileReturnVal.name)
+
+        message = "finish loading model, time: "
+        step_time = time.time() - current_time
+        print(message, step_time)
+        message_steptime.append([message, step_time])
+        current_time = time.time()
+
+        config.resume_id = run_id
+
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        # device = "cpu"
+        print("device:", device)
+        model = model.to(device)
         mesh = model.generate_tree(num_trees=num_samples)
+
+        message = "finish generating 3D objects, time: "
+        step_time = time.time() - current_time
+        print(message, step_time)
+        message_steptime.append([message, step_time])
+        current_time = time.time()
+
+        print(num_samples, " objects are generated, processing objects to json......")
         returnMeshes = []
         for i in range(num_samples):
             sample_tree_bool_array = mesh[i] > 0
             voxelmesh = netarray2mesh(sample_tree_bool_array)
             voxelmeshfile = voxelmesh.export(file_type="obj")
             returnMeshes.append(io.StringIO(voxelmeshfile).getvalue())
+
+        message = "finish processing objects to json, time: "
+        step_time = time.time() - current_time
+        print(message, step_time)
+        message_steptime.append([message, step_time])
+        current_time = time.time()
+
+        print("=== Time summary ===")
+        print("device:", device)
+        for m, t in message_steptime:
+            print(m, t)
         return jsonify(mesh=returnMeshes)
     else:
         # return empty response: 204 No Content?
