@@ -72,6 +72,9 @@ def generate():
     return jsonify(mesh=mesh)
 
 
+generateMesh_idList = []
+
+
 @app.route("/generateMesh", methods=["post"])
 def generateMesh():
     message_steptime = []
@@ -103,34 +106,46 @@ def generateMesh():
         message_steptime.append([message, step_time])
         current_time = time.time()
 
-        config.resume_id = run_id
-        api = wandb.Api()
-        run = api.run(f"bugan/{config.project_name}/{run_id}")
+        filePath = "./" + str(run_id) + "_" + "checkpoint.ckpt"
 
-        message = "finish restoring wandb run environment, time: "
-        step_time = time.time() - current_time
-        print(message, step_time)
-        message_steptime.append([message, step_time])
-        current_time = time.time()
+        if run_id not in generateMesh_idList:
+            api = wandb.Api()
+            run = api.run(f"bugan/{config.project_name}/{run_id}")
 
-        fileReturnVal = run.file("checkpoint.ckpt").download(replace=True)
+            message = "finish restoring wandb run environment, time: "
+            step_time = time.time() - current_time
+            print(message, step_time)
+            message_steptime.append([message, step_time])
+            current_time = time.time()
 
-        message = "finish restoring checkpoint file, time: "
-        step_time = time.time() - current_time
-        print(message, step_time)
-        message_steptime.append([message, step_time])
-        current_time = time.time()
+            # downloaded file will be in "./"
+            file = run.file("checkpoint.ckpt").download(replace=True)
+            file.close()
+            # change filename by adding run_id on it
+            os.rename("./checkpoint.ckpt", filePath)
+
+            # manage generateMesh_idList
+            generateMesh_idList.append(run_id)
+            if len(generateMesh_idList) > 10:
+                old_id = generateMesh_idList.pop(0)
+                # remove the old checkpoint file
+                old_filePath = "./" + str(old_id) + "_" + "checkpoint.ckpt"
+                os.remove(old_filePath)
+
+            message = "finish restoring checkpoint file, time: "
+            step_time = time.time() - current_time
+            print(message, step_time)
+            message_steptime.append([message, step_time])
+            current_time = time.time()
 
         MODEL_CLASS = _get_models(config.selected_model)
-        model = MODEL_CLASS.load_from_checkpoint(fileReturnVal.name)
+        model = MODEL_CLASS.load_from_checkpoint(filePath)
 
         message = "finish loading model, time: "
         step_time = time.time() - current_time
         print(message, step_time)
         message_steptime.append([message, step_time])
         current_time = time.time()
-
-        config.resume_id = run_id
 
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         # device = "cpu"
