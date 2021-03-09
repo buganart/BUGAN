@@ -33,6 +33,8 @@ app.config["SERVER_NAME"] = os.environ.get("SERVER_NAME")
 
 BUNNY_URL = "https://graphics.stanford.edu/~mdfisher/Data/Meshes/bunny.obj"
 
+generateMesh_idList = []
+
 
 def install_bugan_package(rev_number=None):
     if rev_number:
@@ -72,11 +74,9 @@ def generate():
     return jsonify(mesh=mesh)
 
 
-generateMesh_idList = []
-
-
 @app.route("/generateMesh", methods=["post"])
 def generateMesh():
+    print("generateMesh_idList", generateMesh_idList)
     message_steptime = []
     req = request.get_json(force=True)
 
@@ -234,13 +234,23 @@ def setup(cli_checkpoint_dir="checkpoint"):
     return app
 
 
+def search_local_checkpoint(path="./"):
+    ckptfile_list = Path(path).rglob("*.ckpt")
+    filename_list = [str(Path(file).stem) for file in ckptfile_list]
+    idList = [(filename.split("_"))[0] for filename in filename_list]
+    print("recovered run_id:", idList)
+    return idList
+
+
 @click.command()
 @click.option("--debug", "-d", is_flag=True)
 @click.option("--checkpoint-dir", "-cp", default="checkpoint")
-def main(debug, checkpoint_dir):
+def api_run(debug, checkpoint_dir):
     app = setup(cli_checkpoint_dir=checkpoint_dir)
     app.run(debug=debug, host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
 
 
 if __name__ == "__main__":
-    main()
+    generateMesh_idList = search_local_checkpoint()
+    print("generateMesh_idList", generateMesh_idList)
+    api_run()
