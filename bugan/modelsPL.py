@@ -1049,7 +1049,9 @@ class BaseModel(pl.LightningModule):
         return dloss
 
     @staticmethod
-    def merge_latent_and_class_vector(latent_vector, class_vector, num_classes):
+    def merge_latent_and_class_vector(
+        latent_vector, class_vector, num_classes, embedding_fn=None
+    ):
         """
         for conditional models
         given latent_vector (B, Z) and class_vector (B),
@@ -1074,6 +1076,9 @@ class BaseModel(pl.LightningModule):
         c = c.reshape((-1, 1))
         c_onehot = torch.zeros([batch_size, num_classes]).type_as(z)
         c_onehot = c_onehot.scatter(1, c, 1)
+
+        if embedding_fn is not None:
+            c_onehot = embedding_fn(c_onehot)
 
         # merge with z to be generator input
         z = torch.cat((z, c_onehot), 1)
@@ -2659,13 +2664,6 @@ class CGAN(GAN):
         self.criterion_class = self.get_loss_function_with_logit(config.class_loss)
         self.criterion_FM = self.get_loss_function_with_logit("MSELoss")
 
-    # overwrite merge_latent_and_class_vector function to take care of embedding
-    def merge_latent_and_class_vector(self, latent_vector, class_vector, num_classes):
-        z = latent_vector
-        c = self.embedding(class_vector)
-        z = BaseModel.merge_latent_and_class_vector(z, c, num_classes)
-        return z
-
     def forward(self, x, c):
         """
         default function for nn.Module to run output=model(input)
@@ -2689,7 +2687,9 @@ class CGAN(GAN):
                 C = config.num_classes
         """
         # combine x and c into z
-        z = self.merge_latent_and_class_vector(x, c, self.config.num_classes)
+        z = self.merge_latent_and_class_vector(
+            x, c, self.config.num_classes, embedding_fn=self.embedding
+        )
 
         # classifier and discriminator
         x = self.generator(z)
@@ -2754,7 +2754,9 @@ class CGAN(GAN):
             )
 
             # combine z and c_fake
-            z = self.merge_latent_and_class_vector(z, c_fake, self.config.num_classes)
+            z = self.merge_latent_and_class_vector(
+                z, c_fake, self.config.num_classes, embedding_fn=self.embedding
+            )
 
             tree_fake = F.tanh(self.generator(z))
             # add noise to data
@@ -2795,7 +2797,9 @@ class CGAN(GAN):
             )
 
             # combine z and c
-            z = self.merge_latent_and_class_vector(z, c, self.config.num_classes)
+            z = self.merge_latent_and_class_vector(
+                z, c, self.config.num_classes, embedding_fn=self.embedding
+            )
 
             # detach so no update to generator
             tree_fake = F.tanh(self.generator(z)).clone().detach()
@@ -2833,7 +2837,7 @@ class CGAN(GAN):
             # )
 
             # # combine z and c
-            # z = self.merge_latent_and_class_vector(z, c_fake, self.config.num_classes)
+            # z = self.merge_latent_and_class_vector(z, c_fake, self.config.num_classes, embedding_fn=self.embedding)
 
             # # detach so no update to generator
             # tree_fake = F.tanh(self.generator(z)).clone().detach()
@@ -3109,8 +3113,11 @@ class CVAEGAN(VAEGAN):
             ##### generate fake trees
             # latent noise vector
             z = torch.randn(batch_size, config.z_size).float().type_as(dataset_batch)
-            z = self.vae.merge_latent_and_class_vector(
-                z, dataset_indices, self.config.num_classes
+            z = self.merge_latent_and_class_vector(
+                z,
+                dataset_indices,
+                self.config.num_classes,
+                embedding_fn=self.vae.embedding,
             )
             tree_fake = F.tanh(self.vae.generate_sample(z))
             # output of the vae should fool discriminator
@@ -3158,7 +3165,9 @@ class CVAEGAN(VAEGAN):
             )
 
             # combine z and c
-            z = self.vae.merge_latent_and_class_vector(z, c, self.config.num_classes)
+            z = self.vae.merge_latent_and_class_vector(
+                z, c, self.config.num_classes, embedding_fn=self.vae.embedding
+            )
 
             # detach so no update to generator
             tree_fake = F.tanh(self.vae.vae_decoder(z)).clone().detach()
@@ -3322,7 +3331,9 @@ class CGAN_Wloss_GP(CGAN):
             )
 
             # combine z and c_fake
-            z = self.merge_latent_and_class_vector(z, c_fake, self.config.num_classes)
+            z = self.merge_latent_and_class_vector(
+                z, c_fake, self.config.num_classes, embedding_fn=self.embedding
+            )
 
             tree_fake = F.tanh(self.generator(z))
             # add noise to data
@@ -3364,7 +3375,9 @@ class CGAN_Wloss_GP(CGAN):
             )
 
             # combine z and c
-            z = self.merge_latent_and_class_vector(z, c, self.config.num_classes)
+            z = self.merge_latent_and_class_vector(
+                z, c, self.config.num_classes, embedding_fn=self.embedding
+            )
 
             # detach so no update to generator
             tree_fake = F.tanh(self.generator(z)).clone().detach()
@@ -3408,7 +3421,7 @@ class CGAN_Wloss_GP(CGAN):
             # )
 
             # # combine z and c
-            # z = self.vae.merge_latent_and_class_vector(z, c_fake, self.config.num_classes)
+            # z = self.vae.merge_latent_and_class_vector(z, c_fake, self.config.num_classes, embedding_fn=self.embedding)
 
             # # detach so no update to generator
             # tree_fake = F.tanh(self.generator(z)).clone().detach()
@@ -3545,7 +3558,10 @@ class CVAEGAN_Wloss_GP(CVAEGAN):
             # latent noise vector
             z = torch.randn(batch_size, config.z_size).float().type_as(dataset_batch)
             z = self.vae.merge_latent_and_class_vector(
-                z, dataset_indices, self.config.num_classes
+                z,
+                dataset_indices,
+                self.config.num_classes,
+                embedding_fn=self.vae.embedding,
             )
             tree_fake = F.tanh(self.vae.generate_sample(z))
             # output of the vae should fool discriminator
@@ -3594,7 +3610,9 @@ class CVAEGAN_Wloss_GP(CVAEGAN):
             )
 
             # combine z and c
-            z = self.vae.merge_latent_and_class_vector(z, c, self.config.num_classes)
+            z = self.vae.merge_latent_and_class_vector(
+                z, c, self.config.num_classes, embedding_fn=self.vae.embedding
+            )
 
             # detach so no update to generator
             tree_fake = F.tanh(self.vae.vae_decoder(z)).clone().detach()
@@ -3744,12 +3762,6 @@ class VAE(nn.Module):
         # loss = torch.mean(logpz - logqz_x)
         return loss
 
-    def merge_latent_and_class_vector(latent_vector, class_vector, num_classes):
-        z = latent_vector
-        c = self.embedding(class_vector)
-        z = BaseModel.merge_latent_and_class_vector(z, c, num_classes)
-        return z
-
     def forward(self, x, c=None, output_all=False):
         """
         default function for nn.Module to run output=model(input)
@@ -3784,7 +3796,9 @@ class VAE(nn.Module):
 
         # handle class vector
         if c is not None:
-            x = self.merge_latent_and_class_vector(z, c, self.num_classes)
+            x = BaseModel.merge_latent_and_class_vector(
+                z, c, self.num_classes, embedding_fn=self.embedding
+            )
         else:
             x = z
 
@@ -3813,7 +3827,9 @@ class VAE(nn.Module):
         """
         # handle class vector
         if c is not None:
-            z = self.merge_latent_and_class_vector(z, c, self.num_classes)
+            z = BaseModel.merge_latent_and_class_vector(
+                z, c, self.num_classes, embedding_fn=self.embedding
+            )
 
         x = self.vae_decoder(z)
         return x
