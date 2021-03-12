@@ -1183,10 +1183,12 @@ class BaseModel(pl.LightningModule):
                 z = torch.randn(batch_size, self.config.z_size).type_as(
                     generator.gen_fc.weight
                 )
+                # turn class vector the same device as z, but with dtype Long
+                c = torch.Tensor(c).type_as(z).to(torch.int64)
                 # combine z and c
                 z = self.merge_latent_and_class_vector(
                     z,
-                    torch.Tensor(c).to(torch.int64),
+                    c,
                     num_classes,
                     embedding_fn=embedding_fn,
                 )
