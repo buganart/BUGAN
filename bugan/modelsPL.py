@@ -1185,7 +1185,7 @@ class BaseModel(pl.LightningModule):
                 )
                 # combine z and c
                 z = self.merge_latent_and_class_vector(
-                    z, c, num_classes, embedding_fn=embedding_fn
+                    z, torch.Tensor(c), num_classes, embedding_fn=embedding_fn
                 )
             else:
                 # generate noise vector
