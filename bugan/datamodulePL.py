@@ -292,9 +292,22 @@ class DataModule_process(pl.LightningDataModule):
         indices, indices_count = np.unique(sample_class_index, return_counts=True)
         # sort class_index with counts
         count_list = [(indices[i], indices_count[i]) for i in range(len(indices))]
+        count_list.sort(key=lambda v: v[0])
         count_list.sort(key=lambda v: v[1], reverse=True)
         # trim class_index list
-        selected_class_list = count_list[: self.num_classes]
+        if hasattr(self.config, "trim_class_offset"):
+            offset = self.config.trim_class_offset
+        else:
+            offset = 0
+        if offset >= len(count_list):
+            raise ValueError(
+                f"trim_class_offset ({self.config.trim_class_offset}) should be <= Processed number of classes ({len(count_list)})"
+            )
+        if self.num_classes+offset >= len(count_list):
+            selected_class_list = count_list[offset:]
+        else:
+            selected_class_list = count_list[offset: self.num_classes+offset]
+
         selected_class_list = [index for (index, _) in selected_class_list]
         # shift class_name according to the selected_class_list
         class_name_list = [class_name_list[index] for index in selected_class_list]

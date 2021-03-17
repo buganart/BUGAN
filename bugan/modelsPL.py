@@ -3722,8 +3722,10 @@ class VAE(nn.Module):
         self.encoder_logvar = nn.Linear(self.encoder_z_size, self.encoder_z_size)
 
         self.vae_decoder = decoder
-
-        self.embedding = nn.Embedding(num_classes, 128)
+        if num_classes is None:
+            self.embedding = None
+        else:
+            self.embedding = nn.Embedding(num_classes, 128)
 
     def noise_reparameterize(self, mean, logvar):
         """
