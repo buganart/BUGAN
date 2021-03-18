@@ -303,10 +303,10 @@ class DataModule_process(pl.LightningDataModule):
             raise ValueError(
                 f"trim_class_offset ({self.config.trim_class_offset}) should be <= Processed number of classes ({len(count_list)})"
             )
-        if self.num_classes+offset >= len(count_list):
+        if self.num_classes + offset >= len(count_list):
             selected_class_list = count_list[offset:]
         else:
-            selected_class_list = count_list[offset: self.num_classes+offset]
+            selected_class_list = count_list[offset : self.num_classes + offset]
 
         selected_class_list = [index for (index, _) in selected_class_list]
         # shift class_name according to the selected_class_list
