@@ -133,9 +133,18 @@ class DataModule_process(pl.LightningDataModule):
             if config.num_classes > 0:
                 self.num_classes = config.num_classes
 
+        # trim class_index list
+        if hasattr(self.config, "trim_class_offset"):
+            self.offset = self.config.trim_class_offset
+        else:
+            self.offset = None
+
         self.class_list = None
         self.savefile_path = make_processed_savefile_path(
-            self.data_path, self.config.resolution, max_num_classes=self.num_classes
+            self.data_path,
+            self.config.resolution,
+            max_num_classes=self.num_classes,
+            offset=self.offset,
         )
 
     def _unzip_zip_file_to_directory(self):
@@ -294,14 +303,15 @@ class DataModule_process(pl.LightningDataModule):
         count_list = [(indices[i], indices_count[i]) for i in range(len(indices))]
         count_list.sort(key=lambda v: v[0])
         count_list.sort(key=lambda v: v[1], reverse=True)
-        # trim class_index list
-        if hasattr(self.config, "trim_class_offset"):
-            offset = self.config.trim_class_offset
-        else:
+
+        if self.offset is None:
             offset = 0
+        else:
+            offset = self.offset
+
         if offset >= len(count_list):
             raise ValueError(
-                f"trim_class_offset ({self.config.trim_class_offset}) should be <= Processed number of classes ({len(count_list)})"
+                f"trim_class_offset ({offset}) should be <= Processed number of classes ({len(count_list)})"
             )
         if self.num_classes + offset >= len(count_list):
             selected_class_list = count_list[offset:]
@@ -712,7 +722,7 @@ class AugmentationDataset(Dataset):
 
 # return npy file for unconditional data
 # return npz file for conditional data
-def make_processed_savefile_path(path: Path, res, max_num_classes=None):
+def make_processed_savefile_path(path: Path, res, max_num_classes=None, offset=None):
     """
     The function to generate the path of .npy/.npz file for DataModule_process class
 
@@ -742,23 +752,20 @@ def make_processed_savefile_path(path: Path, res, max_num_classes=None):
     #     path.parent / "{path.name}.npy"
     #
     # instead or save to an entirely different location.
-    if max_num_classes is None:
-        # unconditional data
-        if path.is_dir():
-            return path / (f"dataset_array_processed_res{res}.npy")
-        elif path.suffix == ".zip":
-            return path.parent / f"{path.stem}_res{res}.npy"
-        elif path.suffix == ".npy":
-            return path
-        else:
-            raise ValueError(f"Cannot handle dataset path {path}")
+    filename_tail = f"_res{res}"
+    filename_suffix = ".npy"
+    if max_num_classes is not None:
+        filename_tail = filename_tail + f"_c{max_num_classes}"
+        filename_suffix = ".npz"
+
+    if offset is not None:
+        filename_tail = filename_tail + f"_offset{offset}"
+
+    if path.is_dir():
+        return path / (f"dataset_array_processed" + filename_tail + filename_suffix)
+    elif path.suffix == ".zip":
+        return path.parent / (f"{path.stem}" + filename_tail + filename_suffix)
+    elif path.suffix == filename_suffix:
+        return path
     else:
-        # conditional data
-        if path.is_dir():
-            return path / (f"dataset_array_processed_res{res}_c{max_num_classes}.npz")
-        elif path.suffix == ".zip":
-            return path.parent / (f"{path.stem}_res{res}_c{max_num_classes}.npz")
-        elif path.suffix == ".npz":
-            return path
-        else:
-            raise ValueError(f"Cannot handle dataset path {path}")
+        raise ValueError(f"Cannot handle dataset path {path}")
