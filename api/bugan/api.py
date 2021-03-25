@@ -35,6 +35,85 @@ BUNNY_URL = "https://graphics.stanford.edu/~mdfisher/Data/Meshes/bunny.obj"
 
 generateMesh_idList = []
 
+preset_models = {
+    "double_trunk_1": ["vtcf6k3t", 0],
+    "double_trunk_2": ["vtcf6k3t", 0],
+    "formal_upright_1": ["vtcf6k3t", 0],
+    "formal_upright_2": ["vtcf6k3t", 0],
+    "friedrich_1": ["vtcf6k3t", 0],
+    "friedrich_2": ["vtcf6k3t", 0],
+    "friedrich_3": ["vtcf6k3t", 0],
+    "group_1": ["vtcf6k3t", 0],
+    "group_2": ["vtcf6k3t", 0],
+    "informal_upright_1": ["vtcf6k3t", 0],
+    "informal_upright_2": ["vtcf6k3t", 0],
+    "leaning_1": ["vtcf6k3t", 0],
+    "leaning_2": ["vtcf6k3t", 0],
+    "mustard_reaching_1": ["vtcf6k3t", 0],
+    "mustard_sapling_1": ["vtcf6k3t", 0],
+    "mustard_sapling_2": ["vtcf6k3t", 0],
+    "pn_banyan_1": ["vtcf6k3t", 0],
+    "pn_maple_1": ["vtcf6k3t", 0],
+    "pn_old_1": ["vtcf6k3t", 0],
+    "pn_pine_1": ["vtcf6k3t", 0],
+    "pn_pine_2": ["vtcf6k3t", 0],
+    "pn_pine_3": ["vtcf6k3t", 0],
+    "pn_pine_4": ["vtcf6k3t", 0],
+    "pn_pine_5": ["vtcf6k3t", 0],
+    "pn_pine_6": ["vtcf6k3t", 0],
+    "pn_tall_straight": ["vtcf6k3t", 0],
+    "pn_tall_straight_old": ["vtcf6k3t", 0],
+    "raft_1": ["vtcf6k3t", 0],
+    "raft_2": ["vtcf6k3t", 0],
+    "semi_cascade_1": ["vtcf6k3t", 0],
+    "semi_cascade_2": ["vtcf6k3t", 0],
+    "sept_chen_lin_1": ["vtcf6k3t", 0],
+    "sept_chen_lin_2": ["vtcf6k3t", 0],
+    "sept_chen_lin_3": ["vtcf6k3t", 0],
+    "sept_constable_1": ["vtcf6k3t", 0],
+    "sept_friedrich_4": ["vtcf6k3t", 0],
+    "sept_friedrich_5": ["vtcf6k3t", 0],
+    "sept_holten_a": ["vtcf6k3t", 0],
+    "sept_holten_b": ["vtcf6k3t", 0],
+    "sept_holten_c": ["vtcf6k3t", 0],
+    "sept_holten_d": ["vtcf6k3t", 0],
+    "sept_holten_e": ["vtcf6k3t", 0],
+    "sept_holten_f": ["vtcf6k3t", 0],
+    "sept_holten_g": ["vtcf6k3t", 0],
+    "sept_holten_h": ["vtcf6k3t", 0],
+    "sept_holten_i": ["vtcf6k3t", 0],
+    "sept_holten_j": ["vtcf6k3t", 0],
+    "sept_holten_k": ["vtcf6k3t", 0],
+    "sept_holten_l": ["vtcf6k3t", 0],
+    "sept_holten_m": ["vtcf6k3t", 0],
+    "sept_holten_n": ["vtcf6k3t", 0],
+    "sept_holten_o": ["vtcf6k3t", 0],
+    "sept_holten_p": ["vtcf6k3t", 0],
+    "sept_holten_q": ["vtcf6k3t", 0],
+    "sept_holten_r": ["vtcf6k3t", 0],
+    "sept_holten_s": ["vtcf6k3t", 0],
+    "sept_holten_t": ["vtcf6k3t", 0],
+    "sept_holten_u": ["vtcf6k3t", 0],
+    "sept_holten_v": ["vtcf6k3t", 0],
+    "sept_holten_w": ["vtcf6k3t", 0],
+    "sept_holten_x": ["vtcf6k3t", 0],
+    "sept_holten_y": ["vtcf6k3t", 0],
+    "sept_holten_z": ["vtcf6k3t", 0],
+    "sept_mondrian_1": ["vtcf6k3t", 0],
+    "sept_mondrian_2": ["vtcf6k3t", 0],
+    "sept_mondrian_3": ["vtcf6k3t", 0],
+    "sept_schiele_1": ["vtcf6k3t", 0],
+    "sept_schiele_2": ["vtcf6k3t", 0],
+    "sept_schiele_3": ["vtcf6k3t", 0],
+    "windswept_1": ["vtcf6k3t", 0],
+    "windswept_2": ["vtcf6k3t", 0],
+    "zan_gentlemen_1": ["vtcf6k3t", 0],
+    "zan_gentlemen_2": ["vtcf6k3t", 0],
+    "zan_gentlemen_3": ["vtcf6k3t", 0],
+    "zan_gentlemen_4": ["vtcf6k3t", 0],
+    "zan_gentlemen_5": ["vtcf6k3t", 0],
+}
+
 
 def install_bugan_package(rev_number=None):
     if rev_number:
@@ -74,6 +153,14 @@ def generate():
     return jsonify(mesh=mesh)
 
 
+# tree classes
+@app.route("/getTreeClasses", methods=["post"])
+def getTreeClasses():
+    class_list = list(preset_models.keys())
+    return jsonify(class_list=class_list)
+
+
+# generate mesh given (run_id, num_samples, class_index)
 @app.route("/generateMesh", methods=["post"])
 def generateMesh():
     print("generateMesh_idList", generateMesh_idList)
@@ -82,6 +169,9 @@ def generateMesh():
 
     run_id = req.get("run_id", None)
     num_samples = int(req.get("num_samples", 1))
+    class_index = req.get("class_index", None)
+    if class_index is not None:
+        class_index = int(class_index)
     print("req:", req)
     if run_id:
         print("starting loading models....")
@@ -93,14 +183,6 @@ def generateMesh():
             config = get_resume_run_config("tree-gan", run_id)
 
         message = "finish loading config setting, time: "
-        step_time = time.time() - current_time
-        print(message, step_time)
-        message_steptime.append([message, step_time])
-        current_time = time.time()
-
-        install_bugan_package(rev_number=config.rev_number)
-
-        message = "finish restoring bugan version for the model, time: "
         step_time = time.time() - current_time
         print(message, step_time)
         message_steptime.append([message, step_time])
@@ -139,7 +221,43 @@ def generateMesh():
             current_time = time.time()
 
         MODEL_CLASS = _get_models(config.selected_model)
-        model = MODEL_CLASS.load_from_checkpoint(filePath)
+
+        # message = "finish restoring bugan version for the model, time: "
+        # step_time = time.time() - current_time
+        # print(message, step_time)
+        # message_steptime.append([message, step_time])
+        # current_time = time.time()
+        try:
+            # try to load model with training bugan version
+            try:
+                # restore bugan version
+                install_bugan_package(rev_number=config.rev_number)
+                # try to load model with checkpoint.ckpt
+                model = MODEL_CLASS.load_from_checkpoint(filePath)
+            except:
+                # try newest bugan version
+                install_bugan_package()
+                # try to load model with checkpoint_prev.ckpt
+                model = MODEL_CLASS.load_from_checkpoint(filePath)
+        except:
+            print("loading from checkpoint.ckpt failed. Try checkpoint_prev.ckpt")
+            # remove failed checkpoint
+            os.remove(filePath)
+            # downloaded checkpoint_prev
+            file = run.file("checkpoint_prev.ckpt").download(replace=True)
+            file.close()
+            # change filename by adding run_id on it
+            os.rename("./checkpoint_prev.ckpt", filePath)
+            try:
+                # restore bugan version
+                install_bugan_package(rev_number=config.rev_number)
+                # try to load model with checkpoint.ckpt
+                model = MODEL_CLASS.load_from_checkpoint(filePath)
+            except:
+                # try newest bugan version
+                install_bugan_package()
+                # try to load model with checkpoint_prev.ckpt
+                model = MODEL_CLASS.load_from_checkpoint(filePath)
 
         message = "finish loading model, time: "
         step_time = time.time() - current_time
@@ -151,7 +269,155 @@ def generateMesh():
         # device = "cpu"
         print("device:", device)
         model = model.to(device)
-        mesh = model.generate_tree(num_trees=num_samples)
+        try:
+            # assume conditional model
+            mesh = model.generate_tree(c=class_index, num_trees=num_samples)
+        except Exception as e:
+            print(e)
+            print("generate with class label does not work. Now generate without label")
+            # assume unconditional model
+            mesh = model.generate_tree(num_trees=num_samples)
+
+        message = "finish generating 3D objects, time: "
+        step_time = time.time() - current_time
+        print(message, step_time)
+        message_steptime.append([message, step_time])
+        current_time = time.time()
+
+        print(num_samples, " objects are generated, processing objects to json......")
+        returnMeshes = []
+        for i in range(num_samples):
+            sample_tree_bool_array = mesh[i] > 0
+            voxelmesh = netarray2mesh(sample_tree_bool_array)
+            voxelmeshfile = voxelmesh.export(file_type="obj")
+            returnMeshes.append(io.StringIO(voxelmeshfile).getvalue())
+
+        message = "finish processing objects to json, time: "
+        step_time = time.time() - current_time
+        print(message, step_time)
+        message_steptime.append([message, step_time])
+        current_time = time.time()
+
+        print("=== Time summary ===")
+        print("device:", device)
+        for m, t in message_steptime:
+            print(m, t)
+        return jsonify(mesh=returnMeshes)
+    else:
+        # return empty response: 204 No Content?
+        return ("", 204)
+
+
+# generate mesh given (class_name, num_samples)
+@app.route("/generateTree", methods=["post"])
+def generateTree():
+    message_steptime = []
+    req = request.get_json(force=True)
+
+    class_name = req.get("class_name", None)
+    num_samples = int(req.get("num_samples", 1))
+
+    print("req:", req)
+    if class_name is not None:
+        # convert class_name to run_id
+        run_id, class_index = preset_models[class_name]
+        print("starting loading models....")
+        current_time = time.time()
+
+        try:
+            config = get_resume_run_config("handtool-gan", run_id)
+        except:
+            config = get_resume_run_config("tree-gan", run_id)
+
+        message = "finish loading config setting, time: "
+        step_time = time.time() - current_time
+        print(message, step_time)
+        message_steptime.append([message, step_time])
+        current_time = time.time()
+
+        filePath = "./" + str(run_id) + "_" + "checkpoint.ckpt"
+
+        if run_id not in generateMesh_idList:
+            api = wandb.Api()
+            run = api.run(f"bugan/{config.project_name}/{run_id}")
+
+            message = "finish restoring wandb run environment, time: "
+            step_time = time.time() - current_time
+            print(message, step_time)
+            message_steptime.append([message, step_time])
+            current_time = time.time()
+
+            # downloaded file will be in "./"
+            file = run.file("checkpoint.ckpt").download(replace=True)
+            file.close()
+            # change filename by adding run_id on it
+            os.rename("./checkpoint.ckpt", filePath)
+
+            # manage generateMesh_idList
+            generateMesh_idList.append(run_id)
+            if len(generateMesh_idList) > 10:
+                old_id = generateMesh_idList.pop(0)
+                # remove the old checkpoint file
+                old_filePath = "./" + str(old_id) + "_" + "checkpoint.ckpt"
+                os.remove(old_filePath)
+
+            message = "finish restoring checkpoint file, time: "
+            step_time = time.time() - current_time
+            print(message, step_time)
+            message_steptime.append([message, step_time])
+            current_time = time.time()
+
+        MODEL_CLASS = _get_models(config.selected_model)
+        try:
+            # try to load model with training bugan version
+            try:
+                # restore bugan version
+                install_bugan_package(rev_number=config.rev_number)
+                # try to load model with checkpoint.ckpt
+                model = MODEL_CLASS.load_from_checkpoint(filePath)
+            except:
+                # try newest bugan version
+                install_bugan_package()
+                # try to load model with checkpoint_prev.ckpt
+                model = MODEL_CLASS.load_from_checkpoint(filePath)
+        except:
+            print("loading from checkpoint.ckpt failed. Try checkpoint_prev.ckpt")
+            # remove failed checkpoint
+            os.remove(filePath)
+            # downloaded checkpoint_prev
+            file = run.file("checkpoint_prev.ckpt").download(replace=True)
+            file.close()
+            # change filename by adding run_id on it
+            os.rename("./checkpoint_prev.ckpt", filePath)
+            try:
+                # restore bugan version
+                install_bugan_package(rev_number=config.rev_number)
+                # try to load model with checkpoint.ckpt
+                model = MODEL_CLASS.load_from_checkpoint(filePath)
+            except:
+                # try newest bugan version
+                install_bugan_package()
+                # try to load model with checkpoint_prev.ckpt
+                model = MODEL_CLASS.load_from_checkpoint(filePath)
+
+        message = "finish loading model, time: "
+        step_time = time.time() - current_time
+        print(message, step_time)
+        message_steptime.append([message, step_time])
+        current_time = time.time()
+
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        # device = "cpu"
+        print("device:", device)
+        model = model.to(device)
+        try:
+            # assume conditional model
+            mesh = model.generate_tree(c=class_index, num_trees=num_samples)
+        except Exception as e:
+            print(e)
+            print("generate with class label does not work. Now generate without label")
+            # assume unconditional model
+            mesh = model.generate_tree(num_trees=num_samples)
 
         message = "finish generating 3D objects, time: "
         step_time = time.time() - current_time
