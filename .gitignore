@@ -142,5 +142,8 @@ wandb/
 *.npy
 *.jpg
 
+*.ckpt
+*.pt
+
 lightning_logs/
 doc/_build
