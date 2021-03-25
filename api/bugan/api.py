@@ -33,6 +33,7 @@ app.config["SERVER_NAME"] = os.environ.get("SERVER_NAME")
 
 BUNNY_URL = "https://graphics.stanford.edu/~mdfisher/Data/Meshes/bunny.obj"
 
+global generateMesh_idList
 generateMesh_idList = []
 
 preset_models = {
@@ -188,7 +189,7 @@ def generateMesh():
         message_steptime.append([message, step_time])
         current_time = time.time()
 
-        filePath = "./" + str(run_id) + "_" + "checkpoint.ckpt"
+        filePath = "./checkpoint/" + str(run_id) + "_" + "checkpoint.ckpt"
 
         if run_id not in generateMesh_idList:
             api = wandb.Api()
@@ -211,7 +212,7 @@ def generateMesh():
             if len(generateMesh_idList) > 10:
                 old_id = generateMesh_idList.pop(0)
                 # remove the old checkpoint file
-                old_filePath = "./" + str(old_id) + "_" + "checkpoint.ckpt"
+                old_filePath = "./checkpoint/" + str(old_id) + "_" + "checkpoint.ckpt"
                 os.remove(old_filePath)
 
             message = "finish restoring checkpoint file, time: "
@@ -335,7 +336,7 @@ def generateTree():
         message_steptime.append([message, step_time])
         current_time = time.time()
 
-        filePath = "./" + str(run_id) + "_" + "checkpoint.ckpt"
+        filePath = "./checkpoint/" + str(run_id) + "_" + "checkpoint.ckpt"
 
         if run_id not in generateMesh_idList:
             api = wandb.Api()
@@ -358,7 +359,7 @@ def generateTree():
             if len(generateMesh_idList) > 10:
                 old_id = generateMesh_idList.pop(0)
                 # remove the old checkpoint file
-                old_filePath = "./" + str(old_id) + "_" + "checkpoint.ckpt"
+                old_filePath = "./checkpoint/" + str(old_id) + "_" + "checkpoint.ckpt"
                 os.remove(old_filePath)
 
             message = "finish restoring checkpoint file, time: "
@@ -492,11 +493,14 @@ def initialize(checkpoint_dir):
     # ) .
 
 
-def setup(cli_checkpoint_dir="checkpoint"):
+def setup(cli_checkpoint_dir="./checkpoint"):
     checkpoint_dir = os.environ.get("CHECKPOINT_DIR") or cli_checkpoint_dir
+    Path(checkpoint_dir).mkdir(parents=True, exist_ok=True)
+
     if not checkpoint_dir:
         raise ValueError("Set --chekpoint-dir or CHECKPOINT_DIR")
     initialize(checkpoint_dir)
+
     return app
 
 
@@ -510,13 +514,14 @@ def search_local_checkpoint(path="./"):
 
 @click.command()
 @click.option("--debug", "-d", is_flag=True)
-@click.option("--checkpoint-dir", "-cp", default="checkpoint")
+@click.option("--checkpoint-dir", "-cp", default="./checkpoint")
 def api_run(debug, checkpoint_dir):
     app = setup(cli_checkpoint_dir=checkpoint_dir)
+    global generateMesh_idList
+    generateMesh_idList = search_local_checkpoint(checkpoint_dir)
+    print("generateMesh_idList", generateMesh_idList)
     app.run(debug=debug, host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
 
 
 if __name__ == "__main__":
-    generateMesh_idList = search_local_checkpoint()
-    print("generateMesh_idList", generateMesh_idList)
     api_run()
