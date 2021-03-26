@@ -46,7 +46,6 @@ class SaveWandbCallback(Callback):
                     new_model_path = str(
                         self.save_model_path / (f"checkpoint_{self.epoch}.ckpt")
                     )
-                    os.rename(model_file_path, new_model_path)
                     save_checkpoint_to_cloud(new_model_path)
         self.epoch += 1
 
