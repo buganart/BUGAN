@@ -242,7 +242,16 @@ def train(config, run, model, dataModule, extra_trainer_args):
     pprint.pprint(vars(config))
 
     checkpoint_path = str(Path(run.dir).absolute())
-    callbacks = [SaveWandbCallback(config.log_interval, checkpoint_path)]
+    if hasattr(config, "history_checkpoint_frequency"):
+        if config.history_checkpoint_frequency:
+            history_checkpoint_frequency = config.history_checkpoint_frequency
+        else:
+            history_checkpoint_frequency = 0
+    callbacks = [
+        SaveWandbCallback(
+            config.log_interval, checkpoint_path, history_checkpoint_frequency
+        )
+    ]
 
     trainer = pl.Trainer(
         max_epochs=config.epochs,
