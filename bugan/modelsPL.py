@@ -2667,7 +2667,7 @@ class CGAN(GAN):
         )
 
         # add embedding layer for classes
-        self.embedding = nn.Embedding(num_classes, 128)
+        self.embedding = nn.Embedding(config.num_classes, 128)
 
         # loss function
         self.criterion_label = self.get_loss_function_with_logit(config.label_loss)

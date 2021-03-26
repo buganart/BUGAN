@@ -43,7 +43,7 @@ class SaveWandbCallback(Callback):
                     self.epoch % (self.log_interval * self.history_checkpoint_frequency)
                     == 0
                 ):
-                    model_file_path = str(
+                    new_model_path = str(
                         self.save_model_path / (f"checkpoint_{self.epoch}.ckpt")
                     )
                     os.rename(model_file_path, new_model_path)
