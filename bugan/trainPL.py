@@ -241,7 +241,7 @@ def train(config, run, model, dataModule, extra_trainer_args):
     save_model_args(config, run)
     pprint.pprint(vars(config))
 
-    checkpoint_path = str(Path(run.dir).absolute() / "checkpoint.ckpt")
+    checkpoint_path = str(Path(run.dir).absolute())
     callbacks = [SaveWandbCallback(config.log_interval, checkpoint_path)]
 
     trainer = pl.Trainer(
