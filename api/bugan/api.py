@@ -36,6 +36,12 @@ BUNNY_URL = "https://graphics.stanford.edu/~mdfisher/Data/Meshes/bunny.obj"
 global generateMesh_idList
 generateMesh_idList = []
 
+global generateMesh_idHistoryDict
+generateMesh_idHistoryDict = {}
+
+global ckpt_dir
+ckpt_dir = "./checkpoint"
+
 preset_models = {
     "double_trunk_1": ["vtcf6k3t", 0],
     "double_trunk_2": ["vtcf6k3t", 0],
@@ -309,6 +315,106 @@ def generateMesh():
         return ("", 204)
 
 
+# generate mesh given (run_id, num_samples, class_index)
+@app.route("/generateMeshHistory", methods=["post"])
+def generateMeshHistory():
+    message_steptime = []
+    req = request.get_json(force=True)
+
+    run_id = req.get("run_id", None)
+    num_samples = int(req.get("num_samples", 1))
+    class_index = req.get("class_index", None)
+    if class_index is not None:
+        class_index = int(class_index)
+    print("req:", req)
+    generateMesh_idList, generateMesh_idHistoryDict = search_local_checkpoint(ckpt_dir)
+    if run_id:
+        print("starting loading models....")
+        current_time = time.time()
+
+        try:
+            config = get_resume_run_config("handtool-gan", run_id)
+        except:
+            config = get_resume_run_config("tree-gan", run_id)
+
+        message = "finish loading config setting, time: "
+        step_time = time.time() - current_time
+        print(message, step_time)
+        message_steptime.append([message, step_time])
+        current_time = time.time()
+
+        api = wandb.Api()
+        run = api.run(f"bugan/{config.project_name}/{run_id}")
+
+        # downloaded file will be in "./"
+        returnMeshesAll = {}
+        for file in run.files():
+            filename = file.name
+            if not ".ckpt" in filename:
+                continue
+            if (filename == "checkpoint.ckpt") or (filename == "checkpoint_prev.ckpt"):
+                continue
+            file_epoch = str((filename.split("_")[1]).split(".")[0])
+            print("filename:", filename)
+
+            filePath = f"./checkpoint/{run_id}_checkpoint-{file_epoch}.ckpt"
+            if (run_id not in generateMesh_idHistoryDict) or (
+                int(file_epoch) not in generateMesh_idHistoryDict[run_id]
+            ):
+                file.download(replace=True)
+                # file.close()
+                # change filename by adding run_id on it
+                os.rename(f"./{filename}", filePath)
+
+            MODEL_CLASS = _get_models(config.selected_model)
+
+            try:
+                # restore bugan version
+                install_bugan_package(rev_number=config.rev_number)
+                # try to load model with checkpoint.ckpt
+                model = MODEL_CLASS.load_from_checkpoint(filePath)
+            except:
+                # try newest bugan version
+                install_bugan_package()
+                # try to load model with checkpoint_prev.ckpt
+                model = MODEL_CLASS.load_from_checkpoint(filePath)
+
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            # device = "cpu"
+            # print("device:", device)
+            model = model.to(device)
+            try:
+                # assume conditional model
+                mesh = model.generate_tree(c=class_index, num_trees=num_samples)
+            except Exception as e:
+                print(e)
+                print(
+                    "generate with class label does not work. Now generate without label"
+                )
+                # assume unconditional model
+                mesh = model.generate_tree(num_trees=num_samples)
+
+            print(
+                num_samples, " objects are generated, processing objects to json......"
+            )
+            returnMeshes = []
+            for i in range(num_samples):
+                sample_tree_bool_array = mesh[i] > 0
+                voxelmesh = netarray2mesh(sample_tree_bool_array)
+                voxelmeshfile = voxelmesh.export(file_type="obj")
+                returnMeshes.append(io.StringIO(voxelmeshfile).getvalue())
+            returnMeshesAll[file_epoch] = returnMeshes
+
+        # print("=== Time summary ===")
+        # print("device:", device)
+        # for m, t in message_steptime:
+        #     print(m, t)
+        return jsonify(mesh=returnMeshesAll)
+    else:
+        # return empty response: 204 No Content?
+        return ("", 204)
+
+
 # generate mesh given (class_name, num_samples)
 @app.route("/generateTree", methods=["post"])
 def generateTree():
@@ -506,10 +612,34 @@ def setup(cli_checkpoint_dir="./checkpoint"):
 
 def search_local_checkpoint(path="./"):
     ckptfile_list = Path(path).rglob("*.ckpt")
-    filename_list = [str(Path(file).stem) for file in ckptfile_list]
-    idList = [(filename.split("_"))[0] for filename in filename_list]
+    # make id list for those checkpoints without epoch number (are latest checkpoint)
+    nonHistory_list = [
+        str(Path(file).stem)
+        for file in ckptfile_list
+        if "-" not in str(Path(file).stem)
+    ]
+    idList = [(filename.split("_"))[0] for filename in nonHistory_list]
     print("recovered run_id:", idList)
-    return idList
+
+    ckptfile_list = Path(path).rglob("*.ckpt")
+    # make history dict for those checkpoints with epoch number
+    idHistoryDict = {}
+    history_list = [
+        str(Path(file).stem) for file in ckptfile_list if "-" in str(Path(file).stem)
+    ]
+    idHistoryList = [(filename.split("_"))[0] for filename in history_list]
+    epochHistoryList = sorted(
+        [int((filename.split("-"))[1]) for filename in history_list]
+    )
+    for i in range(len(idHistoryList)):
+        idHistory = idHistoryList[i]
+        epochHistory = epochHistoryList[i]
+        if idHistory in idHistoryDict:
+            idHistoryDict[idHistory].append(epochHistory)
+        else:
+            idHistoryDict[idHistory] = [epochHistory]
+    print("recovered run_id history:", idHistoryDict)
+    return idList, idHistoryDict
 
 
 @click.command()
@@ -517,9 +647,9 @@ def search_local_checkpoint(path="./"):
 @click.option("--checkpoint-dir", "-cp", default="./checkpoint")
 def api_run(debug, checkpoint_dir):
     app = setup(cli_checkpoint_dir=checkpoint_dir)
-    global generateMesh_idList
-    generateMesh_idList = search_local_checkpoint(checkpoint_dir)
-    print("generateMesh_idList", generateMesh_idList)
+    global generateMesh_idList, generateMesh_idHistoryDict, ckpt_dir
+    ckpt_dir = checkpoint_dir
+    generateMesh_idList, generateMesh_idHistoryDict = search_local_checkpoint(ckpt_dir)
     app.run(debug=debug, host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
 
 
