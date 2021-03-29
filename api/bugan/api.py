@@ -167,6 +167,15 @@ def getTreeClasses():
     return jsonify(class_list=class_list)
 
 
+# tree classes
+@app.route("/clear", methods=["post"])
+def clear():
+    ckptfile_list = Path(ckpt_dir).rglob("*.ckpt")
+    for path in ckptfile_list:
+        os.remove(path)
+    return "success"
+
+
 # generate mesh given (run_id, num_samples, class_index)
 @app.route("/generateMesh", methods=["post"])
 def generateMesh():
