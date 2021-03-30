@@ -179,7 +179,6 @@ def clear():
 # generate mesh given (run_id, num_samples, class_index)
 @app.route("/generateMesh", methods=["post"])
 def generateMesh():
-    print("generateMesh_idList", generateMesh_idList)
     message_steptime = []
     req = request.get_json(force=True)
 
@@ -189,6 +188,8 @@ def generateMesh():
     if class_index is not None:
         class_index = int(class_index)
     print("req:", req)
+    generateMesh_idList, _ = search_local_checkpoint(ckpt_dir)
+    print("stored ckpt id:", generateMesh_idList)
     if run_id:
         print("starting loading models....")
         current_time = time.time()
@@ -333,10 +334,12 @@ def generateMeshHistory():
     run_id = req.get("run_id", None)
     num_samples = int(req.get("num_samples", 1))
     class_index = req.get("class_index", None)
+    num_selected_checkpoint = int(req.get("num_selected_checkpoint", 4))
     if class_index is not None:
         class_index = int(class_index)
     print("req:", req)
-    generateMesh_idList, generateMesh_idHistoryDict = search_local_checkpoint(ckpt_dir)
+    _, generateMesh_idHistoryDict = search_local_checkpoint(ckpt_dir)
+    print("stored history:", generateMesh_idHistoryDict)
     if run_id:
         print("starting loading models....")
         current_time = time.time()
@@ -355,8 +358,9 @@ def generateMeshHistory():
         api = wandb.Api()
         run = api.run(f"bugan/{config.project_name}/{run_id}")
 
-        # downloaded file will be in "./"
-        returnMeshesAll = {}
+        # find necessary checkpoint file
+        epoch_list = []
+        epoch_file_dict = {}
         for file in run.files():
             filename = file.name
             if not ".ckpt" in filename:
@@ -364,8 +368,23 @@ def generateMeshHistory():
             if (filename == "checkpoint.ckpt") or (filename == "checkpoint_prev.ckpt"):
                 continue
             file_epoch = str((filename.split("_")[1]).split(".")[0])
-            print("filename:", filename)
+            epoch_list.append(file_epoch)
+            epoch_file_dict[file_epoch] = file
 
+        epoch_list = sorted(epoch_list)
+        if len(epoch_list) < num_selected_checkpoint:
+            num_selected_checkpoint = len(epoch_list)
+        selected_epoch_index = [
+            int(i / (num_selected_checkpoint - 1) * (len(epoch_list) - 1) + 0.5)
+            for i in range(num_selected_checkpoint)
+        ]
+        # downloaded file will be in "./"
+        returnMeshesAll = {}
+        for checkpoint_epoch_index in selected_epoch_index:
+            file_epoch = epoch_list[checkpoint_epoch_index]
+            file = epoch_file_dict[file_epoch]
+
+            filename = file.name
             filePath = f"./checkpoint/{run_id}_checkpoint-{file_epoch}.ckpt"
             if (run_id not in generateMesh_idHistoryDict) or (
                 int(file_epoch) not in generateMesh_idHistoryDict[run_id]
