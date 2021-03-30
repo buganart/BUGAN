@@ -127,6 +127,7 @@ preset_models = {
     "zan_gentlemen_5": ["vtcf6k3t", 0],
 }
 
+
 def install_bugan_package(rev_number=None):
     if rev_number:
         subprocess.check_call(
@@ -151,7 +152,14 @@ def install_bugan_package(rev_number=None):
             ]
         )
 
-def generateFromCheckpoint(selected_model, ckpt_filePath, class_index=None, num_samples=1, package_rev_number=None):
+
+def generateFromCheckpoint(
+    selected_model,
+    ckpt_filePath,
+    class_index=None,
+    num_samples=1,
+    package_rev_number=None,
+):
     MODEL_CLASS = _get_models(selected_model)
 
     try:
@@ -178,15 +186,11 @@ def generateFromCheckpoint(selected_model, ckpt_filePath, class_index=None, num_
         mesh = model.generate_tree(c=class_index, num_trees=num_samples)
     except Exception as e:
         print(e)
-        print(
-            "generate with class label does not work. Now generate without label"
-        )
+        print("generate with class label does not work. Now generate without label")
         # assume unconditional model
         mesh = model.generate_tree(num_trees=num_samples)
 
-    print(
-        num_samples, " objects are generated, processing objects to json......"
-    )
+    print(num_samples, " objects are generated, processing objects to json......")
     returnMeshes = []
     for i in range(num_samples):
         sample_tree_bool_array = mesh[i] > 0
@@ -194,6 +198,7 @@ def generateFromCheckpoint(selected_model, ckpt_filePath, class_index=None, num_
         voxelmeshfile = voxelmesh.export(file_type="obj")
         returnMeshes.append(io.StringIO(voxelmeshfile).getvalue())
     return returnMeshes
+
 
 def print_time_message(message, refresh_time=False):
     global current_time, message_steptime
