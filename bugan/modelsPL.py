@@ -1295,6 +1295,8 @@ class VAE_train(BaseModel):
         super(VAE_train, self).__init__(config)
         # assert(vae.sample_size == discriminator.input_size)
         self.config = config
+        if hasattr(config, "config"):
+            self.config = config.config
         self.save_hyperparameters("config")
         config = self.setup_config_arguments(config)
         self.config = config
@@ -1569,6 +1571,8 @@ class VAEGAN(BaseModel):
         super(VAEGAN, self).__init__(config)
         # assert(vae.sample_size == discriminator.input_size)
         self.config = config
+        if hasattr(config, "config"):
+            self.config = config.config
         self.save_hyperparameters("config")
         # add missing default parameters
         config = self.setup_config_arguments(config)
@@ -1903,6 +1907,8 @@ class GAN(BaseModel):
     def __init__(self, config):
         super(GAN, self).__init__(config)
         self.config = config
+        if hasattr(config, "config"):
+            self.config = config.config
         self.save_hyperparameters("config")
         # add missing default parameters
         config = self.setup_config_arguments(config)
@@ -2628,6 +2634,8 @@ class CGAN(GAN):
     def __init__(self, config):
         super(GAN, self).__init__(config)
         self.config = config
+        if hasattr(config, "config"):
+            self.config = config.config
         self.save_hyperparameters("config")
         # add missing default parameters
         config = self.setup_config_arguments(config)
@@ -2962,6 +2970,8 @@ class CVAEGAN(VAEGAN):
     def __init__(self, config):
         super(VAEGAN, self).__init__(config)
         self.config = config
+        if hasattr(config, "config"):
+            self.config = config.config
         self.save_hyperparameters("config")
         # add missing default parameters
         config = self.setup_config_arguments(config)
