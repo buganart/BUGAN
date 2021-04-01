@@ -55,31 +55,31 @@ preset_models = {
     "formal_upright_2": ["vtcf6k3t", 0],
     "friedrich_1": ["vtcf6k3t", 0],
     "friedrich_2": ["vtcf6k3t", 0],
-    "friedrich_3": ["vtcf6k3t", 0],
-    "group_1": ["vtcf6k3t", 0],
-    "group_2": ["vtcf6k3t", 0],
-    "informal_upright_1": ["vtcf6k3t", 0],
+    "friedrich_3": ["1v3odhkm", 2],
+    "group_1": ["1fj7x4dk", 4],
+    "group_2": ["1fj7x4dk", 1],
+    "informal_upright_1": ["1fj7x4dk", 2],
     "informal_upright_2": ["vtcf6k3t", 0],
     "leaning_1": ["vtcf6k3t", 0],
-    "leaning_2": ["vtcf6k3t", 0],
-    "mustard_reaching_1": ["vtcf6k3t", 0],
+    "leaning_2": ["vtcf6k3t", 2],
+    "mustard_reaching_1": ["29k3qjns", 4],
     "mustard_sapling_1": ["vtcf6k3t", 0],
-    "mustard_sapling_2": ["vtcf6k3t", 0],
-    "pn_banyan_1": ["vtcf6k3t", 0],
-    "pn_maple_1": ["vtcf6k3t", 0],
+    "mustard_sapling_2": ["1fj7x4dk", 3],
+    "pn_banyan_1": ["1v3odhkm", 3],
+    "pn_maple_1": ["1fj7x4dk", 0],
     "pn_old_1": ["vtcf6k3t", 0],
-    "pn_pine_1": ["vtcf6k3t", 0],
-    "pn_pine_2": ["vtcf6k3t", 0],
-    "pn_pine_3": ["vtcf6k3t", 0],
-    "pn_pine_4": ["vtcf6k3t", 0],
+    "pn_pine_1": ["29k3qjns", 2],
+    "pn_pine_2": ["1v3odhkm", 0],
+    "pn_pine_3": ["29k3qjns", 0],
+    "pn_pine_4": ["29k3qjns", 1],
     "pn_pine_5": ["vtcf6k3t", 0],
-    "pn_pine_6": ["vtcf6k3t", 0],
-    "pn_tall_straight": ["vtcf6k3t", 0],
-    "pn_tall_straight_old": ["vtcf6k3t", 0],
+    "pn_pine_6": ["vtcf6k3t", 4],
+    "pn_tall_straight": ["29k3qjns", 3],
+    "pn_tall_straight_old": ["1v3odhkm", 4],
     "raft_1": ["vtcf6k3t", 0],
-    "raft_2": ["vtcf6k3t", 0],
-    "semi_cascade_1": ["vtcf6k3t", 0],
-    "semi_cascade_2": ["vtcf6k3t", 0],
+    "raft_2": ["1v3odhkm", 1],
+    "semi_cascade_1": ["vtcf6k3t", 3],
+    "semi_cascade_2": ["vtcf6k3t", 1],
     "sept_chen_lin_1": ["vtcf6k3t", 0],
     "sept_chen_lin_2": ["vtcf6k3t", 0],
     "sept_chen_lin_3": ["vtcf6k3t", 0],
@@ -242,6 +242,8 @@ def clear():
 
 
 # generate mesh given (run_id, num_samples, class_index)
+# or
+# generate mesh given (class_name, num_samples)
 @app.route("/generateMesh", methods=["post"])
 def generateMesh():
     global message_steptime
@@ -252,9 +254,16 @@ def generateMesh():
     run_id = req.get("run_id", None)
     num_samples = int(req.get("num_samples", 1))
     class_index = req.get("class_index", None)
+    class_name = req.get("class_name", None)
+
+    print("req:", req)
+    if class_name is not None:
+        # convert class_name to run_id
+        run_id, class_index = preset_models[class_name]
+
     if class_index is not None:
         class_index = int(class_index)
-    print("req:", req)
+
     generateMesh_idList, _ = search_local_checkpoint(ckpt_dir)
     print("stored ckpt id:", generateMesh_idList)
     if run_id:
@@ -339,7 +348,9 @@ def generateMesh():
         return ("", 204)
 
 
-# generate mesh given (run_id, num_samples, class_index)
+# generate mesh given (run_id, class_index, num_samples, num_selected_checkpoint)
+# or
+# generate mesh given (class_name, num_samples, num_selected_checkpoint)
 @app.route("/generateMeshHistory", methods=["post"])
 def generateMeshHistory():
     global message_steptime
@@ -351,8 +362,15 @@ def generateMeshHistory():
     num_samples = int(req.get("num_samples", 1))
     class_index = req.get("class_index", None)
     num_selected_checkpoint = int(req.get("num_selected_checkpoint", 4))
+    class_name = req.get("class_name", None)
+
+    if class_name is not None:
+        # convert class_name to run_id
+        run_id, class_index = preset_models[class_name]
+
     if class_index is not None:
         class_index = int(class_index)
+
     print("req:", req)
     _, generateMesh_idHistoryDict = search_local_checkpoint(ckpt_dir)
     print("stored history:", generateMesh_idHistoryDict)
@@ -382,7 +400,7 @@ def generateMeshHistory():
             if (filename == "checkpoint.ckpt") or (filename == "checkpoint_prev.ckpt"):
                 continue
             file_epoch = str((filename.split("_")[1]).split(".")[0])
-            epoch_list.append(file_epoch)
+            epoch_list.append(int(file_epoch))
             epoch_file_dict[file_epoch] = file
 
         epoch_list = sorted(epoch_list)
@@ -398,7 +416,7 @@ def generateMeshHistory():
         # downloaded file will be in "./"
         returnMeshesAll = {}
         for checkpoint_epoch_index in selected_epoch_index:
-            file_epoch = epoch_list[checkpoint_epoch_index]
+            file_epoch = str(epoch_list[checkpoint_epoch_index])
             print(f"generate mesh for epoch {file_epoch}......")
             try:
                 file = epoch_file_dict[file_epoch]
@@ -435,102 +453,6 @@ def generateMeshHistory():
         for m, t in message_steptime:
             print(m, t)
         return jsonify(mesh=returnMeshesAll)
-    else:
-        # return empty response: 204 No Content?
-        return ("", 204)
-
-
-# generate mesh given (class_name, num_samples)
-@app.route("/generateTree", methods=["post"])
-def generateTree():
-    global message_steptime
-    message_steptime = []
-
-    req = request.get_json(force=True)
-
-    class_name = req.get("class_name", None)
-    num_samples = int(req.get("num_samples", 1))
-
-    print("req:", req)
-    if class_name is not None:
-        # convert class_name to run_id
-        run_id, class_index = preset_models[class_name]
-        message = "starting loading models...."
-        print_time_message(message, refresh_time=True)
-
-        try:
-            config = get_resume_run_config("handtool-gan", run_id)
-        except:
-            config = get_resume_run_config("tree-gan", run_id)
-
-        message = "finish loading config setting, time: "
-        print_time_message(message)
-
-        filePath = "./checkpoint/" + str(run_id) + "_" + "checkpoint.ckpt"
-
-        api = wandb.Api()
-        run = api.run(f"bugan/{config.project_name}/{run_id}")
-
-        message = "finish restoring wandb run environment, time: "
-        print_time_message(message)
-
-        if run_id not in generateMesh_idList:
-            # downloaded file will be in "./"
-            file = run.file("checkpoint.ckpt").download(replace=True)
-            file.close()
-            # change filename by adding run_id on it
-            os.rename("./checkpoint.ckpt", filePath)
-
-            # manage generateMesh_idList
-            generateMesh_idList.append(run_id)
-            if len(generateMesh_idList) > 10:
-                old_id = generateMesh_idList.pop(0)
-                # remove the old checkpoint file
-                old_filePath = "./checkpoint/" + str(old_id) + "_" + "checkpoint.ckpt"
-                os.remove(old_filePath)
-
-            message = "finish restoring checkpoint file, time: "
-            print_time_message(message)
-
-        try:
-            # try to load model with latest ckpt
-            returnMeshes = generateFromCheckpoint(
-                config.selected_model,
-                filePath,
-                class_index=class_index,
-                num_samples=num_samples,
-                package_rev_number=config.rev_number,
-            )
-        except Exception as e:
-            print(e)
-            print("loading from checkpoint.ckpt failed. Try checkpoint_prev.ckpt")
-            # remove failed checkpoint
-            os.remove(filePath)
-            # downloaded checkpoint_prev
-            file = run.file("checkpoint_prev.ckpt").download(replace=True)
-            file.close()
-            # change filename by adding run_id on it
-            os.rename("./checkpoint_prev.ckpt", filePath)
-
-            message = "finish restoring prev checkpoint file, time: "
-            print_time_message(message)
-
-            # try to load model with prev ckpt
-            returnMeshes = generateFromCheckpoint(
-                config.selected_model,
-                filePath,
-                class_index=class_index,
-                num_samples=num_samples,
-                package_rev_number=config.rev_number,
-            )
-
-        message = "finish generate mesh, time: "
-        print_time_message(message)
-
-        print("=== Time summary ===")
-        for m, t in message_steptime:
-            print(m, t)
-        return jsonify(mesh=returnMeshes)
     else:
         # return empty response: 204 No Content?
         return ("", 204)
