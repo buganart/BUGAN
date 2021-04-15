@@ -1140,7 +1140,7 @@ class BaseModel(pl.LightningModule):
 
     # TODO: change generate tree to generate samples to avoid confusion
     def generate_tree(
-        self, generator, c=None, num_classes=None, embedding_fn=None, num_trees=1
+        self, generator, c=None, num_classes=None, embedding_fn=None, num_trees=1, std=1
     ):
         """
         generate tree
@@ -1180,8 +1180,11 @@ class BaseModel(pl.LightningModule):
 
             if c is not None:
                 # generate noise vector
-                z = torch.randn(batch_size, self.config.z_size).type_as(
-                    generator.gen_fc.weight
+                z = (
+                    torch.randn(batch_size, self.config.z_size).type_as(
+                        generator.gen_fc.weight
+                    )
+                    * std
                 )
                 # turn class vector the same device as z, but with dtype Long
                 c = torch.ones(batch_size) * c
@@ -1196,8 +1199,11 @@ class BaseModel(pl.LightningModule):
                 )
             else:
                 # generate noise vector
-                z = torch.randn(batch_size, generator.z_size).type_as(
-                    generator.gen_fc.weight
+                z = (
+                    torch.randn(batch_size, generator.z_size).type_as(
+                        generator.gen_fc.weight
+                    )
+                    * std
                 )
 
             # no tanh so hasvoxel means >0
@@ -1442,7 +1448,7 @@ class VAE_train(BaseModel):
 
         return vae_loss
 
-    def generate_tree(self, num_trees=1):
+    def generate_tree(self, num_trees=1, std=1):
         """
         the function to generate tree
         this function specifies the generator module of this model and pass to the parent generate_tree()
@@ -1457,7 +1463,7 @@ class VAE_train(BaseModel):
             the generated samples
         """
         generator = self.vae.vae_decoder
-        return super().generate_tree(generator, num_trees=num_trees)
+        return super().generate_tree(generator, num_trees=num_trees, std=std)
 
 
 class VAEGAN(BaseModel):
@@ -1803,7 +1809,7 @@ class VAEGAN(BaseModel):
             dloss = self.apply_accuracy_hack(dloss, dout_real, dout_fake)
             return dloss
 
-    def generate_tree(self, num_trees=1):
+    def generate_tree(self, num_trees=1, std=1):
         """
         the function to generate tree
         this function specifies the generator module of this model and pass to the parent generate_tree()
@@ -1818,7 +1824,7 @@ class VAEGAN(BaseModel):
             the generated samples
         """
         generator = self.vae.vae_decoder
-        return super().generate_tree(generator, num_trees=num_trees)
+        return super().generate_tree(generator, num_trees=num_trees, std=std)
 
 
 class GAN(BaseModel):
@@ -2052,7 +2058,7 @@ class GAN(BaseModel):
             dloss = self.apply_accuracy_hack(dloss, dout_real, dout_fake)
             return dloss
 
-    def generate_tree(self, num_trees=1):
+    def generate_tree(self, num_trees=1, std=1):
         """
         the function to generate tree
         this function specifies the generator module of this model and pass to the parent generate_tree()
@@ -2067,7 +2073,7 @@ class GAN(BaseModel):
             the generated samples
         """
         generator = self.generator
-        return super().generate_tree(generator, num_trees=num_trees)
+        return super().generate_tree(generator, num_trees=num_trees, std=std)
 
 
 class GAN_Wloss(GAN):
@@ -2874,7 +2880,7 @@ class CGAN(GAN):
             # closs = (closs_real + closs_fake) / 2
             return closs_real
 
-    def generate_tree(self, c, num_trees=1):
+    def generate_tree(self, c, num_trees=1, std=1):
         """
         the function to generate tree
         this function specifies the generator module of this model and pass to the parent generate_tree()
@@ -2901,6 +2907,7 @@ class CGAN(GAN):
             num_classes=config.num_classes,
             embedding_fn=self.embedding,
             num_trees=num_trees,
+            std=std,
         )
 
 
@@ -3233,7 +3240,7 @@ class CVAEGAN(VAEGAN):
             # closs = (closs_real + closs_fake) / 2
             return closs_real
 
-    def generate_tree(self, c, num_trees=1):
+    def generate_tree(self, c, num_trees=1, std=1):
         """
         the function to generate tree
         this function specifies the generator module of this model and pass to the parent generate_tree()
@@ -3260,6 +3267,7 @@ class CVAEGAN(VAEGAN):
             num_classes=config.num_classes,
             embedding_fn=self.vae.embedding,
             num_trees=num_trees,
+            std=std,
         )
 
 
