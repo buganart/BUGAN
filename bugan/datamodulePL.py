@@ -142,6 +142,8 @@ class DataModule_process(pl.LightningDataModule):
         # selected classes to train
         if hasattr(self.config, "selected_class_name_list"):
             self.class_list = self.config.selected_class_name_list
+            # reassign self.num_classes if selected classes
+            self.num_classes = len(self.class_list)
         else:
             self.class_list = None
 
