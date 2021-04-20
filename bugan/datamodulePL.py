@@ -143,7 +143,10 @@ class DataModule_process(pl.LightningDataModule):
         if hasattr(self.config, "selected_class_name_list"):
             self.class_list = self.config.selected_class_name_list
             # reassign self.num_classes if selected classes
-            self.num_classes = len(self.class_list)
+            if len(self.class_list) != self.num_classes:
+                raise ValueError(
+                    f"the length of selected_class_name_list ({len(self.class_list)}) should be the same as num_classes ({self.num_classes})"
+                )
         else:
             self.class_list = None
 
@@ -331,6 +334,7 @@ class DataModule_process(pl.LightningDataModule):
             # shift class_name according to the selected_class_list
             class_name_list = [class_name_list[index] for index in selected_class_list]
         else:
+            print(f"processing classes:{self.class_list}")
             selected_class_list = []
             # find corresponding index of the name in selected_class_name_list
             for name in self.class_list:
