@@ -463,7 +463,9 @@ class DataModule_process(pl.LightningDataModule):
             # for normal:
             # read all files and process the object array to .npy/.npz file
             # if self.class_list is not None, selected classes from user, so reprocess again
-            if self.savefile_path.exists() and self.class_list is None:
+            if self.savefile_path.exists() and (
+                self.class_list is None or self.num_classes is None
+            ):
                 print(f"Processed dataset {self.savefile_path} already exists.")
             else:
 
@@ -517,15 +519,17 @@ class DataModule_process(pl.LightningDataModule):
                     print(f"Final dataset_array shape: {len(data)}")
                     print(f"Final number of classes: {self.num_classes}")
                     print("class_list:", class_list)
-                    # save as .npz file for conditional data
-                    np.savez(
-                        self.savefile_path,
-                        data=data,
-                        index=index,
-                        class_list=class_list,
-                    )
+                    # only save if do not have selected class list, so the classes are selected by the datamodule method
+                    if self.class_list is None:
+                        # save as .npz file for conditional data
+                        np.savez(
+                            self.savefile_path,
+                            data=data,
+                            index=index,
+                            class_list=class_list,
+                        )
 
-                print(f"Saved processed dataset to {self.savefile_path}")
+                        print(f"Saved processed dataset to {self.savefile_path}")
 
             if self.num_classes is None:
                 dataset = np.load(self.savefile_path)
