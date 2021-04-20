@@ -139,7 +139,12 @@ class DataModule_process(pl.LightningDataModule):
         else:
             self.offset = None
 
-        self.class_list = None
+        # selected classes to train
+        if hasattr(self.config, "selected_class_name_list"):
+            self.class_list = self.config.selected_class_name_list
+        else:
+            self.class_list = None
+
         self.savefile_path = make_processed_savefile_path(
             self.data_path,
             self.config.resolution,
@@ -291,36 +296,46 @@ class DataModule_process(pl.LightningDataModule):
         Returns
         -------
         data : list/numpy ndarray
-            the sorted samples list but with classes removed
+            the sorted samples list but with trimmed classes
         index : list of int
-            the sample_class_index list but with classes removed
+            the sample_class_index list but with trimmed classes
         class_name_list : list of string
-            the class_name_list list but with classes removed
+            the class_name_list list but with trimmed classes
         """
-        # find class_index counts
-        indices, indices_count = np.unique(sample_class_index, return_counts=True)
-        # sort class_index with counts
-        count_list = [(indices[i], indices_count[i]) for i in range(len(indices))]
-        count_list.sort(key=lambda v: v[0])
-        count_list.sort(key=lambda v: v[1], reverse=True)
 
-        if self.offset is None:
-            offset = 0
+        # if self.class_list is assigned, then there is selected classes for the training
+        if self.class_list is None:
+            # find class_index counts
+            indices, indices_count = np.unique(sample_class_index, return_counts=True)
+            # sort class_index with counts
+            count_list = [(indices[i], indices_count[i]) for i in range(len(indices))]
+            count_list.sort(key=lambda v: v[0])
+            count_list.sort(key=lambda v: v[1], reverse=True)
+            if self.offset is None:
+                offset = 0
+            else:
+                offset = self.offset
+
+            if offset >= len(count_list):
+                raise ValueError(
+                    f"trim_class_offset ({offset}) should be <= Processed number of classes ({len(count_list)})"
+                )
+            if self.num_classes + offset >= len(count_list):
+                selected_class_list = count_list[offset:]
+            else:
+                selected_class_list = count_list[offset : self.num_classes + offset]
+
+            selected_class_list = [index for (index, _) in selected_class_list]
+            # shift class_name according to the selected_class_list
+            class_name_list = [class_name_list[index] for index in selected_class_list]
         else:
-            offset = self.offset
+            selected_class_list = []
+            # find corresponding index of the name in selected_class_name_list
+            for name in self.class_list:
+                selected_class_list.append(class_name_list.index(name))
 
-        if offset >= len(count_list):
-            raise ValueError(
-                f"trim_class_offset ({offset}) should be <= Processed number of classes ({len(count_list)})"
-            )
-        if self.num_classes + offset >= len(count_list):
-            selected_class_list = count_list[offset:]
-        else:
-            selected_class_list = count_list[offset : self.num_classes + offset]
-
-        selected_class_list = [index for (index, _) in selected_class_list]
-        # shift class_name according to the selected_class_list
-        class_name_list = [class_name_list[index] for index in selected_class_list]
+            # assign selected_class_name_list to the stored class_name_list
+            class_name_list = self.class_list
 
         # trim dataset
         data = []

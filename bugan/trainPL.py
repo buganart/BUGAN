@@ -202,13 +202,11 @@ def setup_model(config, run):
         try:
             # Download file from the wandb cloud.
             load_checkpoint_from_cloud(checkpoint_path="checkpoint.ckpt")
-            extra_trainer_args = {"resume_from_checkpoint": checkpoint_path}
             model = MODEL_CLASS.load_from_checkpoint(checkpoint_path)
             new_ckpt_loaded = True
         except:
             # Download previous successfully loaded checkpoint file
             load_checkpoint_from_cloud(checkpoint_path="checkpoint_prev.ckpt")
-            extra_trainer_args = {"resume_from_checkpoint": checkpoint_prev_path}
             model = MODEL_CLASS.load_from_checkpoint(checkpoint_prev_path)
 
         if new_ckpt_loaded:
@@ -218,6 +216,8 @@ def setup_model(config, run):
             # save successfully loaded checkpoint file as checkpoint_prev.ckpt
             os.rename(checkpoint_path, checkpoint_prev_path)
             save_checkpoint_to_cloud(checkpoint_prev_path)
+
+        extra_trainer_args = {"resume_from_checkpoint": checkpoint_prev_path}
 
     else:
         extra_trainer_args = {}
