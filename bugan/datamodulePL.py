@@ -456,7 +456,8 @@ class DataModule_process(pl.LightningDataModule):
         else:
             # for normal:
             # read all files and process the object array to .npy/.npz file
-            if self.savefile_path.exists():
+            # if self.class_list is not None, selected classes from user, so reprocess again
+            if self.savefile_path.exists() and self.class_list is None:
                 print(f"Processed dataset {self.savefile_path} already exists.")
             else:
 
