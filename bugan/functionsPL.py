@@ -26,13 +26,12 @@ from disjoint_set import DisjointSet
 class SaveWandbCallback(Callback):
     def __init__(self, log_interval, save_model_path, history_checkpoint_frequency=0):
         super().__init__()
-        self.epoch = 0
         self.log_interval = log_interval
         self.save_model_path = Path(save_model_path)
         self.history_checkpoint_frequency = history_checkpoint_frequency
 
     def on_train_epoch_end(self, trainer, pl_module, outputs):
-        if self.epoch % self.log_interval == 0:
+        if trainer.current_epoch % self.log_interval == 0:
             # log
             model_file_path = str(self.save_model_path / "checkpoint.ckpt")
             trainer.save_checkpoint(model_file_path)
@@ -40,15 +39,16 @@ class SaveWandbCallback(Callback):
             # record extra checkpoints for history record
             if self.history_checkpoint_frequency:
                 if (
-                    self.epoch % (self.log_interval * self.history_checkpoint_frequency)
+                    trainer.current_epoch
+                    % (self.log_interval * self.history_checkpoint_frequency)
                     == 0
                 ):
                     new_model_path = str(
-                        self.save_model_path / (f"checkpoint_{self.epoch}.ckpt")
+                        self.save_model_path
+                        / (f"checkpoint_{trainer.current_epoch}.ckpt")
                     )
                     trainer.save_checkpoint(new_model_path)
                     save_checkpoint_to_cloud(new_model_path)
-        self.epoch += 1
 
 
 # function to save/load files from wandb
