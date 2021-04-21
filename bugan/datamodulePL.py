@@ -533,6 +533,8 @@ class DataModule_process(pl.LightningDataModule):
                         print(f"Saved processed dataset to {self.savefile_path}")
                     else:
                         # as we do not save file, data are from the processed array above
+                        data = np.array(data)
+                        index = np.array(index)
                         self.size = data.shape[0]
                         self.dataset = torch.unsqueeze(torch.tensor(data), 1)
                         self.datalabel = torch.tensor(index)
