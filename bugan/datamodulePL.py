@@ -333,15 +333,16 @@ class DataModule_process(pl.LightningDataModule):
             selected_class_list = [index for (index, _) in selected_class_list]
             # shift class_name according to the selected_class_list
             class_name_list = [class_name_list[index] for index in selected_class_list]
+            print(f"processing classes:{self.class_list}, index:{selected_class_list}")
         else:
-            print(f"processing classes:{self.class_list}")
+
             selected_class_list = []
             # find corresponding index of the name in selected_class_name_list
             for name in self.class_list:
                 selected_class_list.append(class_name_list.index(name))
-
             # assign selected_class_name_list to the stored class_name_list
             class_name_list = self.class_list
+            print(f"processing classes:{self.class_list}, index:{selected_class_list}")
 
         # trim dataset
         data = []
@@ -530,7 +531,15 @@ class DataModule_process(pl.LightningDataModule):
                         )
 
                         print(f"Saved processed dataset to {self.savefile_path}")
+                    else:
+                        # as we do not save file, data are from the processed array above
+                        self.size = data.shape[0]
+                        self.dataset = torch.unsqueeze(torch.tensor(data), 1)
+                        self.datalabel = torch.tensor(index)
+                        self.class_list = class_list
+                        return
 
+            # load data from the processed datafile
             if self.num_classes is None:
                 dataset = np.load(self.savefile_path)
 
