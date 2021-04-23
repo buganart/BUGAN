@@ -147,3 +147,4 @@ wandb/
 
 lightning_logs/
 doc/_build
+script/checkpoint/model_args.json
