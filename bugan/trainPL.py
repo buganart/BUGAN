@@ -239,7 +239,7 @@ def train(config, run, model, dataModule, extra_trainer_args):
     # update config by filling in missing model argument by default values
     config = setup_config_arguments(config)
     # log config
-    wandb.config.update(config)
+    wandb.config.update(config, allow_val_change=True)
     save_model_args(config, run)
     pprint.pprint(vars(config))
 
