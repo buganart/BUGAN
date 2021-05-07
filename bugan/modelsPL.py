@@ -687,7 +687,7 @@ class BaseModel(pl.LightningModule):
     #####
     #   on_train_epoch_end()
     #####
-    def on_train_epoch_end(self, epoch_output):
+    def on_train_epoch_end(self, epoch_output=None):
         """
         default function for pl.LightningModule to run on the end of every train epoch
         here the function just setup the log information as dictionary and log it to wandb
