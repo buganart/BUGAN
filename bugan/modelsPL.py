@@ -461,7 +461,12 @@ class BaseModel(pl.LightningModule):
             activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
         )
 
-        vae = VAE(encoder=encoder, decoder=decoder, num_classes=num_classes)
+        vae = VAE(
+            encoder=encoder,
+            decoder=decoder,
+            num_classes=num_classes,
+            dim_class_embedding=num_classes,
+        )
         # setup component in __init__() lists
         # for configure_optimizers() and record loss
         self.setup_model_component(vae, model_name, optimizer_option, learning_rate)
@@ -2658,7 +2663,7 @@ class CGAN(GAN):
             num_layer_unit=config.gen_num_layer_unit,
             optimizer_option=config.gen_opt,
             learning_rate=config.g_lr,
-            num_classes=128,
+            num_classes=config.num_classes,
             kernel_size=kernel_size[0],
             fc_size=fc_size[0],
         )
@@ -2681,7 +2686,7 @@ class CGAN(GAN):
         )
 
         # add embedding layer for classes
-        self.embedding = nn.Embedding(config.num_classes, 128)
+        self.embedding = nn.Embedding(config.num_classes, config.num_classes)
 
         # loss function
         self.criterion_label = self.get_loss_function_with_logit(config.label_loss)
@@ -2997,7 +3002,7 @@ class CVAEGAN(VAEGAN):
             decoder_num_layer_unit=config.decoder_num_layer_unit,
             optimizer_option=config.vae_opt,
             learning_rate=config.vae_lr,
-            num_classes=128,
+            num_classes=config.num_classes,
             kernel_size=kernel_size[:2],
             fc_size=fc_size[:2],
         )
@@ -3724,7 +3729,7 @@ class VAE(nn.Module):
             the output vector of the encoder + one-hot class vector
     """
 
-    def __init__(self, encoder, decoder, num_classes=None):
+    def __init__(self, encoder, decoder, num_classes=None, dim_class_embedding=64):
         super(VAE, self).__init__()
         assert encoder.resolution == decoder.resolution
         self.resolution = decoder.resolution
@@ -3743,7 +3748,7 @@ class VAE(nn.Module):
         if num_classes is None:
             self.embedding = None
         else:
-            self.embedding = nn.Embedding(num_classes, 128)
+            self.embedding = nn.Embedding(num_classes, dim_class_embedding)
 
     def noise_reparameterize(self, mean, logvar):
         """
