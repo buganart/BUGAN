@@ -6,4 +6,4 @@ RUN pip install --upgrade pip && \
     pip install --upgrade git+https://github.com/buganart/BUGAN.git#egg=bugan && \
     pip install flask
 EXPOSE 8080
-CMD ["python", "./api.py"]
+ENTRYPOINT ["python", "./api.py"]
