@@ -106,6 +106,10 @@ def netarray2mesh(array, threshold=0):
 # more than 1 cluster means that the mesh may have outliers / floating voxel
 # the distance function is p-inf. (see infinity norm/maximum norm)
 def eval_count_cluster(boolarray):
+    return len(eval_cluster(boolarray))
+
+
+def eval_cluster(boolarray):
     def nearby_voxels(boolarray, i, j, k):
         bound = boolarray.shape
         low_i, high_i = np.clip([i - 1, i + 1], 0, bound[0] - 1)
@@ -123,6 +127,8 @@ def eval_count_cluster(boolarray):
         retval.remove((i, j, k))
         return retval
 
+    # cast array to bool again to make sure process is correct
+    boolarray = boolarray > 0
     ds = DisjointSet()
     for i in range(boolarray.shape[0]):
         for j in range(boolarray.shape[1]):
@@ -133,7 +139,7 @@ def eval_count_cluster(boolarray):
                     nearby_vox = nearby_voxels(boolarray, i, j, k)
                     for v in nearby_vox:
                         ds.union(v, (i, j, k))
-    return len(list(ds.itersets()))
+    return list(ds.itersets())
 
 
 # render image (PIL) from voxelmesh 3d object
