@@ -15,11 +15,14 @@ from bugan.trainPL import (
 )
 
 
-data_path = "../../handtool-data/handtool-v4-cleaned-tnf-1000.zip"
+data_path = (
+    "../../tree-data/tree-sessions-2020-09-10-simplified-26k-target-face-num-1000.zip"
+)
 config_dict = {
     "data_location": data_path,
-    "project_name": "handtool-gan",
-    "resume_id": "7yd1hbta",
+    "selected_model": "VAEGAN",
+    "project_name": "tree-gan",
+    "resume_id": "",
     "history_checkpoint_frequency": 2,
     "trim_class_offset": 0,
     "vae_opt": "Adam",
@@ -29,7 +32,7 @@ config_dict = {
     "accuracy_hack": 1.1,
     "vae_lr": 0.0001,
     "d_lr": 0.00001,
-    "kl_coef": 300000,
+    "kl_coef": 600000,
     "d_rec_coef": 10000,
     "FMrec_coef": 0.01,
     "FMgan_coef": 0.1,
@@ -52,6 +55,9 @@ config_dict = {
     "kernel_size": 5,
     "fc_size": 2,
     "use_simple_3dgan_struct": False,
+    "seed": 123,
+    "epochs": 3000,
+    "data_augmentation": False,
 }
 config = Namespace(**config_dict)
 dataset_path = Path(config.data_location)
