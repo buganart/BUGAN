@@ -21,7 +21,8 @@ from bugan.trainPL import (
     get_resume_run_config,
     _get_models,
 )
-from bugan.functionsPL import netarray2mesh
+from bugan.functionsPL import netarray2mesh, eval_cluster
+import numpy as np
 
 import torch
 import wandb
@@ -153,20 +154,59 @@ def install_bugan_package(rev_number=None):
         )
 
 
+# post processing array
+def cluster_in_sphere(voxel_index_list, center, radius):
+    center = np.array(center)
+    for v in voxel_index_list:
+        v = np.array(v)
+        dist = np.linalg.norm(v - center)
+        if dist < radius:
+            return True
+    return False
+
+
+def post_process_array(boolarray, point_threshold, radius):
+    # print("Post-processing is True")
+    boolarray = boolarray > 0
+    cluster = eval_cluster(boolarray)
+
+    # post process
+    process_cluster = []
+    for l in cluster:
+        l = list(l)
+        if len(l) < point_threshold:
+            continue
+        if not cluster_in_sphere(l, np.array(boolarray.shape) / 2, radius):
+            continue
+        process_cluster.append(l)
+
+    # point form back to array form
+    processed_tree = np.zeros_like(boolarray)
+    for c in process_cluster:
+        for index in c:
+            i, j, k = index
+            processed_tree[i, j, k] = 1
+    return processed_tree
+
+
 def generateFromCheckpoint(
+    config,
     selected_model,
     ckpt_filePath,
     class_index=None,
     num_samples=1,
     package_rev_number=None,
+    point_threshold=None,
+    radius=None,
 ):
     MODEL_CLASS = _get_models(selected_model)
+    config.batch_size = 2
 
     try:
         # restore bugan version
         install_bugan_package(rev_number=package_rev_number)
         # try to load model with checkpoint.ckpt
-        model = MODEL_CLASS.load_from_checkpoint(ckpt_filePath)
+        model = MODEL_CLASS.load_from_checkpoint(ckpt_filePath, config=config)
     except Exception as e:
         print(e)
         print(
@@ -175,7 +215,7 @@ def generateFromCheckpoint(
         # try newest bugan version
         install_bugan_package()
         # try to load model with checkpoint_prev.ckpt
-        model = MODEL_CLASS.load_from_checkpoint(ckpt_filePath)
+        model = MODEL_CLASS.load_from_checkpoint(ckpt_filePath, config=config)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # device = "cpu"
@@ -194,9 +234,20 @@ def generateFromCheckpoint(
     returnMeshes = []
     for i in range(num_samples):
         sample_tree_bool_array = mesh[i] > 0
+        if point_threshold and radius:
+            sample_tree_bool_array = post_process_array(
+                sample_tree_bool_array, point_threshold, radius
+            )
         voxelmesh = netarray2mesh(sample_tree_bool_array)
+
+        # output as json
         voxelmeshfile = voxelmesh.export(file_type="obj")
         returnMeshes.append(io.StringIO(voxelmeshfile).getvalue())
+
+        # store output as files
+        # save_filename = f"sample_{i}.obj"
+        # export_path = Path("./") / save_filename
+        # voxelmesh.export(file_obj=export_path, file_type="obj")
     return returnMeshes
 
 
@@ -255,6 +306,8 @@ def generateMesh():
     num_samples = int(req.get("num_samples", 1))
     class_index = req.get("class_index", None)
     class_name = req.get("class_name", None)
+    point_threshold = req.get("point_threshold", None)
+    radius = req.get("radius", None)
 
     print("req:", req)
     if class_name is not None:
@@ -263,6 +316,21 @@ def generateMesh():
 
     if class_index is not None:
         class_index = int(class_index)
+
+    if point_threshold and radius:
+        print(f"point_threshold and radius are set. Post-processing is True")
+
+    if not point_threshold and radius:
+        point_threshold = 50
+        print(
+            f"radius is set. Post-processing is True and now set point_threshold to {point_threshold}"
+        )
+
+    if point_threshold and not radius:
+        radius = 28
+        print(
+            f"point_threshold is set. Post-processing is True and now set radius to {radius}"
+        )
 
     generateMesh_idList, _ = search_local_checkpoint(ckpt_dir)
     print("stored ckpt id:", generateMesh_idList)
@@ -307,11 +375,14 @@ def generateMesh():
         try:
             # try to load model with latest ckpt
             returnMeshes = generateFromCheckpoint(
+                config,
                 config.selected_model,
                 filePath,
                 class_index=class_index,
                 num_samples=num_samples,
                 package_rev_number=config.rev_number,
+                point_threshold=point_threshold,
+                radius=radius,
             )
         except Exception as e:
             print(e)
@@ -329,11 +400,14 @@ def generateMesh():
 
             # try to load model with prev ckpt
             returnMeshes = generateFromCheckpoint(
+                config,
                 config.selected_model,
                 filePath,
                 class_index=class_index,
                 num_samples=num_samples,
                 package_rev_number=config.rev_number,
+                point_threshold=point_threshold,
+                radius=radius,
             )
 
         message = "finish generate mesh, time: "
