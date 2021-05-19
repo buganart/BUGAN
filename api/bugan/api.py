@@ -240,11 +240,11 @@ def generateFromCheckpoint(
             )
         voxelmesh = netarray2mesh(sample_tree_bool_array)
 
-        # output as json
+        # # output as json
         voxelmeshfile = voxelmesh.export(file_type="obj")
         returnMeshes.append(io.StringIO(voxelmeshfile).getvalue())
 
-        # store output as files
+        # # store output as files
         # save_filename = f"sample_{i}.obj"
         # export_path = Path("./") / save_filename
         # voxelmesh.export(file_obj=export_path, file_type="obj")
