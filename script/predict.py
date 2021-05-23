@@ -18,16 +18,6 @@ from bugan.trainPL import (
 )
 from bugan.functionsPL import netarray2mesh
 
-
-global generateMesh_idList
-generateMesh_idList = []
-
-global generateMesh_idHistoryDict
-generateMesh_idHistoryDict = {}
-
-global ckpt_dir
-ckpt_dir = "./checkpoint"
-
 global current_time
 current_time = time.time()
 
@@ -60,6 +50,19 @@ def install_bugan_package(rev_number=None):
         )
 
 
+def load_wandb_run(run_id):
+    api = wandb.Api()
+    try:
+        project_name = "tree-gan"
+        run = api.run(f"bugan/{project_name}/{run_id}")
+    except Exception as e:
+        print(e)
+        print("set project_name to tree-gan Failed. Try handtool-gan")
+        project_name = "handtool-gan"
+        run = api.run(f"bugan/{project_name}/{run_id}")
+    return run
+
+
 def generateFromCheckpoint(
     selected_model,
     ckpt_filePath,
@@ -75,7 +78,10 @@ def generateFromCheckpoint(
         # restore bugan version
         install_bugan_package(rev_number=package_rev_number)
         # try to load model with checkpoint.ckpt
-        model = MODEL_CLASS.load_from_checkpoint(ckpt_filePath, config=config)
+        if config:
+            model = MODEL_CLASS.load_from_checkpoint(ckpt_filePath, config=config)
+        else:
+            model = MODEL_CLASS.load_from_checkpoint(ckpt_filePath)
     except Exception as e:
         print(e)
         print(
@@ -84,7 +90,10 @@ def generateFromCheckpoint(
         # try newest bugan version
         install_bugan_package()
         # try to load model with checkpoint_prev.ckpt
-        model = MODEL_CLASS.load_from_checkpoint(ckpt_filePath, config=config)
+        if config:
+            model = MODEL_CLASS.load_from_checkpoint(ckpt_filePath, config=config)
+        else:
+            model = MODEL_CLASS.load_from_checkpoint(ckpt_filePath)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # device = "cpu"
@@ -122,18 +131,25 @@ def print_time_message(message, refresh_time=False):
 
 
 # generate mesh given (out_dir, num_samples)
-def generateMesh(out_dir, num_samples):
-    filePath = "./checkpoint/checkpoint.ckpt"
-    selected_model = "VAEGAN"
-    rev_number = "ed8b9fb"
-    class_index = None
+def generateMesh_local(
+    ckpt_dir, out_dir, num_samples=1, rev_number=None, class_index=0
+):
+    ckpt_filePath = ckpt_dir / "checkpoint.ckpt"
+    config_filePath = ckpt_dir / "model_args.json"
+    # selected_model = "VAEGAN"
+    # rev_number = "ed8b9fb"
+    # class_index = None
 
     # config
-    with open("./checkpoint/model_args.json", "r") as fp:
-        config = json.load(fp)
-        config = argparse.Namespace(**config)
+    try:
+        with open("./checkpoint/model_args.json", "r") as fp:
+            config = json.load(fp)
+            config = argparse.Namespace(**config)
 
-    print("loaded model config:", config)
+        print("loaded model config:", config)
+    except:
+        config = None
+        print(f"{ckpt_dir} not found! use checkpoint stored config.")
 
     global message_steptime
     message_steptime = []
@@ -142,31 +158,172 @@ def generateMesh(out_dir, num_samples):
     print_time_message(message, refresh_time=True)
 
     # try to load model with latest ckpt
-    generateFromCheckpoint(
-        selected_model,
-        filePath,
-        out_dir,
-        config,
-        class_index=class_index,
-        num_samples=num_samples,
-        package_rev_number=rev_number,
-    )
+    if config:
+        generateFromCheckpoint(
+            config.selected_model,
+            ckpt_filePath,
+            out_dir,
+            config,
+            class_index=class_index,
+            num_samples=num_samples,
+            package_rev_number=rev_number,
+        )
+    else:
+        try:
+            selected_model = "VAEGAN"
+            generateFromCheckpoint(
+                config.selected_model,
+                ckpt_filePath,
+                out_dir,
+                config,
+                class_index=class_index,
+                num_samples=num_samples,
+                package_rev_number=rev_number,
+            )
+        except Exception as e:
+            print(e)
+            print("model not set, VAEGAN does not work. Try CVAEGAN....")
+            selected_model = "CVAEGAN"
+            generateFromCheckpoint(
+                config.selected_model,
+                ckpt_filePath,
+                out_dir,
+                config,
+                class_index=class_index,
+                num_samples=num_samples,
+                package_rev_number=rev_number,
+            )
 
     message = "finish generate mesh, time: "
     print_time_message(message)
 
 
+def generateMesh_run(run_id, out_dir, num_samples=1, rev_number=None, class_index=0):
+
+    run = load_wandb_run(run_id)
+
+    config = Namespace(**run.config)
+    # load selected_model, rev_number in the config
+    if hasattr(config, "selected_model"):
+        selected_model = config.selected_model
+    if hasattr(config, "rev_number"):
+        rev_number = config.rev_number
+
+    try:
+        ckpt_file = run.file("checkpoint.ckpt").download(replace=True)
+        generateFromCheckpoint(
+            selected_model,
+            ckpt_file.name,
+            out_dir,
+            config,
+            class_index,
+            num_samples,
+            rev_number,
+        )
+    except Exception as e:
+        print(e)
+        print("loading from checkpoint.ckpt failed. Try checkpoint_prev.ckpt")
+        ckpt_file = run.file("checkpoint_prev.ckpt").download(replace=True)
+        generateFromCheckpoint(
+            selected_model,
+            ckpt_file.name,
+            out_dir,
+            config,
+            class_index,
+            num_samples,
+            rev_number,
+        )
+
+
+def generateMesh_runHistory(
+    run_id, num_history_ckpt, out_dir, num_samples=1, rev_number=None, class_index=0
+):
+
+    run = load_wandb_run(run_id)
+
+    config = Namespace(**run.config)
+    # load selected_model, rev_number in the config
+    if hasattr(config, "selected_model"):
+        selected_model = config.selected_model
+    if hasattr(config, "rev_number"):
+        rev_number = config.rev_number
+
+    # find necessary checkpoint file
+    epoch_list = []
+    epoch_file_dict = {}
+    for file in run.files():
+        filename = file.name
+        if not ".ckpt" in filename:
+            continue
+        if (filename == "checkpoint.ckpt") or (filename == "checkpoint_prev.ckpt"):
+            continue
+        file_epoch = str((filename.split("_")[1]).split(".")[0])
+        epoch_list.append(int(file_epoch))
+        epoch_file_dict[file_epoch] = file
+
+    epoch_list = sorted(epoch_list)
+    if len(epoch_list) < num_history_ckpt:
+        num_history_ckpt = len(epoch_list)
+    print(f"select {num_history_ckpt} out of {len(epoch_list)} checkpoints......")
+    selected_epoch_index = [
+        int(i / (num_history_ckpt - 1) * (len(epoch_list) - 1) + 0.5)
+        for i in range(num_history_ckpt)
+    ]
+
+    # download checkpoint and generate mesh
+    for checkpoint_epoch_index in selected_epoch_index:
+        file_epoch = str(epoch_list[checkpoint_epoch_index])
+        print(f"generate mesh for epoch {file_epoch}......")
+        try:
+            ckpt_file = epoch_file_dict[file_epoch]
+            ckpt_file.download(replace=True)
+            generateFromCheckpoint(
+                selected_model,
+                ckpt_file.name,
+                out_dir,
+                config,
+                class_index,
+                num_samples,
+                rev_number,
+            )
+        except Exception as e:
+            print(e)
+            print("generate mesh for epoch {file_epoch} FAILED !!!")
+
+
 def parse_args():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--run_id", type=str, default=None)
+    parser.add_argument("--num_history_ckpt", type=int, default=-1)
+    parser.add_argument("--ckpt_dir", type=str, default="./checkpoint/")
     parser.add_argument("--out_dir", type=str, default="./output/")
+    parser.add_argument("--rev_number", type=str, default=None)
     parser.add_argument("--num_samples", type=int, default=2)
+    parser.add_argument("--class_index", type=int, default=0)
     args = parser.parse_args()
     return args
 
 
 if __name__ == "__main__":
     args = parse_args()
-    out_dir = args.out_dir
-    Path(out_dir).mkdir(parents=True, exist_ok=True)
+    out_dir = Path(args.out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
 
-    generateMesh(out_dir, args.num_samples)
+    num_samples = args.num_samples
+    rev_number = args.rev_number
+    class_index = args.class_index
+
+    # check if wandb id
+    run_id = args.run_id
+    ckpt_dir = args.ckpt_dir
+    num_history_ckpt = args.num_history_ckpt
+    if run_id:
+        if num_history_ckpt > 0:
+            generateMesh_runHistory(
+                run_id, num_history_ckpt, out_dir, num_samples, rev_number, class_index
+            )
+        else:
+            generateMesh_run(run_id, out_dir, num_samples, rev_number, class_index)
+    else:
+        ckpt_dir = Path(ckpt_dir)
+        generateMesh_local(ckpt_dir, out_dir, num_samples, rev_number, class_index)
