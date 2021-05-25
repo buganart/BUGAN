@@ -11,13 +11,6 @@ import torch
 import wandb
 from pathlib import Path
 
-from bugan.trainPL import (
-    init_wandb_run,
-    setup_model,
-    get_resume_run_config,
-)
-from bugan.functionsPL import netarray2mesh
-
 global current_time
 current_time = time.time()
 
@@ -50,6 +43,15 @@ def install_bugan_package(rev_number=None):
         )
 
 
+install_bugan_package()
+from bugan.trainPL import (
+    init_wandb_run,
+    setup_model,
+    get_resume_run_config,
+)
+from bugan.functionsPL import netarray2mesh, eval_cluster
+
+
 def load_wandb_run(run_id):
     api = wandb.Api()
     try:
@@ -61,6 +63,40 @@ def load_wandb_run(run_id):
         project_name = "handtool-gan"
         run = api.run(f"bugan/{project_name}/{run_id}")
     return run
+
+
+# post process  functions
+def cluster_in_sphere(voxel_index_list, center, radius):
+    center = np.array(center)
+    for v in voxel_index_list:
+        v = np.array(v)
+        dist = np.linalg.norm(v - center)
+        if dist < radius:
+            return True
+    return False
+
+
+def post_process_array(boolarray, radius, point_threshold):
+    boolarray = boolarray > 0
+    cluster = eval_cluster(boolarray)
+
+    # post process
+    process_cluster = []
+    for l in cluster:
+        l = list(l)
+        if len(l) < point_threshold:
+            continue
+        if not cluster_in_sphere(l, np.array(boolarray.shape) / 2, radius):
+            continue
+        process_cluster.append(l)
+
+    # point form back to array form
+    processed_tree = np.zeros_like(boolarray)
+    for c in process_cluster:
+        for index in c:
+            i, j, k = index
+            processed_tree[i, j, k] = 1
+    return processed_tree
 
 
 # generateMesh
@@ -113,6 +149,7 @@ def generateFromCheckpoint(
     package_rev_number=None,
     latent=False,
     output_file_name_dict={},
+    post_process=None,
 ):
 
     try:
@@ -217,6 +254,11 @@ def generateFromCheckpoint(
 
     for i in range(num_samples):
         sample_tree_bool_array = mesh[i] > 0
+        if post_process is not None:
+            radius, point_threshold = post_process
+            sample_tree_bool_array = post_process_array(
+                sample_tree_bool_array, radius, point_threshold
+            )
         voxelmesh = netarray2mesh(sample_tree_bool_array)
 
         save_filename = f"sample_{i}{save_filename_header}.obj"
@@ -238,7 +280,13 @@ def print_time_message(message, refresh_time=False):
 
 # generate mesh given (out_dir, num_samples)
 def generateMesh_local(
-    ckpt_dir, out_dir, num_samples=1, rev_number=None, class_index=0, latent=False
+    ckpt_dir,
+    out_dir,
+    num_samples=1,
+    rev_number=None,
+    class_index=0,
+    latent=False,
+    post_process=None,
 ):
     ckpt_filePath = ckpt_dir / "checkpoint.ckpt"
     config_filePath = ckpt_dir / "model_args.json"
@@ -275,6 +323,7 @@ def generateMesh_local(
             num_samples=num_samples,
             package_rev_number=rev_number,
             latent=latent,
+            post_process=post_process,
         )
     except Exception as e:
         print(e)
@@ -289,6 +338,7 @@ def generateMesh_local(
             num_samples=num_samples,
             package_rev_number=rev_number,
             latent=latent,
+            post_process=post_process,
         )
 
     message = "finish generate mesh, time: "
@@ -296,7 +346,13 @@ def generateMesh_local(
 
 
 def generateMesh_run(
-    run_id, out_dir, num_samples=1, rev_number=None, class_index=0, latent=False
+    run_id,
+    out_dir,
+    num_samples=1,
+    rev_number=None,
+    class_index=0,
+    latent=False,
+    post_process=None,
 ):
 
     run = load_wandb_run(run_id)
@@ -319,6 +375,7 @@ def generateMesh_run(
             num_samples=num_samples,
             package_rev_number=rev_number,
             latent=latent,
+            post_process=post_process,
         )
     except Exception as e:
         print(e)
@@ -333,6 +390,7 @@ def generateMesh_run(
             num_samples=num_samples,
             package_rev_number=rev_number,
             latent=latent,
+            post_process=post_process,
         )
 
 
@@ -344,6 +402,7 @@ def generateMesh_runHistory(
     rev_number=None,
     class_index=0,
     latent=False,
+    post_process=None,
 ):
 
     run = load_wandb_run(run_id)
@@ -394,6 +453,7 @@ def generateMesh_runHistory(
                 package_rev_number=rev_number,
                 latent=latent,
                 output_file_name_dict={"epoch": file_epoch},
+                post_process=post_process,
             )
         except Exception as e:
             print(e)
@@ -411,6 +471,9 @@ def parse_args():
     parser.add_argument("--class_index", type=int, default=0)
     parser.add_argument("--class_index2", type=int, default=-1)
     parser.add_argument("--latent", type=bool, default=False)
+    parser.add_argument("--post_process", type=bool, default=False)
+    parser.add_argument("--radius", type=int, default=28)
+    parser.add_argument("--point_threshold", type=int, default=50)
     args = parser.parse_args()
     return args
 
@@ -419,7 +482,6 @@ if __name__ == "__main__":
     args = parse_args()
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    install_bugan_package()
 
     num_samples = args.num_samples
     rev_number = args.rev_number
@@ -431,6 +493,15 @@ if __name__ == "__main__":
         class_index = [class_index, class_index2]
 
     latent = args.latent
+
+    # post_process
+    post_process = args.post_process
+    radius = args.radius
+    point_threshold = args.point_threshold
+    if post_process:
+        post_process = [radius, point_threshold]
+    else:
+        post_process = None
 
     # check if wandb id
     run_id = args.run_id
@@ -446,13 +517,26 @@ if __name__ == "__main__":
                 rev_number,
                 class_index,
                 latent,
+                post_process=post_process,
             )
         else:
             generateMesh_run(
-                run_id, out_dir, num_samples, rev_number, class_index, latent
+                run_id,
+                out_dir,
+                num_samples,
+                rev_number,
+                class_index,
+                latent,
+                post_process=post_process,
             )
     else:
         ckpt_dir = Path(ckpt_dir)
         generateMesh_local(
-            ckpt_dir, out_dir, num_samples, rev_number, class_index, latent
+            ckpt_dir,
+            out_dir,
+            num_samples,
+            rev_number,
+            class_index,
+            latent,
+            post_process=post_process,
         )
