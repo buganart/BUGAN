@@ -6,6 +6,7 @@ import time
 import argparse
 import json
 
+import numpy as np
 import torch
 import wandb
 from pathlib import Path
@@ -62,6 +63,46 @@ def load_wandb_run(run_id):
     return run
 
 
+# generateMesh
+def generateMeshFromModel(model, z, class_index=None):
+    test_num_samples = z.shape[0]
+    # get generator
+    if hasattr(model, "vae"):
+        generator = model.vae.vae_decoder
+        if class_index is not None:
+            embedding_fn = model.vae.embedding
+    else:
+        generator = model.generator
+        if class_index is not None:
+            embedding_fn = model.embedding
+
+    z = torch.tensor(z).type_as(generator.gen_fc.weight)
+    if class_index is not None:
+        if isinstance(class_index, int):
+            # turn class vector the same device as z, but with dtype Long
+            c = torch.ones(test_num_samples) * class_index
+            c = c.type_as(z).to(torch.int64)
+
+            # combine z and c
+            z = model.merge_latent_and_class_vector(
+                z,
+                c,
+                model.config.num_classes,
+                embedding_fn=embedding_fn,
+            )
+        else:
+            # assume class_index are processed class_vectors
+            class_vectors = torch.tensor(class_index).type_as(z)
+
+            # merge with z to be generator input
+            z = torch.cat((z, class_vectors), 1)
+
+    generated_tree = generator(z)[:, 0, :, :, :]
+    generated_tree = generated_tree.detach().cpu().numpy()
+
+    return generated_tree
+
+
 def generateFromCheckpoint(
     selected_model,
     ckpt_filePath,
@@ -70,6 +111,7 @@ def generateFromCheckpoint(
     class_index=None,
     num_samples=1,
     package_rev_number=None,
+    latent=False,
     output_file_name_dict={},
 ):
 
@@ -104,14 +146,69 @@ def generateFromCheckpoint(
     # device = "cpu"
     print("device:", device)
     model = model.to(device)
-    try:
-        # assume conditional model
-        mesh = model.generate_tree(c=class_index, num_trees=num_samples)
-    except Exception as e:
-        print(e)
-        print("generate with class label does not work. Now generate without label")
-        # assume unconditional model
-        mesh = model.generate_tree(num_trees=num_samples)
+
+    if latent or isinstance(class_index, list):
+
+        # generate latent vectors in a line
+        z_size = config.z_size
+        latent_1 = np.ones(z_size)
+        if latent:
+            latent_2 = np.ones(z_size) * -1
+        else:
+            latent_2 = latent_1
+        latent_vectors = np.linspace(latent_1, latent_2, num=num_samples)
+
+        if isinstance(class_index, list):
+            # process class_index into class_vectors line(assume class_index in format [c1,c2])
+            if hasattr(model, "vae"):
+                embedding_fn = model.vae.embedding
+            else:
+                embedding_fn = model.embedding
+            c_start, c_end = class_index
+            c_start = embedding_fn(torch.tensor(c_start)).detach().cpu().numpy()
+            c_end = embedding_fn(torch.tensor(c_end)).detach().cpu().numpy()
+
+            class_vectors = np.linspace(c_start, c_end, num=num_samples)
+
+        # generate loop
+        meshes = []
+        batch_size = 2
+        loops = int(np.ceil(num_samples / batch_size))
+        for i in range(loops):
+            start = i * batch_size
+            end = (i + 1) * batch_size
+            if end > num_samples:
+                end = num_samples
+            latent_vector = latent_vectors[start:end]
+            try:
+                if isinstance(class_index, int):
+                    mesh = generateMeshFromModel(
+                        model, latent_vector, class_index=class_index
+                    )
+                else:
+                    class_vector = class_vectors[start:end]
+                    mesh = generateMeshFromModel(
+                        model, latent_vector, class_index=class_vector
+                    )
+            except Exception as e:
+                print(e)
+                print(
+                    "try generate with class_index failed. Try generate without class_index"
+                )
+                mesh = generateMeshFromModel(model, latent_vector, class_index=None)
+            meshes.append(mesh)
+        meshes = np.concatenate(meshes)
+    else:
+        class_index = int(class_index)
+        # random generate mesh
+        try:
+            # assume conditional model
+            mesh = model.generate_tree(c=class_index, num_trees=num_samples)
+        except Exception as e:
+            print(e)
+            print("generate with class label does not work. Now generate without label")
+            # assume unconditional model
+            mesh = model.generate_tree(num_trees=num_samples)
 
     print(num_samples, " objects are generated, processing objects to json......")
     save_filename_header = ""
@@ -141,7 +238,7 @@ def print_time_message(message, refresh_time=False):
 
 # generate mesh given (out_dir, num_samples)
 def generateMesh_local(
-    ckpt_dir, out_dir, num_samples=1, rev_number=None, class_index=0
+    ckpt_dir, out_dir, num_samples=1, rev_number=None, class_index=0, latent=False
 ):
     ckpt_filePath = ckpt_dir / "checkpoint.ckpt"
     config_filePath = ckpt_dir / "model_args.json"
@@ -177,6 +274,7 @@ def generateMesh_local(
             class_index=class_index,
             num_samples=num_samples,
             package_rev_number=rev_number,
+            latent=latent,
         )
     except Exception as e:
         print(e)
@@ -190,13 +288,16 @@ def generateMesh_local(
             class_index=class_index,
             num_samples=num_samples,
             package_rev_number=rev_number,
+            latent=latent,
         )
 
     message = "finish generate mesh, time: "
     print_time_message(message)
 
 
-def generateMesh_run(run_id, out_dir, num_samples=1, rev_number=None, class_index=0):
+def generateMesh_run(
+    run_id, out_dir, num_samples=1, rev_number=None, class_index=0, latent=False
+):
 
     run = load_wandb_run(run_id)
 
@@ -214,9 +315,10 @@ def generateMesh_run(run_id, out_dir, num_samples=1, rev_number=None, class_inde
             ckpt_file.name,
             out_dir,
             config,
-            class_index,
-            num_samples,
-            rev_number,
+            class_index=class_index,
+            num_samples=num_samples,
+            package_rev_number=rev_number,
+            latent=latent,
         )
     except Exception as e:
         print(e)
@@ -227,14 +329,21 @@ def generateMesh_run(run_id, out_dir, num_samples=1, rev_number=None, class_inde
             ckpt_file.name,
             out_dir,
             config,
-            class_index,
-            num_samples,
-            rev_number,
+            class_index=class_index,
+            num_samples=num_samples,
+            package_rev_number=rev_number,
+            latent=latent,
         )
 
 
 def generateMesh_runHistory(
-    run_id, num_history_ckpt, out_dir, num_samples=1, rev_number=None, class_index=0
+    run_id,
+    num_history_ckpt,
+    out_dir,
+    num_samples=1,
+    rev_number=None,
+    class_index=0,
+    latent=False,
 ):
 
     run = load_wandb_run(run_id)
@@ -280,14 +389,15 @@ def generateMesh_runHistory(
                 ckpt_file.name,
                 out_dir,
                 config,
-                class_index,
-                num_samples,
-                rev_number,
-                {"epoch": file_epoch},
+                class_index=class_index,
+                num_samples=num_samples,
+                package_rev_number=rev_number,
+                latent=latent,
+                output_file_name_dict={"epoch": file_epoch},
             )
         except Exception as e:
             print(e)
-            print("generate mesh for epoch {file_epoch} FAILED !!!")
+            print(f"generate mesh for epoch {file_epoch} FAILED !!!")
 
 
 def parse_args():
@@ -299,6 +409,8 @@ def parse_args():
     parser.add_argument("--rev_number", type=str, default=None)
     parser.add_argument("--num_samples", type=int, default=2)
     parser.add_argument("--class_index", type=int, default=0)
+    parser.add_argument("--class_index2", type=int, default=-1)
+    parser.add_argument("--latent", type=bool, default=False)
     args = parser.parse_args()
     return args
 
@@ -307,10 +419,18 @@ if __name__ == "__main__":
     args = parse_args()
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    install_bugan_package()
 
     num_samples = args.num_samples
     rev_number = args.rev_number
     class_index = args.class_index
+    class_index2 = args.class_index2
+    if class_index2 < 0:
+        class_index2 = class_index
+    else:
+        class_index = [class_index, class_index2]
+
+    latent = args.latent
 
     # check if wandb id
     run_id = args.run_id
@@ -319,10 +439,20 @@ if __name__ == "__main__":
     if run_id:
         if num_history_ckpt > 0:
             generateMesh_runHistory(
-                run_id, num_history_ckpt, out_dir, num_samples, rev_number, class_index
+                run_id,
+                num_history_ckpt,
+                out_dir,
+                num_samples,
+                rev_number,
+                class_index,
+                latent,
             )
         else:
-            generateMesh_run(run_id, out_dir, num_samples, rev_number, class_index)
+            generateMesh_run(
+                run_id, out_dir, num_samples, rev_number, class_index, latent
+            )
     else:
         ckpt_dir = Path(ckpt_dir)
-        generateMesh_local(ckpt_dir, out_dir, num_samples, rev_number, class_index)
+        generateMesh_local(
+            ckpt_dir, out_dir, num_samples, rev_number, class_index, latent
+        )
