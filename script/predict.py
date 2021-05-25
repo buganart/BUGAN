@@ -14,7 +14,6 @@ from bugan.trainPL import (
     init_wandb_run,
     setup_model,
     get_resume_run_config,
-    _get_models,
 )
 from bugan.functionsPL import netarray2mesh
 
@@ -71,12 +70,15 @@ def generateFromCheckpoint(
     class_index=None,
     num_samples=1,
     package_rev_number=None,
+    output_file_name_dict={},
 ):
-    MODEL_CLASS = _get_models(selected_model)
 
     try:
         # restore bugan version
         install_bugan_package(rev_number=package_rev_number)
+        from bugan.trainPL import _get_models
+
+        MODEL_CLASS = _get_models(selected_model)
         # try to load model with checkpoint.ckpt
         if config:
             model = MODEL_CLASS.load_from_checkpoint(ckpt_filePath, config=config)
@@ -89,6 +91,9 @@ def generateFromCheckpoint(
         )
         # try newest bugan version
         install_bugan_package()
+        from bugan.trainPL import _get_models
+
+        MODEL_CLASS = _get_models(selected_model)
         # try to load model with checkpoint_prev.ckpt
         if config:
             model = MODEL_CLASS.load_from_checkpoint(ckpt_filePath, config=config)
@@ -109,11 +114,15 @@ def generateFromCheckpoint(
         mesh = model.generate_tree(num_trees=num_samples)
 
     print(num_samples, " objects are generated, processing objects to json......")
+    save_filename_header = ""
+    for k, v in output_file_name_dict.items():
+        save_filename_header = save_filename_header + f"_{str(k)}_{str(v)}"
+
     for i in range(num_samples):
         sample_tree_bool_array = mesh[i] > 0
         voxelmesh = netarray2mesh(sample_tree_bool_array)
 
-        save_filename = f"sample_{i}.obj"
+        save_filename = f"sample_{i}{save_filename_header}.obj"
         export_path = Path(out_dir) / save_filename
         voxelmesh.export(file_obj=export_path, file_type="obj")
 
@@ -142,7 +151,7 @@ def generateMesh_local(
 
     # config
     try:
-        with open("./checkpoint/model_args.json", "r") as fp:
+        with open(config_filePath, "r") as fp:
             config = json.load(fp)
             config = argparse.Namespace(**config)
 
@@ -158,9 +167,10 @@ def generateMesh_local(
     print_time_message(message, refresh_time=True)
 
     # try to load model with latest ckpt
-    if config:
+    try:
+        selected_model = "VAEGAN"
         generateFromCheckpoint(
-            config.selected_model,
+            selected_model,
             ckpt_filePath,
             out_dir,
             config,
@@ -168,31 +178,19 @@ def generateMesh_local(
             num_samples=num_samples,
             package_rev_number=rev_number,
         )
-    else:
-        try:
-            selected_model = "VAEGAN"
-            generateFromCheckpoint(
-                config.selected_model,
-                ckpt_filePath,
-                out_dir,
-                config,
-                class_index=class_index,
-                num_samples=num_samples,
-                package_rev_number=rev_number,
-            )
-        except Exception as e:
-            print(e)
-            print("model not set, VAEGAN does not work. Try CVAEGAN....")
-            selected_model = "CVAEGAN"
-            generateFromCheckpoint(
-                config.selected_model,
-                ckpt_filePath,
-                out_dir,
-                config,
-                class_index=class_index,
-                num_samples=num_samples,
-                package_rev_number=rev_number,
-            )
+    except Exception as e:
+        print(e)
+        print("model not set, VAEGAN does not work. Try CVAEGAN....")
+        selected_model = "CVAEGAN"
+        generateFromCheckpoint(
+            selected_model,
+            ckpt_filePath,
+            out_dir,
+            config,
+            class_index=class_index,
+            num_samples=num_samples,
+            package_rev_number=rev_number,
+        )
 
     message = "finish generate mesh, time: "
     print_time_message(message)
@@ -202,7 +200,7 @@ def generateMesh_run(run_id, out_dir, num_samples=1, rev_number=None, class_inde
 
     run = load_wandb_run(run_id)
 
-    config = Namespace(**run.config)
+    config = argparse.Namespace(**run.config)
     # load selected_model, rev_number in the config
     if hasattr(config, "selected_model"):
         selected_model = config.selected_model
@@ -241,7 +239,7 @@ def generateMesh_runHistory(
 
     run = load_wandb_run(run_id)
 
-    config = Namespace(**run.config)
+    config = argparse.Namespace(**run.config)
     # load selected_model, rev_number in the config
     if hasattr(config, "selected_model"):
         selected_model = config.selected_model
@@ -285,6 +283,7 @@ def generateMesh_runHistory(
                 class_index,
                 num_samples,
                 rev_number,
+                {"epoch": file_epoch},
             )
         except Exception as e:
             print(e)
