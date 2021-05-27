@@ -189,6 +189,47 @@ def post_process_array(boolarray, point_threshold, radius):
     return processed_tree
 
 
+# only for latent space exploration
+def generateMeshFromModel(model, z, class_index=None):
+    print("latent space exploration")
+    test_num_samples = z.shape[0]
+    # get generator
+    if hasattr(model, "vae"):
+        generator = model.vae.vae_decoder
+        if class_index is not None:
+            embedding_fn = model.vae.embedding
+    else:
+        generator = model.generator
+        if class_index is not None:
+            embedding_fn = model.embedding
+
+    z = torch.tensor(z).type_as(generator.gen_fc.weight)
+    if class_index is not None:
+        if isinstance(class_index, int):
+            # turn class vector the same device as z, but with dtype Long
+            c = torch.ones(test_num_samples) * class_index
+            c = c.type_as(z).to(torch.int64)
+
+            # combine z and c
+            z = model.merge_latent_and_class_vector(
+                z,
+                c,
+                model.config.num_classes,
+                embedding_fn=embedding_fn,
+            )
+        else:
+            # assume class_index are processed class_vectors
+            class_vectors = torch.tensor(class_index).type_as(z)
+
+            # merge with z to be generator input
+            z = torch.cat((z, class_vectors), 1)
+
+    generated_tree = generator(z)[:, 0, :, :, :]
+    generated_tree = generated_tree.detach().cpu().numpy()
+
+    return generated_tree
+
+
 def generateFromCheckpoint(
     config,
     selected_model,
@@ -196,6 +237,7 @@ def generateFromCheckpoint(
     class_index=None,
     num_samples=1,
     package_rev_number=None,
+    latent=False,
     point_threshold=None,
     radius=None,
 ):
@@ -221,19 +263,72 @@ def generateFromCheckpoint(
     # device = "cpu"
     print("device:", device)
     model = model.to(device)
-    try:
-        # assume conditional model
-        mesh = model.generate_tree(c=class_index, num_trees=num_samples)
-    except Exception as e:
-        print(e)
-        print("generate with class label does not work. Now generate without label")
-        # assume unconditional model
-        mesh = model.generate_tree(num_trees=num_samples)
+
+    if latent or isinstance(class_index, list):
+
+        # generate latent vectors in a line
+        z_size = config.z_size
+        latent_1 = np.ones(z_size)
+        if latent:
+            latent_2 = np.ones(z_size) * -1
+        else:
+            latent_2 = latent_1
+        latent_vectors = np.linspace(latent_1, latent_2, num=num_samples)
+
+        if isinstance(class_index, list):
+            # process class_index into class_vectors line(assume class_index in format [c1,c2])
+            if hasattr(model, "vae"):
+                embedding_fn = model.vae.embedding
+            else:
+                embedding_fn = model.embedding
+            c_start, c_end = class_index
+            c_start = embedding_fn(torch.tensor(c_start)).detach().cpu().numpy()
+            c_end = embedding_fn(torch.tensor(c_end)).detach().cpu().numpy()
+
+            class_vectors = np.linspace(c_start, c_end, num=num_samples)
+
+        # generate loop
+        meshes = []
+        batch_size = 2
+        loops = int(np.ceil(num_samples / batch_size))
+        for i in range(loops):
+            start = i * batch_size
+            end = (i + 1) * batch_size
+            if end > num_samples:
+                end = num_samples
+            latent_vector = latent_vectors[start:end]
+            try:
+                if isinstance(class_index, int):
+                    mesh = generateMeshFromModel(
+                        model, latent_vector, class_index=class_index
+                    )
+                else:
+                    class_vector = class_vectors[start:end]
+                    mesh = generateMeshFromModel(
+                        model, latent_vector, class_index=class_vector
+                    )
+            except Exception as e:
+                print(e)
+                print(
+                    "try generate with class_index failed. Try generate without class_index"
+                )
+                mesh = generateMeshFromModel(model, latent_vector, class_index=None)
+            meshes.append(mesh)
+        meshes = np.concatenate(meshes)
+    else:
+        try:
+            # assume conditional model
+            meshes = model.generate_tree(c=class_index, num_trees=num_samples)
+        except Exception as e:
+            print(e)
+            print("generate with class label does not work. Now generate without label")
+            # assume unconditional model
+            meshes = model.generate_tree(num_trees=num_samples)
 
     print(num_samples, " objects are generated, processing objects to json......")
     returnMeshes = []
     for i in range(num_samples):
-        sample_tree_bool_array = mesh[i] > 0
+        sample_tree_bool_array = meshes[i] > 0
         if point_threshold and radius:
             sample_tree_bool_array = post_process_array(
                 sample_tree_bool_array, point_threshold, radius
@@ -308,6 +403,7 @@ def generateMesh():
     class_name = req.get("class_name", None)
     point_threshold = req.get("point_threshold", None)
     radius = req.get("radius", None)
+    latent = bool(req.get("latent", False))
 
     print("req:", req)
     if class_name is not None:
@@ -383,6 +479,7 @@ def generateMesh():
                 package_rev_number=config.rev_number,
                 point_threshold=point_threshold,
                 radius=radius,
+                latent=latent,
             )
         except Exception as e:
             print(e)
@@ -408,6 +505,7 @@ def generateMesh():
                 package_rev_number=config.rev_number,
                 point_threshold=point_threshold,
                 radius=radius,
+                latent=latent,
             )
 
         message = "finish generate mesh, time: "
@@ -437,6 +535,7 @@ def generateMeshHistory():
     class_index = req.get("class_index", None)
     num_selected_checkpoint = int(req.get("num_selected_checkpoint", 4))
     class_name = req.get("class_name", None)
+    latent = bool(req.get("latent", False))
 
     if class_name is not None:
         # convert class_name to run_id
@@ -513,6 +612,7 @@ def generateMeshHistory():
                     class_index=class_index,
                     num_samples=num_samples,
                     package_rev_number=config.rev_number,
+                    latent=latent,
                 )
                 returnMeshesAll[file_epoch] = returnMeshes
 
