@@ -240,12 +240,12 @@ def generateFromCheckpoint(
         # random generate mesh
         try:
             # assume conditional model
-            mesh = model.generate_tree(c=class_index, num_trees=num_samples)
+            meshes = model.generate_tree(c=class_index, num_trees=num_samples)
         except Exception as e:
             print(e)
             print("generate with class label does not work. Now generate without label")
             # assume unconditional model
-            mesh = model.generate_tree(num_trees=num_samples)
+            meshes = model.generate_tree(num_trees=num_samples)
 
     print(num_samples, " objects are generated, processing objects to json......")
     save_filename_header = ""
@@ -253,7 +253,7 @@ def generateFromCheckpoint(
         save_filename_header = save_filename_header + f"_{str(k)}_{str(v)}"
 
     for i in range(num_samples):
-        sample_tree_bool_array = mesh[i] > 0
+        sample_tree_bool_array = meshes[i] > 0
         if post_process is not None:
             radius, point_threshold = post_process
             sample_tree_bool_array = post_process_array(
