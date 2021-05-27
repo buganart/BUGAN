@@ -191,7 +191,6 @@ def post_process_array(boolarray, point_threshold, radius):
 
 # only for latent space exploration
 def generateMeshFromModel(model, z, class_index=None):
-    print("latent space exploration")
     test_num_samples = z.shape[0]
     # get generator
     if hasattr(model, "vae"):
