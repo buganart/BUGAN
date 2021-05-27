@@ -129,7 +129,13 @@ def setup_config_arguments(config):
     parser = MODEL_CLASS.add_model_specific_args(ArgumentParser())
     args = parser.parse_args([])
     config = MODEL_CLASS.combine_namespace(args, config)
-    return config
+    config_dict = vars(config)
+    cleaned_config = {}
+    for k, v in config_dict:
+        if "/" not in k:
+            cleaned_config[k] = v
+    cleaned_config = Namespace(**cleaned_config)
+    return cleaned_config
 
 
 def get_resume_run_config(project_name, resume_id):
