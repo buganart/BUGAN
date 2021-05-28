@@ -413,16 +413,20 @@ def generateMesh():
         class_index = int(class_index)
 
     if point_threshold and radius:
+        point_threshold = int(point_threshold)
+        radius = int(radius)
         print(f"point_threshold and radius are set. Post-processing is True")
 
     if not point_threshold and radius:
         point_threshold = 50
+        radius = int(radius)
         print(
             f"radius is set. Post-processing is True and now set point_threshold to {point_threshold}"
         )
 
     if point_threshold and not radius:
         radius = 28
+        point_threshold = int(point_threshold)
         print(
             f"point_threshold is set. Post-processing is True and now set radius to {radius}"
         )
@@ -534,8 +538,11 @@ def generateMeshHistory():
     class_index = req.get("class_index", None)
     num_selected_checkpoint = int(req.get("num_selected_checkpoint", 4))
     class_name = req.get("class_name", None)
+    point_threshold = req.get("point_threshold", None)
+    radius = req.get("radius", None)
     latent = bool(req.get("latent", False))
 
+    print("req:", req)
     if class_name is not None:
         # convert class_name to run_id
         run_id, class_index = preset_models[class_name]
@@ -543,7 +550,25 @@ def generateMeshHistory():
     if class_index is not None:
         class_index = int(class_index)
 
-    print("req:", req)
+    if point_threshold and radius:
+        point_threshold = int(point_threshold)
+        radius = int(radius)
+        print(f"point_threshold and radius are set. Post-processing is True")
+
+    if not point_threshold and radius:
+        point_threshold = 50
+        radius = int(radius)
+        print(
+            f"radius is set. Post-processing is True and now set point_threshold to {point_threshold}"
+        )
+
+    if point_threshold and not radius:
+        radius = 28
+        point_threshold = int(point_threshold)
+        print(
+            f"point_threshold is set. Post-processing is True and now set radius to {radius}"
+        )
+
     _, generateMesh_idHistoryDict = search_local_checkpoint(ckpt_dir)
     print("stored history:", generateMesh_idHistoryDict)
     if run_id:
@@ -606,11 +631,14 @@ def generateMeshHistory():
                 print_time_message(message)
 
                 returnMeshes = generateFromCheckpoint(
+                    config,
                     config.selected_model,
                     filePath,
                     class_index=class_index,
                     num_samples=num_samples,
                     package_rev_number=config.rev_number,
+                    point_threshold=point_threshold,
+                    radius=radius,
                     latent=latent,
                 )
                 returnMeshesAll[file_epoch] = returnMeshes
