@@ -4033,10 +4033,12 @@ class Generator(nn.Module):
         # 1 layers of fc on latent vector
         gen_fc_module = []
         gen_module = []
+        gen_fc_module.append(nn.Linear(self.z_size, self.z_size))
+        gen_fc_module.append(nn.ReLU(True))
         if self.fc_size > 1:
             num_fc_units = unit_list[0] * self.fc_size * self.fc_size * self.fc_size
             gen_fc_module.append(nn.Linear(self.z_size, num_fc_units))
-            gen_fc_module.append(nn.LeakyReLU(0.1, True))
+            gen_fc_module.append(nn.ReLU(True))
         else:
             gen_module.append(
                 nn.ConvTranspose3d(
@@ -4074,8 +4076,7 @@ class Generator(nn.Module):
             the generated data in shape (B, 1, R, R, R) from the Generator based on latent vector x
             B = config.batch_size, R = resolution
         """
-        if self.fc_size > 1:
-            x = self.gen_fc_module(x)
+        x = self.gen_fc_module(x)
         x = x.view(x.shape[0], -1, self.fc_size, self.fc_size, self.fc_size)
         x = self.gen_module(x)
         return x
