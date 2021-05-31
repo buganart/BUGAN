@@ -1795,7 +1795,7 @@ class VAEGAN(BaseModel):
         if optimizer_idx == 1:
 
             ############
-            #   discriminator (and classifier if necessary)
+            #   discriminator
             ############
 
             # generate fake trees
@@ -2220,7 +2220,7 @@ class GAN_Wloss(GAN):
         if optimizer_idx == 1:
 
             ############
-            #   discriminator (and classifier if necessary)
+            #   discriminator
             ############
 
             # 128-d noise vector
@@ -2567,7 +2567,7 @@ class VAEGAN_Wloss_GP(VAEGAN):
         if optimizer_idx == 1:
 
             ############
-            #   discriminator (and classifier if necessary)
+            #   discriminator
             ############
 
             # generate fake trees
@@ -2814,16 +2814,22 @@ class CGAN(GAN):
             gloss_d = self.criterion_label(dout_fake, real_label)
 
             # tree_fake on Cla
-            cout_fake = self.classifier(tree_fake)
+            cout_fake, cfc1 = self.classifier(tree_fake, output_all=True)
             gloss_c = self.criterion_class(cout_fake, c_fake)
 
             # Feature Matching
             _, fc_real = self.discriminator(dataset_batch, output_all=True)
+            _, cfc_real = self.classifier(dataset_batch, output_all=True)
             fc_real = fc_real.detach()
+            cfc_real = cfc_real.detach()
             # FM for fake data
-            FM_gan = config.FMgan_coef * self.criterion_FM(
+            FM_gan1 = config.FMgan_coef * self.criterion_FM(
                 torch.mean(fc1, 0), torch.mean(fc_real, 0)
             )
+            FM_gan2 = config.FMgan_coef * self.criterion_FM(
+                torch.mean(cfc1, 0), torch.mean(cfc_real, 0)
+            )
+            FM_gan = FM_gan1 + FM_gan2
             self.record_loss(FM_gan.detach().cpu().numpy(), loss_name="FM_gan")
 
             gloss = gloss_d + gloss_c + FM_gan
@@ -3182,9 +3188,11 @@ class CVAEGAN(VAEGAN):
             vae_d_loss = (vae_d_loss1 + vae_d_loss2) / 2
 
             # tree_fake on Cla
-            vae_out_c1 = self.classifier(F.tanh(reconstructed_data_logit))
+            vae_out_c1, cfc1 = self.classifier(
+                F.tanh(reconstructed_data_logit), output_all=True
+            )
             vae_c_loss1 = self.criterion_class(vae_out_c1, dataset_indices)
-            vae_out_c2 = self.classifier(tree_fake)
+            vae_out_c2, cfc2 = self.classifier(tree_fake, output_all=True)
             vae_c_loss2 = self.criterion_class(vae_out_c2, dataset_indices)
             vae_c_loss = (vae_c_loss1 + vae_c_loss2) / 2
 
@@ -3195,13 +3203,21 @@ class CVAEGAN(VAEGAN):
 
             # Feature Matching
             _, fc_real = self.discriminator(dataset_batch, output_all=True)
+            _, cfc_real = self.classifier(dataset_batch, output_all=True)
             fc_real = fc_real.detach()
+            cfc_real = cfc_real.detach()
             # count similar to rec_loss
-            FM_rec = config.FMrec_coef * self.criterion_FM(fc1, fc_real)
+            FM_rec1 = config.FMrec_coef * self.criterion_FM(fc1, fc_real)
+            FM_rec2 = config.FMrec_coef * self.criterion_FM(cfc1, cfc_real)
+            FM_rec = FM_rec1 + FM_rec2
             # FM for fake data
-            FM_gan = config.FMgan_coef * self.criterion_FM(
+            FM_gan1 = config.FMgan_coef * self.criterion_FM(
                 torch.mean(fc2, 0), torch.mean(fc_real, 0)
             )
+            FM_gan2 = config.FMgan_coef * self.criterion_FM(
+                torch.mean(cfc2, 0), torch.mean(cfc_real, 0)
+            )
+            FM_gan = FM_gan1 + FM_gan2
             self.record_loss(FM_rec.detach().cpu().numpy(), loss_name="FM_rec")
             self.record_loss(FM_gan.detach().cpu().numpy(), loss_name="FM_gan")
 
@@ -3412,16 +3428,22 @@ class CGAN_Wloss_GP(CGAN):
             gloss_d = -dout_fake.mean()
 
             # tree_fake on Cla
-            cout_fake = self.classifier(tree_fake)
+            cout_fake, cfc1 = self.classifier(tree_fake, output_all=True)
             gloss_c = self.criterion_class(cout_fake, c_fake)
 
             # Feature Matching
             _, fc_real = self.discriminator(dataset_batch, output_all=True)
+            _, cfc_real = self.classifier(dataset_batch, output_all=True)
             fc_real = fc_real.detach()
+            cfc_real = cfc_real.detach()
             # FM for fake data
-            FM_gan = config.FMgan_coef * self.criterion_FM(
+            FM_gan1 = config.FMgan_coef * self.criterion_FM(
                 torch.mean(fc1, 0), torch.mean(fc_real, 0)
             )
+            FM_gan2 = config.FMgan_coef * self.criterion_FM(
+                torch.mean(cfc1, 0), torch.mean(cfc_real, 0)
+            )
+            FM_gan = FM_gan1 + FM_gan2
             self.record_loss(FM_gan.detach().cpu().numpy(), loss_name="FM_gan")
 
             gloss = gloss_d + gloss_c + FM_gan
@@ -3640,9 +3662,11 @@ class CVAEGAN_Wloss_GP(CVAEGAN):
             vae_d_loss = -(vae_out_d1.mean() + vae_out_d2.mean()) / 2
 
             # tree_fake on Cla
-            vae_out_c1 = self.classifier(F.tanh(reconstructed_data_logit))
+            vae_out_c1, cfc1 = self.classifier(
+                F.tanh(reconstructed_data_logit), output_all=True
+            )
             vae_c_loss1 = self.criterion_class(vae_out_c1, dataset_indices)
-            vae_out_c2 = self.classifier(tree_fake)
+            vae_out_c2, cfc2 = self.classifier(tree_fake, output_all=True)
             vae_c_loss2 = self.criterion_class(vae_out_c2, dataset_indices)
             vae_c_loss = (vae_c_loss1 + vae_c_loss2) / 2
 
@@ -3653,13 +3677,21 @@ class CVAEGAN_Wloss_GP(CVAEGAN):
 
             # Feature Matching
             _, fc_real = self.discriminator(dataset_batch, output_all=True)
+            _, cfc_real = self.classifier(dataset_batch, output_all=True)
             fc_real = fc_real.detach()
+            cfc_real = cfc_real.detach()
             # count similar to rec_loss
-            FM_rec = config.FMrec_coef * self.criterion_FM(fc1, fc_real)
+            FM_rec1 = config.FMrec_coef * self.criterion_FM(fc1, fc_real)
+            FM_rec2 = config.FMrec_coef * self.criterion_FM(cfc1, cfc_real)
+            FM_rec = FM_rec1 + FM_rec2
             # FM for fake data
-            FM_gan = config.FMgan_coef * self.criterion_FM(
+            FM_gan1 = config.FMgan_coef * self.criterion_FM(
                 torch.mean(fc2, 0), torch.mean(fc_real, 0)
             )
+            FM_gan2 = config.FMgan_coef * self.criterion_FM(
+                torch.mean(cfc2, 0), torch.mean(cfc_real, 0)
+            )
+            FM_gan = FM_gan1 + FM_gan2
             self.record_loss(FM_rec.detach().cpu().numpy(), loss_name="FM_rec")
             self.record_loss(FM_gan.detach().cpu().numpy(), loss_name="FM_gan")
             vae_loss = vae_rec_loss + vae_d_loss + vae_c_loss + FM_rec + FM_gan
