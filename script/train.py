@@ -15,9 +15,7 @@ from bugan.trainPL import (
 )
 
 
-data_path = (
-    "../../tree-data/tree-sessions-2020-09-10-simplified-26k-target-face-num-1000-class-label/zan_gentlemen_3"
-)
+data_path = "../../tree-data/tree-sessions-2020-09-10-simplified-26k-target-face-num-1000-class-label/zan_gentlemen_3"
 config_dict = {
     "data_location": data_path,
     "selected_model": "VAEGAN",
@@ -61,7 +59,7 @@ config_dict = {
     "epochs": 3000,
     "data_augmentation": False,
     "aug_rotation_type": "axis rotation",
-    "aug_rotation_axis": (0,1,0),
+    "aug_rotation_axis": (0, 1, 0),
 }
 config = Namespace(**config_dict)
 dataset_path = Path(config.data_location)
@@ -88,7 +86,7 @@ if config.resume_id:
 # write bugan package revision number to bugan
 config.rev_number = get_bugan_package_revision_number()
 
-run, config = init_wandb_run(config, run_dir="../../")#, mode="offline")
+run, config = init_wandb_run(config, run_dir="../../")  # , mode="offline")
 run.notes = "testing train.py"
 
 # specify another tmp folder for non colab

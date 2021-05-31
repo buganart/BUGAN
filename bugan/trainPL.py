@@ -131,7 +131,7 @@ def setup_config_arguments(config):
     config = MODEL_CLASS.combine_namespace(args, config)
     config_dict = vars(config)
     cleaned_config = {}
-    for k, v in config_dict:
+    for k, v in config_dict.items():
         if "/" not in k:
             cleaned_config[k] = v
     cleaned_config = Namespace(**cleaned_config)
