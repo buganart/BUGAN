@@ -4023,7 +4023,7 @@ class Generator(nn.Module):
         fc_size=2,
         dropout_prob=0.0,
         spectral_norm=False,
-        activations=nn.LeakyReLU(0.1, True),
+        activations=nn.LeakyReLU(0.01, True),
     ):
         super(Generator, self).__init__()
 
@@ -4056,15 +4056,12 @@ class Generator(nn.Module):
         else:
             raise Exception("num_layer_unit should be int of list of int.")
 
-        # 1 layers of fc on latent vector
         gen_fc_module = []
         gen_module = []
-        gen_fc_module.append(nn.Linear(self.z_size, self.z_size))
-        gen_fc_module.append(nn.ReLU(True))
         if self.fc_size > 1:
             num_fc_units = unit_list[0] * self.fc_size * self.fc_size * self.fc_size
             gen_fc_module.append(nn.Linear(self.z_size, num_fc_units))
-            gen_fc_module.append(nn.ReLU(True))
+            gen_fc_module.append(activations)
         else:
             gen_module.append(
                 nn.ConvTranspose3d(
@@ -4102,7 +4099,8 @@ class Generator(nn.Module):
             the generated data in shape (B, 1, R, R, R) from the Generator based on latent vector x
             B = config.batch_size, R = resolution
         """
-        x = self.gen_fc_module(x)
+        if self.fc_size > 1:
+            x = self.gen_fc_module(x)
         x = x.view(x.shape[0], -1, self.fc_size, self.fc_size, self.fc_size)
         x = self.gen_module(x)
         return x
