@@ -312,10 +312,14 @@ class DataModule_process(pl.LightningDataModule):
         if self.class_list is None:
             # find class_index counts
             indices, indices_count = np.unique(sample_class_index, return_counts=True)
-            # sort class_index with counts
             count_list = [(indices[i], indices_count[i]) for i in range(len(indices))]
-            count_list.sort(key=lambda v: v[0])
-            count_list.sort(key=lambda v: v[1], reverse=True)
+
+            # # sort class_index with counts
+            # count_list.sort(key=lambda v: v[0])
+            # count_list.sort(key=lambda v: v[1], reverse=True)
+            np.random.seed(self.config.seed)
+            count_list = np.random.permutation(count_list)
+
             if self.offset is None:
                 offset = 0
             else:
