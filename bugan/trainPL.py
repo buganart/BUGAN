@@ -53,11 +53,8 @@ from bugan.modelsPL import (
     GAN,
     GAN_Wloss,
     GAN_Wloss_GP,
-    VAEGAN_Wloss_GP,
     CGAN,
     CVAEGAN,
-    CGAN_Wloss_GP,
-    CVAEGAN_Wloss_GP,
 )
 
 
@@ -72,16 +69,10 @@ def _get_models(model_name):
         MODEL_CLASS = GAN_Wloss
     elif model_name == "WGAN_GP":
         MODEL_CLASS = GAN_Wloss_GP
-    elif model_name == "VAEGAN_GP":
-        MODEL_CLASS = VAEGAN_Wloss_GP
     elif model_name == "CGAN":
         MODEL_CLASS = CGAN
     elif model_name == "CVAEGAN":
         MODEL_CLASS = CVAEGAN
-    elif model_name == "CGAN_GP":
-        MODEL_CLASS = CGAN_Wloss_GP
-    else:
-        MODEL_CLASS = CVAEGAN_Wloss_GP
     return MODEL_CLASS
 
 
@@ -307,7 +298,6 @@ def main():
         "VAE",
         "WGAN",
         "WGAN_GP",
-        "VAEGAN_GP",
     ]:
         config.num_classes = 0
 
