@@ -111,12 +111,6 @@ class BaseModel(pl.LightningModule):
     config.dropout_prob : float
         the dropout probability of all models (see torch Dropout3D)
         all generator/discriminator use (ConvT/Conv)-BatchNorm-activation-dropout structure
-    config.use_simple_3dgan_struct : bool
-        whether to use simple_3dgan_struct for generator/discriminator
-        if True, discriminator will conv the input to volume (B,1,1,1,1),
-            and generator will start convT from volume (B,Z,1,1,1)
-        if False, discriminator will conv to (B,C,k,k,k), k=4, then flatten and connect with fc layer,
-            and generator will start connect with fc layer from (B,Z) to (B,C), and then reshape to (B,Ck,k,k,k) to start convT
     """
 
     @staticmethod
@@ -170,12 +164,6 @@ class BaseModel(pl.LightningModule):
         parser.add_argument("--kernel_size", default=3)
         # fc size (see Generator/Discriminator)
         parser.add_argument("--fc_size", default=2)
-        # use_simple_3dgan_struct
-        # reference: https://github.com/xchhuang/simple-pytorch-3dgan
-        # basically both G and D will conv the input to volume (1,1,1),
-        # which is different from the other one that flatten when (k,k,k), k=4
-        parser.add_argument("--use_simple_3dgan_struct", type=bool, default=False)
-
         return parser
 
     @staticmethod
@@ -292,10 +280,6 @@ class BaseModel(pl.LightningModule):
         else:
             z_size = config.z_size + num_classes
 
-        if config.use_simple_3dgan_struct:
-            kernel_size = 4
-            fc_size = 1
-
         generator = Generator(
             z_size=z_size,
             resolution=config.resolution,
@@ -347,10 +331,6 @@ class BaseModel(pl.LightningModule):
         discriminator : nn.Module
         """
         config = self.config
-
-        if config.use_simple_3dgan_struct:
-            kernel_size = 4
-            fc_size = 1
 
         discriminator = Discriminator(
             output_size=output_size,
@@ -404,10 +384,6 @@ class BaseModel(pl.LightningModule):
         vae : nn.Module
         """
         config = self.config
-
-        if config.use_simple_3dgan_struct:
-            kernel_size = [4, 4]
-            fc_size = [1, 1]
 
         encoder = Discriminator(
             output_size=config.z_size,
@@ -3311,12 +3287,6 @@ class Generator(nn.Module):
     dropout_prob : float
         the dropout probability of the generator models (see torch Dropout3D)
         the generator use ConvT-BatchNorm-activation-dropout structure
-    use_simple_3dgan_struct : boolean
-        whether to use simple_3dgan_struct for generator/discriminator
-        if True, discriminator will conv the input to volume (B,1,1,1,1),
-            and generator will start convT from volume (B,Z,1,1,1)
-        if False, discriminator will conv to (B,C,k,k,k), k=4, then flatten and connect with fc layer,
-            and generator will start connect with fc layer from (B,Z) to (B,C), and then reshape to (B,Ck,k,k,k) to start convT
     activations : nn actication function
         the actication function used for all layers except the last layer of all models
     """
