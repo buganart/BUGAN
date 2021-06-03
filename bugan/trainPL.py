@@ -173,6 +173,10 @@ def init_wandb_run(config, run_dir="./", mode="run"):
 
 
 def setup_datamodule(config, tmp_folder="/tmp"):
+    if not hasattr(config, "seed"):
+        config.seed = 123
+    if not hasattr(config, "batch_size"):
+        config.batch_size = 4
     np.random.seed(config.seed)
     torch.manual_seed(config.seed)
 
@@ -226,6 +230,10 @@ def setup_model(config, run):
 
 
 def train(config, run, model, dataModule, extra_trainer_args):
+    if not hasattr(config, "seed"):
+        config.seed = 123
+    if not hasattr(config, "epochs"):
+        config.epochs = 1000
     np.random.seed(config.seed)
     torch.manual_seed(config.seed)
 
@@ -241,11 +249,11 @@ def train(config, run, model, dataModule, extra_trainer_args):
     pprint.pprint(vars(config))
 
     checkpoint_path = str(Path(run.dir).absolute())
+    history_checkpoint_frequency = 0
     if hasattr(config, "history_checkpoint_frequency"):
         if config.history_checkpoint_frequency:
             history_checkpoint_frequency = config.history_checkpoint_frequency
-        else:
-            history_checkpoint_frequency = 0
+
     callbacks = [
         SaveWandbCallback(
             config.log_interval, checkpoint_path, history_checkpoint_frequency

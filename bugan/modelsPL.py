@@ -31,7 +31,7 @@ class BaseModel(pl.LightningModule):
     This model manages settings that shares among all training models, including
     1) setup model components (optimizer, setup on_epoch / on_batch, logging, ...)
     2) wandb logging (log when epoch end)
-    3) GAN hacks (label_noise, instance_noise, dropout_prob, spectral_norm, ...)
+    3) GAN hacks (label_noise, instance_noise, dropout_prob, ...)
     4) other common functions (generate_trees, get_loss_function_with_logit, create_real_fake_label, ...)
     5) LightningModule functions (configure_optimizers, on_train_epoch_start, on_train_epoch_end)
     *) Note that __init__() and training_step should be implemented in child model
@@ -111,9 +111,6 @@ class BaseModel(pl.LightningModule):
     config.dropout_prob : float
         the dropout probability of all models (see torch Dropout3D)
         all generator/discriminator use (ConvT/Conv)-BatchNorm-activation-dropout structure
-    config.spectral_norm : bool
-        whether to apply spectral_norm to the output of the conv layer (see SpectralNorm class below)
-        if True, the structure will become SpectralNorm(ConvT/Conv)-BatchNorm-activation-dropout
     config.use_simple_3dgan_struct : bool
         whether to use simple_3dgan_struct for generator/discriminator
         if True, discriminator will conv the input to volume (B,1,1,1,1),
@@ -168,8 +165,6 @@ class BaseModel(pl.LightningModule):
         parser.add_argument("--activation_leakyReLU_slope", type=float, default=0.1)
         # Dropout probability
         parser.add_argument("--dropout_prob", type=float, default=0.0)
-        # spectral_norm
-        parser.add_argument("--spectral_norm", type=bool, default=False)
         # arguments with multiple values
         # kernel size of Generator/Discriminator
         parser.add_argument("--kernel_size", default=3)
@@ -327,7 +322,6 @@ class BaseModel(pl.LightningModule):
             kernel_size=kernel_size,
             fc_size=fc_size,
             dropout_prob=config.dropout_prob,
-            spectral_norm=config.spectral_norm,
             activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
         )
 
@@ -384,7 +378,6 @@ class BaseModel(pl.LightningModule):
             kernel_size=kernel_size,
             fc_size=fc_size,
             dropout_prob=config.dropout_prob,
-            spectral_norm=config.spectral_norm,
             activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
         )
         # setup component in __init__() lists
@@ -442,7 +435,6 @@ class BaseModel(pl.LightningModule):
             kernel_size=kernel_size[0],
             fc_size=fc_size[0],
             dropout_prob=config.dropout_prob,
-            spectral_norm=config.spectral_norm,
             activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
         )
 
@@ -457,7 +449,6 @@ class BaseModel(pl.LightningModule):
             kernel_size=kernel_size[1],
             fc_size=fc_size[1],
             dropout_prob=config.dropout_prob,
-            spectral_norm=config.spectral_norm,
             activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
         )
 
@@ -3339,9 +3330,6 @@ class Generator(nn.Module):
     dropout_prob : float
         the dropout probability of the generator models (see torch Dropout3D)
         the generator use ConvT-BatchNorm-activation-dropout structure
-    spectral_norm : boolean
-        whether to apply spectral_norm to the output of the conv layer (see SpectralNorm class below)
-        if True, the structure will become SpectralNorm(ConvT/Conv)-BatchNorm-activation-dropout
     use_simple_3dgan_struct : boolean
         whether to use simple_3dgan_struct for generator/discriminator
         if True, discriminator will conv the input to volume (B,1,1,1,1),
@@ -3355,7 +3343,6 @@ class Generator(nn.Module):
     def ConvTLayer(self, in_channel, out_channel):
         dropout_prob = self.dropout_prob
         activations = self.activations
-        spectral_norm = self.spectral_norm
         kernel_size = self.kernel_size
 
         layer_module = []
@@ -3384,13 +3371,9 @@ class Generator(nn.Module):
             )
 
         # normalization
-        if spectral_norm:
-            # spectral norm
-            layer_module.append(SpectralNorm(conv_layer))
-        else:
-            # batch norm
-            layer_module.append(conv_layer)
-            layer_module.append(nn.BatchNorm3d(out_channel))
+        # batch norm
+        layer_module.append(conv_layer)
+        layer_module.append(nn.BatchNorm3d(out_channel))
 
         # activation
         layer_module.append(activations)
@@ -3405,7 +3388,6 @@ class Generator(nn.Module):
         kernel_size=3,
         fc_size=2,
         dropout_prob=0.0,
-        spectral_norm=False,
         activations=nn.LeakyReLU(0.01, True),
     ):
         super(Generator, self).__init__()
@@ -3416,7 +3398,6 @@ class Generator(nn.Module):
 
         self.dropout_prob = dropout_prob
         self.activations = activations
-        self.spectral_norm = spectral_norm
         self.kernel_size = kernel_size
 
         # number of conv layer in the model
@@ -3511,9 +3492,6 @@ class Discriminator(nn.Module):
     dropout_prob : float
         the dropout probability of the generator models (see torch Dropout3D)
         the generator use ConvT-BatchNorm-activation-dropout structure
-    spectral_norm : boolean
-        whether to apply spectral_norm to the output of the conv layer (see SpectralNorm class below)
-        if True, the structure will become SpectralNorm(ConvT/Conv)-BatchNorm-activation-dropout
     activations : nn actication function
         the actication function used for all layers except the last layer of all models
     """
@@ -3521,7 +3499,6 @@ class Discriminator(nn.Module):
     def ConvLayer(self, in_channel, out_channel):
         dropout_prob = self.dropout_prob
         activations = self.activations
-        spectral_norm = self.spectral_norm
         kernel_size = self.kernel_size
 
         layer_module = []
@@ -3545,13 +3522,9 @@ class Discriminator(nn.Module):
             )
 
         # normalization
-        if spectral_norm:
-            # spectral norm
-            layer_module.append(SpectralNorm(conv_layer))
-        else:
-            # batch norm
-            layer_module.append(conv_layer)
-            layer_module.append(nn.BatchNorm3d(out_channel))
+        # batch norm
+        layer_module.append(conv_layer)
+        layer_module.append(nn.BatchNorm3d(out_channel))
 
         # activation
         layer_module.append(activations)
@@ -3566,7 +3539,6 @@ class Discriminator(nn.Module):
         kernel_size=3,
         fc_size=2,
         dropout_prob=0.0,
-        spectral_norm=False,
         activations=nn.LeakyReLU(0.1, True),
     ):
         super(Discriminator, self).__init__()
@@ -3577,7 +3549,6 @@ class Discriminator(nn.Module):
 
         self.dropout_prob = dropout_prob
         self.activations = activations
-        self.spectral_norm = spectral_norm
         self.kernel_size = kernel_size
 
         # number of conv layer in the model
@@ -3663,73 +3634,6 @@ class Discriminator(nn.Module):
 ###
 #       other modules
 ###
-
-
-class SpectralNorm(nn.Module):
-    """
-    the module to perform SpectralNorm to tensor
-    Copied from: https://github.com/heykeetae/Self-Attention-GAN/blob/master/spectral.py
-    """
-
-    def __init__(self, module, name="weight", power_iterations=1):
-        super(SpectralNorm, self).__init__()
-        self.module = module
-        self.name = name
-        self.power_iterations = power_iterations
-        if not self._made_params():
-            self._make_params()
-
-    def l2normalize(self, v, eps=1e-12):
-        return v / (v.norm() + eps)
-
-    def _update_u_v(self):
-        u = getattr(self.module, self.name + "_u")
-        v = getattr(self.module, self.name + "_v")
-        w = getattr(self.module, self.name + "_bar")
-
-        height = w.data.shape[0]
-        for _ in range(self.power_iterations):
-            v.data = self.l2normalize(
-                torch.mv(torch.t(w.view(height, -1).data), u.data)
-            )
-            u.data = self.l2normalize(torch.mv(w.view(height, -1).data, v.data))
-
-        # sigma = torch.dot(u.data, torch.mv(w.view(height,-1).data, v.data))
-        sigma = u.dot(w.view(height, -1).mv(v))
-        setattr(self.module, self.name, w / sigma.expand_as(w))
-
-    def _made_params(self):
-        try:
-            u = getattr(self.module, self.name + "_u")
-            v = getattr(self.module, self.name + "_v")
-            w = getattr(self.module, self.name + "_bar")
-            return True
-        except AttributeError:
-            return False
-
-    def _make_params(self):
-        w = getattr(self.module, self.name)
-
-        height = w.data.shape[0]
-        width = w.view(height, -1).data.shape[1]
-
-        u = nn.Parameter(w.data.new(height).normal_(0, 1), requires_grad=False)
-        v = nn.Parameter(w.data.new(width).normal_(0, 1), requires_grad=False)
-        u.data = self.l2normalize(u.data)
-        v.data = self.l2normalize(v.data)
-        w_bar = nn.Parameter(w.data)
-
-        del self.module._parameters[self.name]
-
-        self.module.register_parameter(self.name + "_u", u)
-        self.module.register_parameter(self.name + "_v", v)
-        self.module.register_parameter(self.name + "_bar", w_bar)
-
-    def forward(self, *args):
-        self._update_u_v()
-        return self.module.forward(*args)
-
-
 def multiple_components_param(param, num_components):
     if type(param) is int:
         param = [param] * num_components

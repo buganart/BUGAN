@@ -7,6 +7,11 @@ import pytest
 
 from bugan.datamodulePL import DataModule_process
 
+# handle Error #15: Initializing libiomp5md.dll ......
+import os
+
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+
 
 @pytest.fixture(params=["zip", "folder"])
 def data_process_format(request):
@@ -57,7 +62,6 @@ def test_data_module_folder(
     data_module = DataModule_process(config, data_path=data_path)
     data_module.prepare_data()
     data_module.setup()
-
     batch = next(iter(data_module.train_dataloader()))
 
     if isConditionalData:

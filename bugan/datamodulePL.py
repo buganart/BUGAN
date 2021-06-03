@@ -317,6 +317,8 @@ class DataModule_process(pl.LightningDataModule):
             # # sort class_index with counts
             # count_list.sort(key=lambda v: v[0])
             # count_list.sort(key=lambda v: v[1], reverse=True)
+            if not hasattr(self.config, "seed"):
+                self.config.seed = 123
             np.random.seed(self.config.seed)
             count_list = np.random.permutation(count_list)
 
