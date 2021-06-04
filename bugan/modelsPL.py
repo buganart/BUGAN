@@ -420,6 +420,51 @@ class BaseModel(pl.LightningModule):
         self.setup_model_component(vae, model_name, optimizer_option, learning_rate)
         return vae
 
+    def setup_VAE_mod(
+        self,
+        model_name,
+        encoder_num_layer_unit,
+        decoder_num_layer_unit,
+        optimizer_option,
+        learning_rate,
+        num_classes=None,
+        kernel_size=[3, 3],
+        fc_size=[2, 2],
+        class_std=1,
+    ):
+        config = self.config
+
+        encoder = Discriminator(
+            output_size=config.z_size,
+            resolution=config.resolution,
+            num_layer_unit=encoder_num_layer_unit,
+            kernel_size=kernel_size[0],
+            fc_size=fc_size[0],
+            dropout_prob=config.dropout_prob,
+            activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
+        )
+
+        decoder = Generator(
+            z_size=config.z_size,
+            resolution=config.resolution,
+            num_layer_unit=decoder_num_layer_unit,
+            kernel_size=kernel_size[1],
+            fc_size=fc_size[1],
+            dropout_prob=config.dropout_prob,
+            activations=nn.LeakyReLU(config.activation_leakyReLU_slope, True),
+        )
+
+        vae = VAE_mod(
+            encoder=encoder,
+            decoder=decoder,
+            num_classes=num_classes,
+            class_std=class_std,
+        )
+        # setup component in __init__() lists
+        # for configure_optimizers() and record loss
+        self.setup_model_component(vae, model_name, optimizer_option, learning_rate)
+        return vae
+
     def setup_model_component(self, model, model_name, model_opt_string, model_lr):
         """
         setup model components to the lists for later use
@@ -472,10 +517,9 @@ class BaseModel(pl.LightningModule):
                 / data.shape[0]
             )
         elif loss_option == "CrossEntropyLoss":
-            loss = (
-                lambda gen, data: nn.CrossEntropyLoss(reduction="sum")(gen, data)
-                / data.shape[0]
-            )
+            loss = lambda gen, data: nn.CrossEntropyLoss(
+                ignore_index=-1, reduction="sum"
+            )(gen, data) / torch.sum(data >= 0)
         else:
             raise Exception(
                 "loss_option must be in ['BCELoss', 'MSELoss', 'CrossEntropyLoss']. Current "
@@ -3090,6 +3134,313 @@ class CVAEGAN(VAEGAN):
         )
 
 
+class ZVAEGAN(VAEGAN):
+    """
+    ZVAE-GAN
+    """
+
+    @staticmethod
+    def add_model_specific_args(parent_parser):
+        """
+        ArgumentParser containing default values for all necessary argument
+            The arguments here will be added to config if missing.
+            If config already have the arguments, the values won't be replaced.
+        Parameters
+        ----------
+        parent_parser : ArgumentParser
+            This will usually be the empty ArgumentParser or the ArgumentParser from the ChildModel.add_model_specific_args()
+            Then, the arguments here will be added to this ArgumentParser
+        Returns
+        -------
+        parser : ArgumentParser
+            the ArgumentParser with all arguments below.
+        """
+        parser = ArgumentParser(parents=[parent_parser], add_help=False)
+        # log argument
+        parser.add_argument("--num_classes", type=int, default=10)
+        # class_std for specifying N(class_embed, std) for training conditional data
+        parser.add_argument("--class_std", type=float, default=-1)
+
+        return VAEGAN.add_model_specific_args(parser)
+
+    def __init__(self, config):
+        super(VAEGAN, self).__init__(config)
+        self.config = config
+        if hasattr(config, "config"):
+            self.config = config.config
+        self.save_hyperparameters("config")
+        # add missing default parameters
+        config = self.setup_config_arguments(config)
+        self.config = config
+
+        kernel_size = multiple_components_param(config.kernel_size, 3)
+        fc_size = multiple_components_param(config.fc_size, 3)
+        class_std = config.class_std
+        if class_std < 0:
+            class_std = 1 - config.num_classes / (config.num_classes + config.z_size)
+
+        # create components
+        # set component as an attribute to the model
+        # so PL can set tensor device type
+
+        # modified VAE
+        self.vae = self.setup_VAE_mod(
+            model_name="VAE",
+            encoder_num_layer_unit=config.encoder_num_layer_unit,
+            decoder_num_layer_unit=config.decoder_num_layer_unit,
+            optimizer_option=config.vae_opt,
+            learning_rate=config.vae_lr,
+            num_classes=config.num_classes,
+            kernel_size=kernel_size[:2],
+            fc_size=fc_size[:2],
+            class_std=class_std,
+        )
+
+        self.discriminator = self.setup_Discriminator(
+            "discriminator",
+            num_layer_unit=config.dis_num_layer_unit,
+            optimizer_option=config.dis_opt,
+            learning_rate=config.d_lr,
+            kernel_size=kernel_size[2],
+            fc_size=fc_size[2],
+        )
+
+        # loss function
+        self.criterion_label = self.get_loss_function_with_logit(config.label_loss)
+        # rec loss function is modified to handle pos_weight
+        if config.rec_loss == "BCELoss":
+            self.criterion_reconstruct = (
+                lambda gen, data: nn.BCEWithLogitsLoss(
+                    reduction="sum", pos_weight=self.calculate_pos_weight(data)
+                )(gen, data)
+                / data.shape[0]
+            )
+        else:
+            self.criterion_reconstruct = (
+                lambda gen, data: torch.sum(
+                    nn.MSELoss(reduction="none")(F.tanh(gen), data)
+                    * self.calculate_pos_weight(data)
+                )
+                / data.shape[0]
+            )
+        self.criterion_FM = self.get_loss_function_with_logit("MSELoss")
+
+    def calculate_loss(self, dataset_batch, dataset_indices=None, optimizer_idx=0):
+        """
+        function to calculate loss of each of the model components
+        the model_name of the component: self.model_name_list[optimizer_idx]
+        Parameters
+        ----------
+        dataset_batch : torch.Tensor
+            the input mesh data from the datamodule scaled to [-1,1]
+                where array is in shape (B, 1, res, res, res)
+                B = config.batch_size, res = config.resolution
+            see datamodulePL.py datamodule_process class
+        dataset_indices : torch.Tensor
+            the input data indices for conditional data from the datamodule
+                where index is in shape (B,), each element is
+                the class index based on the datamodule class_list
+                None if the data/model is unconditional
+        optimizer_idx : int
+            the index of the optimizer
+            the optimizer_idx is based on the setup order of model components
+            the model_name of the component: self.model_name_list[optimizer_idx]
+            here self.generator=0, self.discriminator=1, self.classifier=2
+        self.criterion_label : nn Loss function
+            the loss function based on config.label_loss to calculate the loss of generator/discriminator
+        self.criterion_class : nn Loss function
+            the loss function based on config.class_loss to calculate the loss of classifier
+        self.criterion_reconstruct : nn Loss function
+            the loss function based on config.rec_loss to calculate the loss of VAE
+        Returns
+        -------
+        vae_loss : torch.Tensor of shape [1]
+            the loss of the vae.
+        dloss : torch.Tensor of shape [1]
+            the loss of the discriminator.
+        closs : torch.Tensor of shape [1]
+            the loss of the classifier.
+        """
+        config = self.config
+        # add noise to data
+        dataset_batch = self.add_noise_to_samples(dataset_batch)
+
+        real_label, fake_label = self.create_real_fake_label(dataset_batch)
+        batch_size = dataset_batch.shape[0]
+
+        dataset_indices_cond_mask = (dataset_indices >= 0).type_as(dataset_batch)
+
+        if optimizer_idx == 0:
+            ############
+            #   generator
+            ############
+
+            reconstructed_data_logit, z, mu, logVar = self.vae(
+                dataset_batch, dataset_indices, output_all=True
+            )
+            # for BCELoss, the "target" should be in [0,1]
+            if config.rec_loss == "BCELoss":
+                vae_rec_loss = self.criterion_reconstruct(
+                    reconstructed_data_logit, (dataset_batch + 1) / 2
+                )
+            else:
+                vae_rec_loss = self.criterion_reconstruct(
+                    reconstructed_data_logit, dataset_batch
+                )
+            self.record_loss(vae_rec_loss.detach().cpu().numpy(), loss_name="rec_loss")
+
+            # add class KL loss
+            # mask uncond(-1) with 0, and then make target_mu 0
+            masked_dataset_indices = (
+                dataset_indices * dataset_indices_cond_mask.type_as(dataset_indices)
+            )
+            target_mu = (
+                self.vae.embedding(masked_dataset_indices) * dataset_indices_cond_mask
+            )
+            class_KL = (
+                self.vae.calculate_log_prob_loss(
+                    z,
+                    mu,
+                    logVar,
+                    target_mu=target_mu,
+                    cond_mask=dataset_indices_cond_mask,
+                )
+                * config.kl_coef
+            )
+            self.record_loss(class_KL.detach().cpu().numpy(), loss_name="class KL loss")
+            vae_rec_loss = vae_rec_loss + class_KL
+
+            # output of the vae should fool discriminator
+            vae_out_d1, fc1 = self.discriminator(
+                F.tanh(reconstructed_data_logit), output_all=True
+            )
+            vae_d_loss1 = self.criterion_label(vae_out_d1, real_label)
+
+            ##### generate fake trees
+            # latent noise vector (conditional)
+            z = torch.randn(batch_size, config.z_size).float().type_as(dataset_batch)
+            tree_fake_cond = F.tanh(self.vae.generate_sample(z, dataset_indices))
+            # output of the vae should fool discriminator
+            vae_out_d2, fc2 = self.discriminator(tree_fake_cond, output_all=True)
+            vae_d_loss2 = self.criterion_label(vae_out_d2, real_label)
+
+            # latent noise vector (unconditional)
+            z = torch.randn(batch_size, config.z_size).float().type_as(dataset_batch)
+            tree_fake_uncond = F.tanh(self.vae.generate_sample(z))
+            # output of the vae should fool discriminator
+            vae_out_d3, fc3 = self.discriminator(tree_fake_uncond, output_all=True)
+            vae_d_loss3 = self.criterion_label(vae_out_d3, real_label)
+
+            vae_d_loss = (vae_d_loss1 + vae_d_loss2 + vae_d_loss3) / 3
+            vae_d_loss = vae_d_loss * config.d_rec_coef
+            self.record_loss(vae_d_loss.detach().cpu().numpy(), loss_name="vae_d_loss")
+
+            # Feature Matching
+            _, fc_real = self.discriminator(dataset_batch, output_all=True)
+            fc_real = fc_real.detach()
+            # count similar to rec_loss
+            FM_rec = config.FMrec_coef * self.criterion_FM(fc1, fc_real)
+            # FM for fake data (and rescale with batch_size due to mean(fc))
+            FM_gan1 = self.criterion_FM(torch.mean(fc2, 0), torch.mean(fc_real, 0))
+            FM_gan2 = self.criterion_FM(torch.mean(fc3, 0), torch.mean(fc_real, 0))
+            FM_gan = config.FMgan_coef * batch_size * (FM_gan1 + FM_gan2)
+            self.record_loss(FM_rec.detach().cpu().numpy(), loss_name="FM_rec")
+            self.record_loss(FM_gan.detach().cpu().numpy(), loss_name="FM_gan")
+
+            vae_loss = vae_rec_loss + vae_d_loss + FM_rec + FM_gan
+
+            return vae_loss
+
+        if optimizer_idx == 1:
+
+            ############
+            #   discriminator
+            ############
+
+            # 128-d noise vector
+            z = torch.randn(batch_size, config.z_size).float().type_as(dataset_batch)
+
+            # detach so no update to generator
+            tree_fake = F.tanh(self.vae.vae_decoder(z)).clone().detach()
+
+            # real data (data from dataloader)
+            dout_real = self.discriminator(dataset_batch)
+            dloss_real = self.criterion_label(dout_real, real_label)
+
+            # fake data (data from generator)
+            dout_fake = self.discriminator(tree_fake)
+            dloss_fake = self.criterion_label(dout_fake, fake_label)
+
+            # loss function (discriminator classify real data vs generated data)
+            dloss = (dloss_real + dloss_fake) / 2
+
+            # accuracy hack
+            dloss = self.apply_accuracy_hack(dloss, dout_real, dout_fake)
+            return dloss
+
+    def generate_tree(self, c=None, num_trees=1, std=1):
+        """
+        the function to generate tree
+        this function specifies the generator module of this model and pass to the parent generate_tree()
+            see BaseModel generate_tree()
+        Parameters
+        ----------
+        num_trees : int
+            the number of trees to generate
+        c : int
+            the class index of the class to generate
+                the class index is based on the datamodule.class_list
+                see datamodulePL.py datamodule_process class
+        Returns
+        -------
+        result : numpy.ndarray shape [num_trees, res, res, res]
+            the generated samples of the class with class index c
+        """
+        config = self.config
+        generator = self.vae.vae_decoder
+
+        batch_size = self.config.batch_size
+        resolution = generator.resolution
+
+        if batch_size > num_trees:
+            batch_size = num_trees
+
+        result = None
+
+        num_runs = int(np.ceil(num_trees / batch_size))
+        # ignore discriminator
+        for i in range(num_runs):
+            z = (
+                torch.randn(batch_size, self.config.z_size).type_as(
+                    generator.gen_fc.weight
+                )
+                * std
+            )
+
+            if c is not None:
+                # turn class vector the same device as z, but with dtype Long
+                c = torch.ones(batch_size) * c
+                c = c.type_as(z).to(torch.int64)
+                tree_fake = self.vae.generate_sample(z, c)
+            else:
+                tree_fake = self.vae.generate_sample(z)
+
+            selected_trees = tree_fake[:, 0, :, :, :].detach().cpu().numpy()
+            if result is None:
+                result = selected_trees
+            else:
+                result = np.concatenate((result, selected_trees), axis=0)
+
+        # select at most num_trees
+        if result.shape[0] > num_trees:
+            result = result[:num_trees]
+        # in case no good result
+        if result.shape[0] <= 0:
+            result = np.zeros((1, resolution, resolution, resolution))
+            result[:, 0, 0, 0] = 1
+        return result
+
+
 #####
 #   building blocks for models
 #####
@@ -3261,6 +3612,140 @@ class VAE(nn.Module):
             z = BaseModel.merge_latent_and_class_vector(
                 z, c, self.num_classes, embedding_fn=self.embedding
             )
+
+        x = self.vae_decoder(z)
+        return x
+
+
+class VAE_mod(nn.Module):
+    def __init__(self, encoder, decoder, num_classes=None, class_std=1):
+        super(VAE_mod, self).__init__()
+        if num_classes:
+            self.embedding = nn.Embedding(num_classes, decoder.z_size)
+        else:
+            self.embedding = None
+
+        self.resolution = decoder.resolution
+        self.encoder_z_size = encoder.output_size
+        self.decoder_z_size = decoder.z_size
+
+        # VAE
+        self.vae_encoder = encoder
+
+        self.encoder_mean = nn.Linear(self.encoder_z_size, self.encoder_z_size)
+        self.encoder_logvar = nn.Linear(self.encoder_z_size, self.encoder_z_size)
+
+        self.vae_decoder = decoder
+        self.num_classes = num_classes
+        self.class_std = class_std
+
+    def noise_reparameterize(self, mean, logvar):
+        std = torch.exp(logvar / 2)
+        q = torch.distributions.Normal(mean, std)
+        z = q.rsample()
+        return z
+
+    def calculate_log_prob_loss(self, z, mu, logVar, target_mu=None, cond_mask=None):
+        """
+        calculate log_prob loss (KL/ELBO??) for VAE based on the mean and logvar used for noise_reparameterize()
+        reference: https://github.com/PyTorchLightning/pytorch-lightning-bolts/blob/master/pl_bolts/models/autoencoders/basic_vae/basic_vae_module.py
+        See VAE class
+        Parameters
+        ----------
+        mu : torch.Tensor
+        logVar : torch.Tensor
+        """
+
+        # add target mu and std for VAE_mod
+        if target_mu is None:
+            target_mu = torch.zeros_like(mu)
+        if cond_mask is None:
+            target_std = torch.ones_like(logVar)
+        else:
+            cond_mask = cond_mask.type_as(logVar)
+            target_std = self.class_std * cond_mask + 1 * (1 - cond_mask)
+            target_std = torch.ones_like(logVar) * target_std
+
+        # reference: https://github.com/PyTorchLightning/pytorch-lightning-bolts/blob/master/pl_bolts/models/autoencoders/basic_vae/basic_vae_module.py
+        std = torch.exp(logVar / 2)
+        p = torch.distributions.Normal(target_mu, target_std)
+        q = torch.distributions.Normal(mu, std)
+
+        log_pz = p.log_prob(z)
+        log_qz = q.log_prob(z)
+
+        kl = log_qz - log_pz
+        loss = kl.mean()
+
+        # also constraint target_mu (class_vector to be in N(0,1))
+        # maximize log prob of target_mu from N(0,1)
+        n = torch.distributions.Normal(torch.zeros_like(mu), torch.ones_like(std))
+        log_nc = n.log_prob(target_mu)
+        loss_c = (-log_nc).mean()
+        return loss + loss_c
+
+    def forward(self, x, c=None, output_all=False):
+        """
+        default function for nn.Module to run output=model(input)
+        defines how the model process data input to output using model components
+        Parameters
+        ----------
+        x : torch.Tensor
+            the input data tensor in shape (B, 1, R, R, R)
+                B = config.batch_size, R = encoder.input_size
+        c : torch.Tensor
+            the input class tensor in shape (B,)
+                each element is the class index of the input x
+        output_all : boolean
+            whether to also output x_mean and x_logvar
+        Returns
+        -------
+        x : torch.Tensor of shape (B, 1, R, R, R)
+            the reconstructed data from the VAE based on input x
+        x_mean : torch.Tensor of shape (B, Z)
+            the mean for noise_reparameterization
+        x_logvar : torch.Tensor of shape (B, Z)
+            the logvar for noise_reparameterization
+        """
+
+        # VAE
+        f = self.vae_encoder(x)
+
+        x_mean = self.encoder_mean(f)
+        x_logvar = self.encoder_logvar(f)
+
+        z = self.noise_reparameterize(x_mean, x_logvar)
+        x = self.vae_decoder(z)
+        if output_all:
+            return x, z, x_mean, x_logvar
+        else:
+            return x
+
+    def generate_sample(self, z, c=None):
+        """
+        the function to generate sample given a latent vector (and class index)
+        Parameters
+        ----------
+        z : torch.Tensor
+            the input latent noise tensor in shape (B, Z)
+                B = config.batch_size, Z = decoder.z_size
+        c : torch.Tensor
+            the input class tensor in shape (B,)
+                each element is the class index of the input x
+        Returns
+        -------
+        x : torch.Tensor
+            the generated data in shape (B, 1, R, R, R) from the decoder based on latent vector x
+                B = config.batch_size, R = decoder.output_size
+        """
+        # handle class vector
+        if c is not None:
+            # find out uncond label and class label
+            c_cond_mask = (c > 0).type_as(c)
+            # replace uncond label with 0 for embedding conversion
+            c = self.embedding(c * c_cond_mask).type_as(z)
+            # use original z for uncond generation, use class_vector + class_std * z for conditional generation
+            z = z * (1 - c_cond_mask) + c_cond_mask * (c + self.class_std * z)
 
         x = self.vae_decoder(z)
         return x

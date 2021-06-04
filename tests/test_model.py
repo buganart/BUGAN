@@ -16,6 +16,7 @@ from bugan.modelsPL import (
     GAN_Wloss_GP,
     CGAN,
     CVAEGAN,
+    ZVAEGAN,
 )
 from bugan.datamodulePL import DataModule_process
 from bugan.trainPL import (
@@ -32,6 +33,7 @@ from bugan.trainPL import (
 from test_data_loader import data_path
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 @pytest.fixture
 def device():
     # NOTE: some tests currently don't work with CUDA backend
@@ -159,6 +161,22 @@ def test_cvaegan_forward(device):
     y, c_predict = model(x, c)
     assert list(y.shape) == [2, 1]
     assert list(c_predict.shape) == [2, config.num_classes]
+
+
+def test_zvaegan_forward(device):
+    config = Namespace(
+        resolution=32,
+        encoder_num_layer_unit=[2, 2, 2, 2, 2],
+        decoder_num_layer_unit=[2, 2, 2, 2, 2],
+        dis_num_layer_unit=[2, 2, 2, 2, 2],
+        z_size=2,
+        num_classes=3,
+    )
+
+    model = ZVAEGAN(config).to(device)
+    x = torch.tensor(np.ones([2, 1, 32, 32, 32], dtype=np.float32)).to(device)
+    y = model(x)
+    assert list(y.shape) == [2, 1]
 
 
 ### CHECK TRAINING STEP
@@ -303,6 +321,31 @@ def test_cvaegan_training_step(device):
     assert list(loss_vae.shape) == [] and not loss_vae.isnan() and not loss_vae.isinf()
     assert list(loss_d.shape) == [] and not loss_d.isnan() and not loss_d.isinf()
     assert list(loss_c.shape) == [] and not loss_c.isnan() and not loss_c.isinf()
+
+
+def test_zvaegan_training_step(device):
+    config = Namespace(
+        resolution=32,
+        encoder_num_layer_unit=[2, 2, 2, 2, 2],
+        decoder_num_layer_unit=[2, 2, 2, 2, 2, 2],
+        dis_num_layer_unit=[2, 2, 2, 2, 2],
+        fc_size=[2, 1, 2],
+        z_size=2,
+    )
+    model = ZVAEGAN(config).to(device)
+    data = torch.tensor(np.ones([2, 1, 32, 32, 32], dtype=np.float32)).to(device)
+    label = torch.tensor(np.ones([2], dtype=np.int64)).to(device)
+    label[1] = -1
+    model.on_train_epoch_start()
+    loss_vae = model.training_step(
+        dataset_batch=[data, label], batch_idx=0, optimizer_idx=0
+    )
+    loss_d = model.training_step(
+        dataset_batch=[data, label], batch_idx=0, optimizer_idx=1
+    )
+    # tensor with single element has shape []
+    assert list(loss_vae.shape) == [] and not loss_vae.isnan() and not loss_vae.isinf()
+    assert list(loss_d.shape) == [] and not loss_d.isnan() and not loss_d.isinf()
 
 
 ### CHECK FULL TRAINING (with data_module, model, and trainer)
@@ -493,6 +536,33 @@ def test_cgan_training_loop_full(device, config, data_module):
 @pytest.mark.parametrize("isConditionalData", [True])
 def test_cvaegan_training_loop_full(device, config, data_module):
     model = CVAEGAN(config).to(device)
+    trainer = pl.Trainer(max_epochs=1)
+    trainer.fit(model, data_module)
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        Namespace(
+            resolution=32,
+            encoder_num_layer_unit=[2, 2, 2, 2, 2],
+            decoder_num_layer_unit=[2, 2, 2, 2, 2],
+            dis_num_layer_unit=[2, 2, 2, 2, 2],
+            z_size=2,
+            # for dataloader
+            batch_size=1,
+            data_augmentation=True,
+            aug_rotation_type="random rotation",
+            aug_rotation_axis=(0, 1, 0),
+            num_classes=1,
+            log_interval=1,
+        )
+    ],
+)
+@pytest.mark.parametrize("data_process_format", ["zip"])
+@pytest.mark.parametrize("isConditionalData", [True])
+def test_zvaegan_training_loop_full(device, config, data_module):
+    model = ZVAEGAN(config).to(device)
     trainer = pl.Trainer(max_epochs=1)
     trainer.fit(model, data_module)
 
