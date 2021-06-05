@@ -529,7 +529,7 @@ class BaseModel(pl.LightningModule):
                 c_onehot = c_onehot.scatter(1, c, 1)
                 data = c_onehot.type_as(gen)
                 # apply label loss
-                noise = torch.rand(gen.shape) * self.config.label_noise
+                noise = torch.rand(gen.shape).type_as(gen) * self.config.label_noise
                 data = data * (1 - noise) + (1 - data) * noise
                 # apply loss
                 loss_fn = nn.BCEWithLogitsLoss(reduction="none")
