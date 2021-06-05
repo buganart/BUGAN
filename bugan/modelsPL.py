@@ -517,9 +517,34 @@ class BaseModel(pl.LightningModule):
                 / data.shape[0]
             )
         elif loss_option == "CrossEntropyLoss":
-            loss = lambda gen, data: nn.CrossEntropyLoss(
-                ignore_index=-1, reduction="sum"
-            )(gen, data) / torch.sum(data >= 0)
+            # remake CE loss with BCELoss for applying label_noise
+            def mod_CELoss(gen, data):
+                c = data
+                c = c.reshape((-1, 1))
+                # check for class_index >= 0
+                c_mask = (c >= 0).type_as(c)
+                c = c * c_mask
+                # to onehot
+                c_onehot = torch.zeros(gen.shape).type_as(c)
+                c_onehot = c_onehot.scatter(1, c, 1)
+                data = c_onehot.type_as(gen)
+                # apply label loss
+                noise = torch.rand(gen.shape) * self.config.label_noise
+                data = data * (1 - noise) + (1 - data) * noise
+                # apply loss
+                loss_fn = nn.BCEWithLogitsLoss(reduction="none")
+                loss_value = loss_fn(gen, data)
+                # ignore those class_index < 0
+                loss_value = torch.sum(torch.mean(loss_value * c_mask, 1)) / torch.sum(
+                    c_mask
+                )
+                return loss_value
+
+            loss = mod_CELoss
+
+            # loss = lambda gen, data: nn.CrossEntropyLoss(
+            #     ignore_index=-1, reduction="sum"
+            # )(gen, data) / torch.sum(data >= 0)
         else:
             raise Exception(
                 "loss_option must be in ['BCELoss', 'MSELoss', 'CrossEntropyLoss']. Current "
