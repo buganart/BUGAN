@@ -15,13 +15,13 @@ from bugan.trainPL import (
 )
 
 
-data_path = "../../handtool-data/handtool-v4-cleaned-tnf-1000.zip"
+data_path = "../../tree-data/tree-sessions-2020-09-10-simplified-26k-target-face-num-1000-class-label.zip"
 config_dict = {
     "data_location": data_path,
-    "selected_model": "VAEGAN",
+    "selected_model": "CVAEGAN",
     "project_name": "tree-gan",
     "resume_id": "",
-    "num_classes": 0,
+    "num_classes": 3,
     "trim_class_offset": 3,
     "history_checkpoint_frequency": 3,
     "vae_opt": "Adam",
@@ -30,17 +30,17 @@ config_dict = {
     "rec_loss": "MSELoss",
     "accuracy_hack": 1.1,
     "vae_lr": 0.003,
-    "d_lr": 0.0001,
+    "d_lr": 0.00001,
     "kl_coef": 100000,
     "d_rec_coef": 10000,
     "c_rec_coef": 1000,
     "FMrec_coef": 3,
     "FMgan_coef": 1000,
     "z_size": 128,
-    "decoder_num_layer_unit": [128, 256, 512, 256, 128, 128],
+    "decoder_num_layer_unit": [128, 256, 512, 256, 128, 64],
     "encoder_num_layer_unit": [64, 64, 128, 128, 256, 128],
     "dis_num_layer_unit": [64, 64, 128, 128, 256, 128],
-    "batch_size": 8,
+    "batch_size": 32,
     "resolution": 64,
     "log_interval": 20,
     "log_num_samples": 3,
@@ -86,7 +86,7 @@ if config.resume_id:
 # write bugan package revision number to bugan
 config.rev_number = get_bugan_package_revision_number()
 
-run, config = init_wandb_run(config, run_dir="../../", mode="offline")
+run, config = init_wandb_run(config, run_dir="../../")  # , mode="offline")
 run.notes = "testing train.py"
 
 # specify another tmp folder for non colab
