@@ -19,7 +19,7 @@ data_path = "../../handtool-data/Finn-2021-cleaned.zip"
 config_dict = {
     "data_location": data_path,
     "selected_model": "VAEGAN",
-    "project_name": "tree-gan",
+    "project_name": "handtool-gan",
     "resume_id": "",
     "num_classes": 0,
     "trim_class_offset": 0,
@@ -86,7 +86,7 @@ if config.resume_id:
 # write bugan package revision number to bugan
 config.rev_number = get_bugan_package_revision_number()
 
-run, config = init_wandb_run(config, run_dir="../../", mode="offline")
+run, config = init_wandb_run(config, run_dir="../../")  # , mode="offline")
 run.notes = "testing train.py"
 
 # specify another tmp folder for non colab
