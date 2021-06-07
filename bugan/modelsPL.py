@@ -3689,7 +3689,7 @@ class VAE_mod(nn.Module):
         else:
             cond_mask = cond_mask.type_as(logVar)
             target_std = self.class_std * cond_mask + 1 * (1 - cond_mask)
-            target_std = torch.ones_like(logVar) * target_std
+            target_std = torch.ones_like(logVar) * target_std.reshape((-1, 1))
 
         # reference: https://github.com/PyTorchLightning/pytorch-lightning-bolts/blob/master/pl_bolts/models/autoencoders/basic_vae/basic_vae_module.py
         std = torch.exp(logVar / 2)
