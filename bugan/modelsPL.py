@@ -3766,7 +3766,7 @@ class VAE_mod(nn.Module):
         # handle class vector
         if c is not None:
             # find out uncond label and class label
-            c_cond_mask = (c > 0).type_as(c)
+            c_cond_mask = (c > 0).type_as(c).reshape((-1, 1))
             # replace uncond label with 0 for embedding conversion
             c = self.embedding(c * c_cond_mask).type_as(z)
             # use original z for uncond generation, use class_vector + class_std * z for conditional generation
