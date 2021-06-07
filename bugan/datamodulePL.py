@@ -456,15 +456,8 @@ class DataModule_process(pl.LightningDataModule):
                 print(f"Number of failed file: {failed}")
 
                 if self.num_classes > len(set(sample_class_index)):
-                    print(
-                        f"max_num_classes ({self.num_classes}) should be <= Processed number of classes ({len(set(sample_class_index))}), lower max_num_classes to processed_num_classes..."
-                    )
-                    self.num_classes = len(set(sample_class_index))
-                    self.savefile_path = make_processed_savefile_path(
-                        self.data_path,
-                        self.config.resolution,
-                        max_num_classes=self.num_classes,
-                        offset=self.offset,
+                    raise ValueError(
+                        f"max_num_classes ({self.num_classes}) should be <= Processed number of classes ({len(set(sample_class_index))})"
                     )
                 print(
                     f"select {self.num_classes} out of {len(set(sample_class_index))} classes:"
