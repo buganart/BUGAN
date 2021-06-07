@@ -55,7 +55,6 @@ from bugan.modelsPL import (
     GAN_Wloss_GP,
     CGAN,
     CVAEGAN,
-    ZVAEGAN,
 )
 
 
@@ -74,8 +73,6 @@ def _get_models(model_name):
         MODEL_CLASS = CGAN
     elif model_name == "CVAEGAN":
         MODEL_CLASS = CVAEGAN
-    elif model_name == "ZVAEGAN":
-        MODEL_CLASS = ZVAEGAN
     return MODEL_CLASS
 
 
