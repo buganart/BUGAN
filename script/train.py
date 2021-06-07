@@ -15,14 +15,14 @@ from bugan.trainPL import (
 )
 
 
-data_path = "../../handtool-data/handtool-v4-cleaned-tnf-1000.zip"
+data_path = "../../handtool-data/Finn-2021-cleaned.zip"
 config_dict = {
     "data_location": data_path,
     "selected_model": "VAEGAN",
     "project_name": "tree-gan",
     "resume_id": "",
     "num_classes": 0,
-    "trim_class_offset": 3,
+    "trim_class_offset": 0,
     "history_checkpoint_frequency": 3,
     "vae_opt": "Adam",
     "dis_opt": "Adam",
@@ -38,13 +38,13 @@ config_dict = {
     "FMgan_coef": 1000,
     "z_size": 128,
     "decoder_num_layer_unit": [128, 256, 512, 256, 128, 128],
-    "encoder_num_layer_unit": [64, 64, 128, 128, 256, 128],
-    "dis_num_layer_unit": [64, 64, 128, 128, 256, 128],
-    "batch_size": 8,
+    "encoder_num_layer_unit": [128, 128, 128, 256, 256, 128],
+    "dis_num_layer_unit": [128, 128, 128, 256, 256, 128],
+    "batch_size": 16,
     "resolution": 64,
     "log_interval": 20,
     "log_num_samples": 3,
-    "label_flip_prob": 0.01,
+    "label_flip_prob": 0,
     "label_noise": 0.1,
     "instance_noise_per_batch": False,
     "linear_annealed_instance_noise_epoch": 1000,
