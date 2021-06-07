@@ -3319,9 +3319,9 @@ class ZVAEGAN(VAEGAN):
             masked_dataset_indices = (
                 dataset_indices * dataset_indices_cond_mask.type_as(dataset_indices)
             )
-            target_mu = (
-                self.vae.embedding(masked_dataset_indices) * dataset_indices_cond_mask
-            )
+            target_mu = self.vae.embedding(
+                masked_dataset_indices
+            ) * dataset_indices_cond_mask.reshape((-1, 1))
             class_KL = (
                 self.vae.calculate_log_prob_loss(
                     z,
