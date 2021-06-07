@@ -241,7 +241,9 @@ class DataModule_process(pl.LightningDataModule):
             # extract label if conditional data
             if self.num_classes is not None:
                 label = Path(path).parent.stem
-                if label in class_list:
+                if str(label) == "_unconditional":
+                    index = -1
+                elif label in class_list:
                     index = class_list.index(label)
                 else:
                     class_list.append(label)
@@ -338,8 +340,13 @@ class DataModule_process(pl.LightningDataModule):
 
             selected_class_list = [index for (index, _) in selected_class_list]
             # shift class_name according to the selected_class_list
-            class_name_list = [class_name_list[index] for index in selected_class_list]
-            print(f"processing classes:{self.class_list}, index:{selected_class_list}")
+            class_name_newlist = []
+            for index in selected_class_list:
+                if index >= 0:
+                    class_name_newlist.append(class_name_list[index])
+            print(
+                f"processing classes:{class_name_newlist}, index:{selected_class_list}"
+            )
         else:
 
             selected_class_list = []
@@ -347,8 +354,10 @@ class DataModule_process(pl.LightningDataModule):
             for name in self.class_list:
                 selected_class_list.append(class_name_list.index(name))
             # assign selected_class_name_list to the stored class_name_list
-            class_name_list = self.class_list
-            print(f"processing classes:{self.class_list}, index:{selected_class_list}")
+            class_name_newlist = self.class_list
+            print(
+                f"processing classes:{class_name_newlist}, index:{selected_class_list}"
+            )
 
         # trim dataset
         data = []
@@ -363,7 +372,7 @@ class DataModule_process(pl.LightningDataModule):
                 # make sure index not out of bound
                 pos = selected_class_list.index(ind)
                 index.append(pos)
-        return data, index, class_name_list
+        return data, index, class_name_newlist
 
     # prepare_data() should contains code that will be run once per dataset.
     # most of the code will be skipped in subsequent run.
