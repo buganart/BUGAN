@@ -1799,10 +1799,8 @@ class VAEGAN(BaseModel):
             # count similar to rec_loss
             FM_rec = config.FMrec_coef * self.criterion_FM(fc1, fc_real)
             # FM for fake data (and rescale with batch_size due to mean(fc))
-            FM_gan = (
-                config.FMgan_coef
-                * batch_size
-                * self.criterion_FM(torch.mean(fc2, 0), torch.mean(fc_real, 0))
+            FM_gan = config.FMgan_coef * self.criterion_FM(
+                torch.sum(fc2, 0), torch.sum(fc_real, 0)
             )
             self.record_loss(FM_rec.detach().cpu().numpy(), loss_name="FM_rec")
             self.record_loss(FM_gan.detach().cpu().numpy(), loss_name="FM_gan")
@@ -2053,10 +2051,8 @@ class GAN(BaseModel):
             _, fc_real = self.discriminator(dataset_batch, output_all=True)
             fc_real = fc_real.detach()
             # FM for fake data (and rescale with batch_size due to mean(fc))
-            FM_gan = (
-                config.FMgan_coef
-                * batch_size
-                * self.criterion_FM(torch.mean(fc1, 0), torch.mean(fc_real, 0))
+            FM_gan = config.FMgan_coef * self.criterion_FM(
+                torch.sum(fc1, 0), torch.sum(fc_real, 0)
             )
             self.record_loss(FM_gan.detach().cpu().numpy(), loss_name="FM_gan")
 
@@ -2232,10 +2228,8 @@ class GAN_Wloss(GAN):
             _, fc_real = self.discriminator(dataset_batch, output_all=True)
             fc_real = fc_real.detach()
             # FM for fake data (and rescale with batch_size due to mean(fc))
-            FM_gan = (
-                config.FMgan_coef
-                * batch_size
-                * self.criterion_FM(torch.mean(fc1, 0), torch.mean(fc_real, 0))
+            FM_gan = config.FMgan_coef * self.criterion_FM(
+                torch.sum(fc1, 0), torch.sum(fc_real, 0)
             )
             self.record_loss(FM_gan.detach().cpu().numpy(), loss_name="FM_gan")
             return gloss + FM_gan
@@ -2412,10 +2406,8 @@ class GAN_Wloss_GP(GAN):
             _, fc_real = self.discriminator(dataset_batch, output_all=True)
             fc_real = fc_real.detach()
             # FM for fake data (and rescale with batch_size due to mean(fc))
-            FM_gan = (
-                config.FMgan_coef
-                * batch_size
-                * self.criterion_FM(torch.mean(fc1, 0), torch.mean(fc_real, 0))
+            FM_gan = config.FMgan_coef * self.criterion_FM(
+                torch.sum(fc1, 0), torch.sum(fc_real, 0)
             )
             self.record_loss(FM_gan.detach().cpu().numpy(), loss_name="FM_gan")
 
@@ -2674,9 +2666,9 @@ class CGAN(GAN):
             fc_real = fc_real.detach()
             # cfc_real = cfc_real.detach()
             # FM for fake data (and rescale with batch_size due to mean(fc))
-            FM_gan1 = self.criterion_FM(torch.mean(fc1, 0), torch.mean(fc_real, 0))
+            FM_gan1 = self.criterion_FM(torch.sum(fc1, 0), torch.sum(fc_real, 0))
             # FM_gan2 = self.criterion_FM(torch.mean(cfc1, 0), torch.mean(cfc_real, 0))
-            FM_gan = config.FMgan_coef * batch_size * FM_gan1
+            FM_gan = config.FMgan_coef * FM_gan1
             self.record_loss(FM_gan.detach().cpu().numpy(), loss_name="FM_gan")
 
             gloss = gloss_d + gloss_c + FM_gan
@@ -3058,9 +3050,9 @@ class CVAEGAN(VAEGAN):
             # FM_rec2 = config.FMrec_coef * self.criterion_FM(cfc1, cfc_real)
             FM_rec = FM_rec1
             # FM for fake data (and rescale with batch_size due to mean(fc))
-            FM_gan1 = self.criterion_FM(torch.mean(fc2, 0), torch.mean(fc_real, 0))
+            FM_gan1 = self.criterion_FM(torch.sum(fc2, 0), torch.sum(fc_real, 0))
             # FM_gan2 = self.criterion_FM(torch.mean(cfc2, 0), torch.mean(cfc_real, 0))
-            FM_gan = config.FMgan_coef * batch_size * FM_gan1
+            FM_gan = config.FMgan_coef * FM_gan1
             self.record_loss(FM_rec.detach().cpu().numpy(), loss_name="FM_rec")
             self.record_loss(FM_gan.detach().cpu().numpy(), loss_name="FM_gan")
 
@@ -3366,9 +3358,9 @@ class ZVAEGAN(VAEGAN):
             # count similar to rec_loss
             FM_rec = config.FMrec_coef * self.criterion_FM(fc1, fc_real)
             # FM for fake data (and rescale with batch_size due to mean(fc))
-            FM_gan1 = self.criterion_FM(torch.mean(fc2, 0), torch.mean(fc_real, 0))
-            FM_gan2 = self.criterion_FM(torch.mean(fc3, 0), torch.mean(fc_real, 0))
-            FM_gan = config.FMgan_coef * batch_size * (FM_gan1 + FM_gan2)
+            FM_gan1 = self.criterion_FM(torch.sum(fc2, 0), torch.sum(fc_real, 0))
+            FM_gan2 = self.criterion_FM(torch.sum(fc3, 0), torch.sum(fc_real, 0))
+            FM_gan = config.FMgan_coef * (FM_gan1 + FM_gan2)
             self.record_loss(FM_rec.detach().cpu().numpy(), loss_name="FM_rec")
             self.record_loss(FM_gan.detach().cpu().numpy(), loss_name="FM_gan")
 
