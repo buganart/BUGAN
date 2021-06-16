@@ -1211,21 +1211,21 @@ class VAE_train(BaseModel):
         self.log_reconstruct = True
 
         # loss function is modified to handle pos_weight
-        if config.rec_loss == "BCELoss":
-            self.criterion_reconstruct = (
-                lambda gen, data: nn.BCEWithLogitsLoss(
-                    reduction="sum", pos_weight=self.calculate_pos_weight(data)
-                )(gen, data)
-                / data.shape[0]
+        # if config.rec_loss == "BCELoss":
+        #     self.criterion_reconstruct = (
+        #         lambda gen, data: nn.BCEWithLogitsLoss(
+        #             reduction="sum", pos_weight=self.calculate_pos_weight(data)
+        #         )(gen, data)
+        #         / data.shape[0]
+        #     )
+        # else:
+        self.criterion_reconstruct = (
+            lambda gen, data: torch.sum(
+                nn.MSELoss(reduction="none")(F.tanh(gen), data)
+                * self.calculate_pos_weight(data)
             )
-        else:
-            self.criterion_reconstruct = (
-                lambda gen, data: torch.sum(
-                    nn.MSELoss(reduction="none")(F.tanh(gen), data)
-                    * self.calculate_pos_weight(data)
-                )
-                / data.shape[0]
-            )
+            / data.shape[0]
+        )
 
     def calculate_pos_weight(self, data):
         """
@@ -1246,19 +1246,19 @@ class VAE_train(BaseModel):
             the shape of pos_weight for MSELoss is (B, 1, res, res, res)
             (negative weigth = 1, positive weight = num_zeros/num_ones)
         """
-        if self.config.rec_loss == "BCELoss":
-            # assume data in [0,1]
-            num_ones = torch.sum(data)
-            num_zeros = torch.sum(1 - data)
-            pos_weight = num_zeros / num_ones
-        else:
-            # assume data in [-1,1], scale back to [0,1]
-            target = (data + 1) / 2
-            #
-            num_ones = torch.sum(target)
-            num_zeros = torch.sum(1 - target)
-            pos_weight = num_zeros / num_ones - 1
-            pos_weight = (target * pos_weight) + 1
+        # if self.config.rec_loss == "BCELoss":
+        #     # assume data in [0,1]
+        #     num_ones = torch.sum(data)
+        #     num_zeros = torch.sum(1 - data)
+        #     pos_weight = num_zeros / num_ones
+        # else:
+        # assume data in [-1,1], scale back to [0,1]
+        target = (data + 1) / 2
+        #
+        num_ones = torch.sum(target)
+        num_zeros = torch.sum(1 - target)
+        pos_weight = num_zeros / num_ones - 1
+        pos_weight = (target * pos_weight) + 1
         return pos_weight
 
     def forward(self, x):
@@ -1315,8 +1315,8 @@ class VAE_train(BaseModel):
         reconstructed_data, z, mu, logVar = self.vae(dataset_batch, output_all=True)
 
         # for BCELoss, the "target" should be in [0,1]
-        if config.rec_loss == "BCELoss":
-            dataset_batch = (dataset_batch + 1) / 2
+        # if config.rec_loss == "BCELoss":
+        #     dataset_batch = (dataset_batch + 1) / 2
         vae_rec_loss = self.criterion_reconstruct(reconstructed_data, dataset_batch)
         self.record_loss(vae_rec_loss.detach().cpu().numpy(), loss_name="rec_loss")
 
@@ -1491,21 +1491,21 @@ class VAEGAN(BaseModel):
         # loss function
         self.criterion_label = self.get_loss_function_with_logit(config.label_loss)
         # rec loss function is modified to handle pos_weight
-        if config.rec_loss == "BCELoss":
-            self.criterion_reconstruct = (
-                lambda gen, data: nn.BCEWithLogitsLoss(
-                    reduction="sum", pos_weight=self.calculate_pos_weight(data)
-                )(gen, data)
-                / data.shape[0]
+        # if config.rec_loss == "BCELoss":
+        #     self.criterion_reconstruct = (
+        #         lambda gen, data: nn.BCEWithLogitsLoss(
+        #             reduction="sum", pos_weight=self.calculate_pos_weight(data)
+        #         )(gen, data)
+        #         / data.shape[0]
+        #     )
+        # else:
+        self.criterion_reconstruct = (
+            lambda gen, data: torch.sum(
+                nn.MSELoss(reduction="none")(F.tanh(gen), data)
+                * self.calculate_pos_weight(data)
             )
-        else:
-            self.criterion_reconstruct = (
-                lambda gen, data: torch.sum(
-                    nn.MSELoss(reduction="none")(F.tanh(gen), data)
-                    * self.calculate_pos_weight(data)
-                )
-                / data.shape[0]
-            )
+            / data.shape[0]
+        )
 
         self.criterion_FM = self.get_loss_function_with_logit("MSELoss")
 
@@ -1528,19 +1528,19 @@ class VAEGAN(BaseModel):
             the shape of pos_weight for MSELoss is (B, 1, res, res, res)
             (negative weigth = 1, positive weight = num_zeros/num_ones)
         """
-        if self.config.rec_loss == "BCELoss":
-            # assume data in [0,1]
-            num_ones = torch.sum(data)
-            num_zeros = torch.sum(1 - data)
-            pos_weight = num_zeros / num_ones
-        else:
-            # assume data in [-1,1], scale back to [0,1]
-            target = (data + 1) / 2
-            #
-            num_ones = torch.sum(target)
-            num_zeros = torch.sum(1 - target)
-            pos_weight = num_zeros / num_ones - 1
-            pos_weight = (target * pos_weight) + 1
+        # if self.config.rec_loss == "BCELoss":
+        #     # assume data in [0,1]
+        #     num_ones = torch.sum(data)
+        #     num_zeros = torch.sum(1 - data)
+        #     pos_weight = num_zeros / num_ones
+        # else:
+        # assume data in [-1,1], scale back to [0,1]
+        target = (data + 1) / 2
+        #
+        num_ones = torch.sum(target)
+        num_zeros = torch.sum(1 - target)
+        pos_weight = num_zeros / num_ones - 1
+        pos_weight = (target * pos_weight) + 1
         return pos_weight
 
     def forward(self, x):
@@ -1616,19 +1616,17 @@ class VAEGAN(BaseModel):
             )
 
             # for BCELoss, the "target" should be in [0,1]
-            if config.rec_loss == "BCELoss":
-                vae_rec_loss = self.criterion_reconstruct(
-                    reconstructed_data_logit, (dataset_batch + 1) / 2
-                )
-            else:
-                vae_rec_loss = self.criterion_reconstruct(
-                    reconstructed_data_logit, dataset_batch
-                )
-            self.record_loss(vae_rec_loss.detach().cpu().numpy(), loss_name="rec_loss")
+            # if config.rec_loss == "BCELoss":
+            #     vae_rec_loss = self.criterion_reconstruct(
+            #         reconstructed_data_logit, (dataset_batch + 1) / 2
+            #     )
+            # else:
+            vae_rec_loss = self.criterion_reconstruct(
+                reconstructed_data_logit, dataset_batch
+            )
 
             # add KL loss
             KL = self.vae.calculate_log_prob_loss(z, mu, logVar) * config.kl_coef
-            self.record_loss(KL.detach().cpu().numpy(), loss_name="KL_loss")
             vae_rec_loss += KL
 
             # output of the vae should fool discriminator
@@ -1648,7 +1646,6 @@ class VAEGAN(BaseModel):
             vae_d_loss = vae_d_loss1 + vae_d_loss2
 
             vae_d_loss = vae_d_loss * config.d_rec_coef
-            self.record_loss(vae_d_loss.detach().cpu().numpy(), loss_name="vae_d_loss")
 
             _, fc_real = self.discriminator(dataset_batch, output_all=True)
             fc_real = fc_real.detach()
@@ -1658,10 +1655,13 @@ class VAEGAN(BaseModel):
             FM_gan = config.FMgan_coef * self.criterion_FM(
                 torch.sum(fc2, 0), torch.sum(fc_real, 0)
             )
-            self.record_loss(FM_rec.detach().cpu().numpy(), loss_name="FM_rec")
-            self.record_loss(FM_gan.detach().cpu().numpy(), loss_name="FM_gan")
 
             vae_loss = vae_rec_loss + vae_d_loss + FM_rec + FM_gan
+            self.record_loss(vae_rec_loss.detach().cpu().numpy(), loss_name="rec_loss")
+            self.record_loss(KL.detach().cpu().numpy(), loss_name="KL_loss")
+            self.record_loss(vae_d_loss.detach().cpu().numpy(), loss_name="vae_d_loss")
+            self.record_loss(FM_rec.detach().cpu().numpy(), loss_name="FM_rec")
+            self.record_loss(FM_gan.detach().cpu().numpy(), loss_name="FM_gan")
 
             return vae_loss
 
@@ -2722,21 +2722,21 @@ class CVAEGAN(VAEGAN):
         self.criterion_label = self.get_loss_function_with_logit(config.label_loss)
         self.criterion_class = self.get_loss_function_with_logit(config.class_loss)
         # rec loss function is modified to handle pos_weight
-        if config.rec_loss == "BCELoss":
-            self.criterion_reconstruct = (
-                lambda gen, data: nn.BCEWithLogitsLoss(
-                    reduction="sum", pos_weight=self.calculate_pos_weight(data)
-                )(gen, data)
-                / data.shape[0]
+        # if config.rec_loss == "BCELoss":
+        #     self.criterion_reconstruct = (
+        #         lambda gen, data: nn.BCEWithLogitsLoss(
+        #             reduction="sum", pos_weight=self.calculate_pos_weight(data)
+        #         )(gen, data)
+        #         / data.shape[0]
+        #     )
+        # else:
+        self.criterion_reconstruct = (
+            lambda gen, data: torch.sum(
+                nn.MSELoss(reduction="none")(F.tanh(gen), data)
+                * self.calculate_pos_weight(data)
             )
-        else:
-            self.criterion_reconstruct = (
-                lambda gen, data: torch.sum(
-                    nn.MSELoss(reduction="none")(F.tanh(gen), data)
-                    * self.calculate_pos_weight(data)
-                )
-                / data.shape[0]
-            )
+            / data.shape[0]
+        )
         self.criterion_FM = self.get_loss_function_with_logit("MSELoss")
 
     def forward(self, x, c):
@@ -2818,14 +2818,14 @@ class CVAEGAN(VAEGAN):
             )
 
             # for BCELoss, the "target" should be in [0,1]
-            if config.rec_loss == "BCELoss":
-                vae_rec_loss = self.criterion_reconstruct(
-                    reconstructed_data_logit, (dataset_batch + 1) / 2
-                )
-            else:
-                vae_rec_loss = self.criterion_reconstruct(
-                    reconstructed_data_logit, dataset_batch
-                )
+            # if config.rec_loss == "BCELoss":
+            #     vae_rec_loss = self.criterion_reconstruct(
+            #         reconstructed_data_logit, (dataset_batch + 1) / 2
+            #     )
+            # else:
+            vae_rec_loss = self.criterion_reconstruct(
+                reconstructed_data_logit, dataset_batch
+            )
             self.record_loss(vae_rec_loss.detach().cpu().numpy(), loss_name="rec_loss")
 
             # add KL loss
@@ -3051,21 +3051,21 @@ class ZVAEGAN(VAEGAN):
         # loss function
         self.criterion_label = self.get_loss_function_with_logit(config.label_loss)
         # rec loss function is modified to handle pos_weight
-        if config.rec_loss == "BCELoss":
-            self.criterion_reconstruct = (
-                lambda gen, data: nn.BCEWithLogitsLoss(
-                    reduction="sum", pos_weight=self.calculate_pos_weight(data)
-                )(gen, data)
-                / data.shape[0]
+        # if config.rec_loss == "BCELoss":
+        #     self.criterion_reconstruct = (
+        #         lambda gen, data: nn.BCEWithLogitsLoss(
+        #             reduction="sum", pos_weight=self.calculate_pos_weight(data)
+        #         )(gen, data)
+        #         / data.shape[0]
+        #     )
+        # else:
+        self.criterion_reconstruct = (
+            lambda gen, data: torch.sum(
+                nn.MSELoss(reduction="none")(F.tanh(gen), data)
+                * self.calculate_pos_weight(data)
             )
-        else:
-            self.criterion_reconstruct = (
-                lambda gen, data: torch.sum(
-                    nn.MSELoss(reduction="none")(F.tanh(gen), data)
-                    * self.calculate_pos_weight(data)
-                )
-                / data.shape[0]
-            )
+            / data.shape[0]
+        )
         self.criterion_FM = self.get_loss_function_with_logit("MSELoss")
 
     def calculate_loss(self, dataset_batch, dataset_indices=None, optimizer_idx=0):
@@ -3120,14 +3120,14 @@ class ZVAEGAN(VAEGAN):
                 dataset_batch, dataset_indices, output_all=True
             )
             # for BCELoss, the "target" should be in [0,1]
-            if config.rec_loss == "BCELoss":
-                vae_rec_loss = self.criterion_reconstruct(
-                    reconstructed_data_logit, (dataset_batch + 1) / 2
-                )
-            else:
-                vae_rec_loss = self.criterion_reconstruct(
-                    reconstructed_data_logit, dataset_batch
-                )
+            # if config.rec_loss == "BCELoss":
+            #     vae_rec_loss = self.criterion_reconstruct(
+            #         reconstructed_data_logit, (dataset_batch + 1) / 2
+            #     )
+            # else:
+            vae_rec_loss = self.criterion_reconstruct(
+                reconstructed_data_logit, dataset_batch
+            )
             self.record_loss(vae_rec_loss.detach().cpu().numpy(), loss_name="rec_loss")
 
             # add class KL loss
