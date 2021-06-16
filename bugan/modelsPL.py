@@ -31,7 +31,7 @@ class BaseModel(pl.LightningModule):
     This model manages settings that shares among all training models, including
     1) setup model components (optimizer, setup on_epoch / on_batch, logging, ...)
     2) wandb logging (log when epoch end)
-    3) GAN hacks (label_noise, instance_noise, dropout_prob, ...)
+    3) GAN hacks (label_noise, dropout_prob, ...)
     4) other common functions (generate_trees, get_loss_function_with_logit, create_real_fake_label, ...)
     5) LightningModule functions (configure_optimizers, on_train_epoch_start, on_train_epoch_end)
     *) Note that __init__() and training_step should be implemented in child model
@@ -61,10 +61,6 @@ class BaseModel(pl.LightningModule):
     other_loss_dict : list of list of numpy array shape [1]
         record custom loss from the model recorded by self.record_loss(loss, loss_name)
         will be processed like model_ep_loss_list (storing list of batch loss, and wandblog mean of them)
-    noise_magnitude : int
-        a placeholder for config.instance_noise (see below)
-    instance_noise : None/torch.Tensor
-        a placeholder for instance_noise generated per batch (see config.instance_noise_per_batch below)
     log_reconstruct : boolean
         if True, log input mesh and reconstructed mesh. If False, log sample mesh from random latent vector
     config : Namespace
@@ -83,25 +79,9 @@ class BaseModel(pl.LightningModule):
         when statistics of generated samples is logged, the number of samples to generate and calculate statistics from
             (see self.wandbLog(), calculate_log_media_stat())
         If config.num_classes is set, the number of generated samples will be (config.num_classes * config.log_num_samples)
-    config.label_flip_prob : float
-        create label noise by occassionally flip real/generated labels for Discriminator
-        if the value=0.2, this means the label has probability of 0.2 to flip
     config.label_noise : float
         create label noise by adding uniform random noise to the real/generated labels
         if the value=0.2, the real label will be in [0.8, 1], and fake label will be in [0, 0.2]
-    config.instance_noise_per_batch : boolean
-        whether to create instance noise per batch
-        if False, generate new instance noise for every sample, including every generated data and real data
-        if True, same noise will be applied to every generated data and real data in the same batch
-    config.linear_annealed_instance_noise_epoch : float
-        noise linear delay time
-        if value is 1000, the magnitude of instance noise will start from config.instance_noise,
-            and then linearly delay to 0 in 1000 epochs
-    config.instance_noise : float
-        the initial instance noise magnitude applied to the real data / generated samples
-        similar to config.label_noise, adding uniform random noise to the samples
-        if the value=0.2, the value of the array element containing voxels will be in [0.8, 1],
-            and value of the array element do not contain voxels will be in [-1, -0.8]
     config.z_size : int
         the latent vector size of the model
         latent vector size determines the size of the generated input, and the size of the compressed latent vector in VAE
@@ -138,19 +118,8 @@ class BaseModel(pl.LightningModule):
         parser.add_argument("--log_num_samples", type=int, default=1)
 
         # label noise
-        # real/fake label flip probability
-        parser.add_argument("--label_flip_prob", type=float, default=0.0)
         # real/fake label noise magnitude
         parser.add_argument("--label_noise", type=float, default=0.0)
-
-        # instance noise (add noise to real data/generate data)
-        # generate instance noise once per batch?
-        parser.add_argument("--instance_noise_per_batch", type=bool, default=True)
-        # noise linear delay time
-        parser.add_argument(
-            "--linear_annealed_instance_noise_epoch", type=int, default=1000
-        )
-        parser.add_argument("--instance_noise", type=float, default=0.0)
 
         # default Generator/Discriminator parameters
         # latent vector size
@@ -207,10 +176,6 @@ class BaseModel(pl.LightningModule):
         self.model_ep_loss_list = []
         # record other losses specified by the record_loss function in training_step
         self.other_loss_dict = {}
-
-        # for instance noise
-        self.noise_magnitude = self.config.instance_noise
-        self.instance_noise = None
 
         # whether to log input mesh and reconstructed mesh instead of sample mesh from random z
         self.log_reconstruct = False
@@ -651,12 +616,6 @@ class BaseModel(pl.LightningModule):
         self.model_list : list of nn.Module
         self.model_ep_loss_list : list of list of numpy array shape [1]
             model_ep_loss_list[i][b] is the loss of the model component with index i in training batch with index b
-        self.noise_magnitude : float
-            a placeholder for config.instance_noise (see below)
-            will be updated here based on the linear delay with parameters
-                linear_annealed_instance_noise_epoch and instance_noise
-        self.config.linear_annealed_instance_noise_epoch : int
-        self.config.instance_noise : float
         """
 
         # reset ep_loss
@@ -667,39 +626,6 @@ class BaseModel(pl.LightningModule):
         # also process other_loss_dict like model_ep_loss_list
         for i in self.other_loss_dict:
             self.other_loss_dict[i] = []
-
-        # calc instance noise
-        # check add_noise_to_samples() and generate_noise_for_samples()
-        if self.noise_magnitude > 0:
-            # linear annealed noise
-            noise_rate = (
-                self.config.linear_annealed_instance_noise_epoch - self.current_epoch
-            ) / self.config.linear_annealed_instance_noise_epoch
-            self.noise_magnitude = self.config.instance_noise * noise_rate
-        else:
-            self.noise_magnitude = 0
-
-    #####
-    #   on_train_batch_start()
-    #####
-    def on_train_batch_start(self, batch, batch_idx, dataloader_idx):
-        """
-        default function for pl.LightningModule to run on the start of every train batch
-        here the function just setup the placeholder for instance_noise when config.instance_noise_per_batch=True
-        if config.instance_noise_per_batch=False, self.instance_noise will always be None
-        Parameters
-        ----------
-        self.instance_noise : None/torch.Tensor
-            a placeholder for instance_noise generated per batch (see self.config.instance_noise_per_batch)
-            same noise will be applied to every generated data and real data in the same batch
-                when config.instance_noise_per_batch=True
-        batch : tuple
-        batch_idx : int
-        dataloader_idx : int
-        """
-
-        # record/reset instance noise per batch
-        self.instance_noise = None
 
     #####
     #   on_train_epoch_end()
@@ -962,7 +888,6 @@ class BaseModel(pl.LightningModule):
             normally, true label is 1 and false label is 0
             this function also add noise to the labels,
             so true:[1-label_noise,1], false:[0,label_noise]
-            also, flip label with P(config.label_flip_prob)
         Parameters
         ----------
         dataset_batch : torch.Tensor
@@ -970,9 +895,6 @@ class BaseModel(pl.LightningModule):
         self.config.label_noise : float
             create label noise by adding uniform random noise to the real/generated labels
             if the value=0.2, the real label will be in [0.8, 1], and fake label will be in [0, 0.2]
-        self.config.label_flip_prob : float
-            create label noise by occassionally flip real/generated labels for Discriminator
-            if the value=0.2, this means the label has probability of 0.2 to flip
         Returns
         -------
         real_label : torch.Tensor
@@ -990,19 +912,10 @@ class BaseModel(pl.LightningModule):
         # soft label
         # modified scale to [1-label_noise,1]
         # modified scale to [0,label_noise]
-        real_label = 1 - (torch.rand(batch_size) * config.label_noise)
-        fake_label = torch.rand(batch_size) * config.label_noise
-        # add noise to label
-        # P(label_flip_prob) label flipped
-        label_flip_mask = torch.bernoulli(
-            torch.ones(batch_size) * config.label_flip_prob
-        )
-        real_label = (1 - label_flip_mask) * real_label + label_flip_mask * (
-            1 - real_label
-        )
-        fake_label = (1 - label_flip_mask) * fake_label + label_flip_mask * (
-            1 - fake_label
-        )
+        # real_label = 1 - (torch.rand(batch_size) * config.label_noise)
+        # fake_label = torch.rand(batch_size) * config.label_noise
+        real_label = torch.ones(batch_size) * (1 - config.label_noise)
+        fake_label = torch.ones(batch_size) * config.label_noise
 
         real_label = torch.unsqueeze(real_label, 1).float().type_as(dataset_batch)
         fake_label = torch.unsqueeze(fake_label, 1).float().type_as(dataset_batch)
@@ -1108,57 +1021,6 @@ class BaseModel(pl.LightningModule):
         # merge with z to be generator input
         z = torch.cat((z, c_onehot), 1)
         return z
-
-    #
-    #
-    def add_noise_to_samples(self, data):
-        """
-        add instance noise to data (real data from dataset / generated data from model)
-        create and add instance noise which has the same shape as the data
-        Parameters
-        ----------
-        data : torch.Tensor
-            the data to add instance noise
-        self.config.instance_noise_per_batch : boolean
-            whether to create instance noise per batch
-            if False, generate new instance noise for every sample, including every generated data and real data
-            if True, same noise will be applied to every generated data and real data in the same batch
-        self.noise_magnitude : float
-            a placeholder for config.instance_noise, will be updated on_train_epoch_start()
-            create instance noise by adding uniform random noise to the value of the mesh array
-            if the value=0.2, the value of index contain voxel will be in [0.8, 1],
-                and value of index contain no voxel will be in [-1, -0.8]
-        self.instance_noise : None/torch.Tensor
-            a placeholder for instance_noise generated per batch
-            if self.config.instance_noise_per_batch=True, the generated noise will be recorded in self.instance_noise
-                and applied to every data in the same batch (will reset to None when next batch start).
-            if self.config.instance_noise_per_batch=False, self.instance_noise should always be None.
-        Returns
-        -------
-        data : torch.Tensor
-            data + instance noise
-        """
-        if self.noise_magnitude <= 0:
-            return data
-
-        # self.instance_noise will always be None if
-        # self.config.instance_noise_per_batch is False
-        if self.instance_noise is not None:
-            noise = self.instance_noise
-        else:
-            # create uniform noise
-            noise = torch.rand(data.shape) * 2 - 1
-            noise = self.noise_magnitude * noise  # noise in [-magn, magn]
-            noise = noise.float().type_as(data).detach()
-
-        # share the same noise for real and generated data in the same batch
-        if self.config.instance_noise_per_batch:
-            self.instance_noise = noise
-        # add instance noise
-        # now batch in [-1+magn, 1-magn]
-        data = data * (1 - self.noise_magnitude)
-        data = data + noise
-        return data
 
     # TODO: change generate tree to generate samples to avoid confusion
     def generate_tree(
@@ -1447,14 +1309,10 @@ class VAE_train(BaseModel):
             the loss of the VAE.
         """
         config = self.config
-        # add noise to data
-        dataset_batch = self.add_noise_to_samples(dataset_batch)
 
         batch_size = dataset_batch.shape[0]
 
         reconstructed_data, z, mu, logVar = self.vae(dataset_batch, output_all=True)
-        # add instance noise
-        reconstructed_data = self.add_noise_to_samples(reconstructed_data)
 
         # for BCELoss, the "target" should be in [0,1]
         if config.rec_loss == "BCELoss":
@@ -1744,8 +1602,6 @@ class VAEGAN(BaseModel):
         """
 
         config = self.config
-        # add noise to data
-        dataset_batch = self.add_noise_to_samples(dataset_batch)
 
         real_label, fake_label = self.create_real_fake_label(dataset_batch)
         batch_size = dataset_batch.shape[0]
@@ -2024,8 +1880,6 @@ class GAN(BaseModel):
             the loss of the discriminator.
         """
         config = self.config
-        # add noise to data
-        dataset_batch = self.add_noise_to_samples(dataset_batch)
 
         real_label, fake_label = self.create_real_fake_label(dataset_batch)
         batch_size = dataset_batch.shape[0]
@@ -2038,9 +1892,6 @@ class GAN(BaseModel):
             # 128-d noise vector
             z = torch.randn(batch_size, config.z_size).float().type_as(dataset_batch)
             tree_fake = F.tanh(self.generator(z))
-
-            # add noise to data
-            tree_fake = self.add_noise_to_samples(tree_fake)
 
             # tree_fake is already computed above
             dout_fake, fc1 = self.discriminator(tree_fake, output_all=True)
@@ -2067,8 +1918,6 @@ class GAN(BaseModel):
             # 128-d noise vector
             z = torch.randn(batch_size, config.z_size).float().type_as(dataset_batch)
             tree_fake = F.tanh(self.generator(z))
-            # add noise to generated data
-            tree_fake = self.add_noise_to_samples(tree_fake)
 
             # real data (data from dataloader)
             dout_real = self.discriminator(dataset_batch)
@@ -2203,8 +2052,6 @@ class GAN_Wloss(GAN):
             the loss of the discriminator.
         """
         config = self.config
-        # add noise to data
-        dataset_batch = self.add_noise_to_samples(dataset_batch)
         batch_size = dataset_batch.shape[0]
 
         # label no used in WGAN
@@ -2215,8 +2062,6 @@ class GAN_Wloss(GAN):
             # 128-d noise vector
             z = torch.randn(batch_size, config.z_size).float().type_as(dataset_batch)
             tree_fake = F.tanh(self.generator(z))
-            # add noise to data
-            tree_fake = self.add_noise_to_samples(tree_fake)
 
             # tree_fake is already computed above
             dout_fake, fc1 = self.discriminator(tree_fake, output_all=True)
@@ -2243,8 +2088,6 @@ class GAN_Wloss(GAN):
             # 128-d noise vector
             z = torch.randn(batch_size, config.z_size).float().type_as(dataset_batch)
             tree_fake = F.tanh(self.generator(z))
-            # add noise to data
-            tree_fake = self.add_noise_to_samples(tree_fake)
 
             # real data (data from dataloader)
             dout_real = self.discriminator(dataset_batch)
@@ -2380,8 +2223,6 @@ class GAN_Wloss_GP(GAN):
             the loss of the discriminator.
         """
         config = self.config
-        # add noise to data
-        dataset_batch = self.add_noise_to_samples(dataset_batch)
         batch_size = dataset_batch.shape[0]
 
         # label no used in Wloss
@@ -2393,8 +2234,6 @@ class GAN_Wloss_GP(GAN):
             # 128-d noise vector
             z = torch.randn(batch_size, config.z_size).float().type_as(dataset_batch)
             tree_fake = F.tanh(self.generator(z))
-            # add noise to data
-            tree_fake = self.add_noise_to_samples(tree_fake)
 
             # tree_fake is already computed above
             dout_fake, fc1 = self.discriminator(tree_fake, output_all=True)
@@ -2422,8 +2261,6 @@ class GAN_Wloss_GP(GAN):
             # 128-d noise vector
             z = torch.randn(batch_size, config.z_size).float().type_as(dataset_batch)
             tree_fake = F.tanh(self.generator(z))
-            # add noise to data
-            tree_fake = self.add_noise_to_samples(tree_fake)
 
             # real data (data from dataloader)
             dout_real = self.discriminator(dataset_batch)
@@ -2622,8 +2459,6 @@ class CGAN(GAN):
             the loss of the classifier.
         """
         config = self.config
-        # add noise to data
-        dataset_batch = self.add_noise_to_samples(dataset_batch)
 
         real_label, fake_label = self.create_real_fake_label(dataset_batch)
         batch_size = dataset_batch.shape[0]
@@ -2648,8 +2483,6 @@ class CGAN(GAN):
             )
 
             tree_fake = F.tanh(self.generator(z))
-            # add noise to data
-            tree_fake = self.add_noise_to_samples(tree_fake)
 
             # tree_fake on Dis
             dout_fake, fc1 = self.discriminator(tree_fake, output_all=True)
@@ -2697,8 +2530,6 @@ class CGAN(GAN):
 
             # detach so no update to generator
             tree_fake = F.tanh(self.generator(z)).clone().detach()
-            # add noise to data
-            tree_fake = self.add_noise_to_samples(tree_fake)
 
             # real data (data from dataloader)
             dout_real = self.discriminator(dataset_batch)
@@ -2735,8 +2566,6 @@ class CGAN(GAN):
 
             # # detach so no update to generator
             # tree_fake = F.tanh(self.generator(z)).clone().detach()
-            # # add noise to data
-            # tree_fake = self.add_noise_to_samples(tree_fake)
 
             # # fake data (data from generator)
             # cout_fake = self.classifier(tree_fake)
@@ -2975,8 +2804,6 @@ class CVAEGAN(VAEGAN):
             the loss of the classifier.
         """
         config = self.config
-        # add noise to data
-        dataset_batch = self.add_noise_to_samples(dataset_batch)
 
         real_label, fake_label = self.create_real_fake_label(dataset_batch)
         batch_size = dataset_batch.shape[0]
@@ -3105,8 +2932,7 @@ class CVAEGAN(VAEGAN):
             ############
 
             # reconstructed_data = self.vae(dataset_batch, dataset_indices)
-            # # add noise to data
-            # reconstructed_data = self.add_noise_to_samples(F.tanh(reconstructed_data).clone().detach())
+            # reconstructed_data = F.tanh(reconstructed_data).clone().detach()
 
             # # fake data (data from generator)
             # cout_fake = self.classifier(reconstructed_data)
@@ -3279,8 +3105,6 @@ class ZVAEGAN(VAEGAN):
             the loss of the classifier.
         """
         config = self.config
-        # add noise to data
-        dataset_batch = self.add_noise_to_samples(dataset_batch)
 
         real_label, fake_label = self.create_real_fake_label(dataset_batch)
         batch_size = dataset_batch.shape[0]
