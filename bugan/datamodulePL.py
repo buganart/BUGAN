@@ -605,7 +605,10 @@ class DataModule_process(pl.LightningDataModule):
                 )
 
             return DataLoader(
-                aug_dataset, batch_size=config.batch_size, shuffle=True, num_workers=8
+                aug_dataset,
+                batch_size=config.batch_size,
+                shuffle=True,
+                num_workers=os.cpu_count(),
             )
         else:
             config = self.config
@@ -619,7 +622,7 @@ class DataModule_process(pl.LightningDataModule):
                 tensor_dataset,
                 batch_size=config.batch_size,
                 shuffle=True,
-                num_workers=8,
+                num_workers=os.cpu_count(),
             )
 
     def sample_data(self, num_samples=1):
