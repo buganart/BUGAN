@@ -181,8 +181,21 @@ def mesh2wandb3D(voxelmesh, wandb_format=True):
 # 3) images of all generated tree
 # 4) meshes of all generated tree
 # 5) mean of per voxel std over generated trees
-def calculate_log_media_stat(samples):
+def calculate_log_media_stat(samples, log_num_samples=-1):
     num_samples = samples.shape[0]
+    if log_num_samples < 0:
+        log_num_samples = num_samples
+
+    # find index in num_samples that log image/mesh (evenly spaced)
+    # assume num_samples=20, log_num_samples=3, index will be [0,10,19]
+    if log_num_samples <= 1:
+        log_mesh_indices = [0]
+    else:
+        log_mesh_indices = [
+            int(i / (log_num_samples - 1) * (num_samples - 1) + 0.5)
+            for i in range(log_num_samples)
+        ]
+
     # log_dict list record
     sample_tree_numpoints = []
     eval_num_cluster = []
@@ -200,12 +213,13 @@ def calculate_log_media_stat(samples):
 
         voxelmesh = netarray2mesh(sample_tree_bool_array)
 
-        # image / 3D object to log_dict
-        image = mesh2wandbImage(voxelmesh)
-        if image is not None:
-            sample_tree_image.append(image)
-        voxelmeshfile = mesh2wandb3D(voxelmesh)
-        sample_tree_voxelmesh.append(voxelmeshfile)
+        if n in log_mesh_indices:
+            # image / 3D object to log_dict
+            image = mesh2wandbImage(voxelmesh)
+            if image is not None:
+                sample_tree_image.append(image)
+            voxelmeshfile = mesh2wandb3D(voxelmesh)
+            sample_tree_voxelmesh.append(voxelmeshfile)
 
     # mean
     sample_tree_numpoints = np.mean(sample_tree_numpoints)

@@ -651,7 +651,11 @@ class DataModule_process(pl.LightningDataModule):
                 None if the data/model is unconditional
         """
         num_data = len(self.dataset)
-        indices = np.random.choice(num_data, num_samples, replace=False)
+        if num_samples > num_data:
+            num_samples = num_data
+            indices = range(num_samples)
+        else:
+            indices = np.random.choice(num_data, num_samples, replace=False)
         if self.config.data_augmentation:
             data_list = []
             for n in range(num_samples):

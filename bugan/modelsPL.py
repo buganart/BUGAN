@@ -718,14 +718,14 @@ class BaseModel(pl.LightningModule):
                 num_classes = len(class_list)
                 # log condition model data
                 for c in range(num_classes):
-                    sample_trees = self.generate_tree(c=c, num_trees=log_num_samples)
+                    sample_trees = self.generate_tree(c=c, num_trees=16)
                     (
                         numpoints,
                         num_cluster,
                         image,
                         voxelmesh,
                         std,
-                    ) = calculate_log_media_stat(sample_trees)
+                    ) = calculate_log_media_stat(sample_trees, log_num_samples)
 
                     # add list record to log_dict
                     initial_log_dict[
@@ -754,16 +754,14 @@ class BaseModel(pl.LightningModule):
                 if self.log_reconstruct:
                     # for VAE, log both input and reconstructed samples instead of just generated samples
                     # sample only 1 batch
-                    sample_input = self.trainer.datamodule.sample_data(
-                        num_samples=log_num_samples
-                    )
+                    sample_input = self.trainer.datamodule.sample_data(num_samples=16)
                     (
                         numpoints,
                         num_cluster,
                         image,
                         voxelmesh,
                         std,
-                    ) = calculate_log_media_stat(sample_input)
+                    ) = calculate_log_media_stat(sample_input, log_num_samples)
                     # log input
                     initial_log_dict["input_numpoints"] = numpoints
                     initial_log_dict["input_num_cluster"] = num_cluster
@@ -779,7 +777,7 @@ class BaseModel(pl.LightningModule):
                     sample_trees = self.forward(sample_input)
                     sample_trees = sample_trees[:, 0, :, :, :].detach().cpu().numpy()
                 else:
-                    sample_trees = self.generate_tree(num_trees=log_num_samples)
+                    sample_trees = self.generate_tree(num_trees=16)
 
                 (
                     numpoints,
@@ -787,7 +785,7 @@ class BaseModel(pl.LightningModule):
                     image,
                     voxelmesh,
                     std,
-                ) = calculate_log_media_stat(sample_trees)
+                ) = calculate_log_media_stat(sample_trees, log_num_samples)
 
                 # add list record to log_dict
                 initial_log_dict["sample_numpoints"] = numpoints
