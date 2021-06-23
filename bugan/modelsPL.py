@@ -235,6 +235,10 @@ class BaseModel(pl.LightningModule):
             if None, unconditional data. The input vector size is the same as latent vector size
             if int, conditional data. The input vector size = latent vector size + number of classes
                 (class vector assume to be one-hot)
+        kernel_size : int
+            the kernel size of the convT layer. padding will be adjusted so the output_size of the model is not affected
+        fc_size : int
+            the size of the input volume for the first convT layer. For fc_size=2, the last fc layer will output B*unit_list[0]*fc_size**3, and reshape into (B,unit_list[0],fc_size, fc_size, fc_size).The lower the value, the number of upsampling layer and convT layer increases (self.num_layers = int(np.log2(self.resolution)) - int(np.log2(self.fc_size))).
         Returns
         -------
         generator : nn.Module
@@ -291,6 +295,10 @@ class BaseModel(pl.LightningModule):
             the learning_rate of the Discriminator optimizer
         output_size : int
             the final output vector size. see also Discriminator class
+        kernel_size : int
+            the kernel size of the conv layer. padding will be adjusted so the output_size of the model is not affected
+        fc_size : int
+            the size of the output volume for the last conv layer. For fc_size=2, the last conv layer will output (B,unit_list[-1],fc_size, fc_size, fc_size), and flatten that for fc_layer.The lower the value, the number of downsampling layer and conv layer increases (self.num_layers = int(np.log2(self.resolution)) - int(np.log2(self.fc_size))).
         Returns
         -------
         discriminator : nn.Module
@@ -344,6 +352,14 @@ class BaseModel(pl.LightningModule):
             the string in ['Adam', 'SGD'], setup the optimizer of the VAE
         learning_rate : float
             the learning_rate of the VAE optimizer
+        num_classes : int/None
+            if None, unconditional data. The input vector size is the same as latent vector size
+            if int, conditional data. The input vector size = latent vector size + number of classes
+                (class vector assume to be one-hot)
+        kernel_size : int
+            the kernel size of the conv/convT layer for discriminator/generator. See setup_Discriminator/Generator above.
+        fc_size : int
+            the size of the output volume for the last conv layer/ input volume for the first convT layer. See setup_Discriminator/Generator above.
         Returns
         -------
         vae : nn.Module
@@ -385,6 +401,7 @@ class BaseModel(pl.LightningModule):
         self.setup_model_component(vae, model_name, optimizer_option, learning_rate)
         return vae
 
+    # TODO: doc for ZVAEGAN
     def setup_VAE_mod(
         self,
         model_name,
@@ -610,7 +627,7 @@ class BaseModel(pl.LightningModule):
         """
         default function for pl.LightningModule to run on the start of every train epoch
         here the function just setup for recording the loss of model components
-            and the instance noise magnitude for every epoch
+
         Parameters
         ----------
         self.model_list : list of nn.Module
@@ -660,12 +677,12 @@ class BaseModel(pl.LightningModule):
         # record loss and add to log_dict
         for idx in range(len(self.model_ep_loss_list)):
             loss = np.mean(self.model_ep_loss_list[idx])
-            loss_name = self.model_name_list[idx] + " loss"
+            loss_name = "Loss/" + self.model_name_list[idx]
             log_dict[loss_name] = loss
         # record loss for other_loss_dict like model_ep_loss_list
         for i in self.other_loss_dict:
             loss = np.mean(self.other_loss_dict[i])
-            log_dict[i] = loss
+            log_dict["Loss/" + str(i)] = loss
 
         # boolean whether to log image/3D object
         log_media = self.current_epoch % self.config.log_interval == 0
@@ -689,7 +706,7 @@ class BaseModel(pl.LightningModule):
         self, class_list=None, initial_log_dict={}, log_media=False, log_num_samples=1
     ):
         """
-        add more information into the log_dict to log data/statistics to wandb
+        add data/statistics of generated meshes into the log_dict and log information to wandb
         image/mesh/statistics are calculated by calculate_log_media_stat() in functionPL.py
         mesh data statistics
         1) average number of voxel per tree
@@ -862,12 +879,8 @@ class BaseModel(pl.LightningModule):
             see datamodulePL.py datamodule_process class
         dataset_indices : torch.Tensor
             the input data indices for conditional data from the datamodule
-                where index is in shape (B,), each element is
-                the class index based on the datamodule class_list
-                None if the data/model is unconditional
-        dataset_indices : torch.Tensor
-            the input data indices for conditional data from the datamodule
                 where array is in shape (B,). B = config.batch_size
+                each element is the class index based on the datamodule class_list
                 None if the data/model is unconditional
         optimizer_idx : int
             the index of the optimizer
@@ -884,23 +897,23 @@ class BaseModel(pl.LightningModule):
         """
         create true/false label for discriminator loss
             normally, true label is 1 and false label is 0
-            this function also add noise to the labels,
-            so true:[1-label_noise,1], false:[0,label_noise]
+            this function also add smoothing threshold to the labels,
+            so true: 1-label_noise, false: 0+label_noise
         Parameters
         ----------
         dataset_batch : torch.Tensor
             data from the dataloader. just for obtaining bach_size and tensor type
         self.config.label_noise : float
-            create label noise by adding uniform random noise to the real/generated labels
-            if the value=0.2, the real label will be in [0.8, 1], and fake label will be in [0, 0.2]
+            create label smoothing by adding constant to the real/generated labels
+            if the value=0.2, the real label will be in 0.8, and fake label will be in 0.2
         Returns
         -------
         real_label : torch.Tensor
             the labels for Discriminator on classifying data from dataset
-            the label is scaled to [1-label_noise,1], occassionally flipped to [0,label_noise]
+            the label is scaled to (1-label_noise), occassionally flipped to (label_noise)
         fake_label : torch.Tensor
             the labels for Discriminator on classifying the generated data from the model
-            the label is scaled to [0,label_noise], occassionally flipped to [1-label_noise,1]
+            the label is scaled to (label_noise), occassionally flipped to (1-label_noise)
         """
 
         # TODO: refactor to not use dataset_batch, just batch_size
@@ -977,7 +990,7 @@ class BaseModel(pl.LightningModule):
             fake_score = (dout_fake < 0).float()
             accuracy = torch.cat((real_score, fake_score), 0).mean()
             if accuracy > config.accuracy_hack:
-                # TODO: check return loss to stop update is implemented correctly or not
+                # TODO: check return loss 0 can stop update is correct or not
                 return dloss - dloss
         return dloss
 
@@ -986,10 +999,14 @@ class BaseModel(pl.LightningModule):
         latent_vector, class_vector, num_classes, embedding_fn=None
     ):
         """
-        for conditional models
-        given latent_vector (B, Z) and class_vector (B),
-        reshape class_vector to one-hot (B, num_classes),
-        and merge with latent_vector
+        for conditional models,
+        if embedding_fn=None:
+            given latent_vector (B, Z) and class_vector (B),
+            reshape class_vector to one-hot (B, num_classes),
+            and merge with latent_vector
+        else:
+            process class_vector using embedding_fn(class_vector)
+            and merge with latent_vector
         Parameters
         ----------
         latent_vector : torch.Tensor
@@ -997,10 +1014,16 @@ class BaseModel(pl.LightningModule):
         class_vector : torch.Tensor
             the class vector with shape (B,), where each value is the class index integer
         num_classes : int
+        embedding_fn : function similar to torch.nn.Embedding or None
+            if None: class_vector will turn into one-hot encoding and merge with latent_vector
+            else: embedding_fn(class_vector) and merge with latent_vector
+
         Returns
         -------
         z : torch.Tensor
-            the merged latent vector with shape (B, Z + num_classes)
+            if embedding_fn=None, the merged latent vector with shape (B, Z + num_classes)
+            else: the merged latent vector with shape (B, Z + num_embeddings)
+
         """
         z = latent_vector
         c = class_vector
