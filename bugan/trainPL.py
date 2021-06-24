@@ -83,8 +83,9 @@ def save_model_args(config, run):
     filepath = str(Path(run.dir).absolute() / "model_args.json")
 
     # save only the model argument (args in parser)
-    parser = get_model_argument_parser(config.selected_model)
-    args_keys = vars(parser.parse_args([])).keys()
+    MODEL_CLASS = _get_models(config.selected_model)
+    args = MODEL_CLASS.add_model_specific_args(config)
+    args_keys = vars(args).keys()
     config = vars(config)
     config_dict = {}
     for k in args_keys:
@@ -102,14 +103,9 @@ def load_model_args(filepath):
     return None
 
 
-def get_model_argument_parser(model_name):
-    MODEL_CLASS = _get_models(model_name)
-    return MODEL_CLASS.add_model_specific_args(ArgumentParser())
-
-
 def _validate_model_config(config):
-    parser = get_model_argument_parser(config.selected_model)
-    args = parser.parse_args([])
+    MODEL_CLASS = _get_models(config.selected_model)
+    args = MODEL_CLASS.add_model_specific_args(config)
     # check argument and print warning if config arguments not in valid args keys
     args_keys = vars(args).keys()
     valid_config_keys = VALID_CONFIG_KEYWORDS + list(args_keys)
@@ -120,8 +116,7 @@ def _validate_model_config(config):
 
 def setup_config_arguments(config):
     MODEL_CLASS = _get_models(config.selected_model)
-    parser = MODEL_CLASS.add_model_specific_args(ArgumentParser())
-    args = parser.parse_args([])
+    args = MODEL_CLASS.add_model_specific_args(config)
     config = MODEL_CLASS.combine_namespace(args, config)
     config_dict = vars(config)
     cleaned_config = {}

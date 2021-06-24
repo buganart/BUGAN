@@ -94,46 +94,38 @@ class BaseModel(pl.LightningModule):
     """
 
     @staticmethod
-    def add_model_specific_args(parent_parser):
+    def add_model_specific_args(config):
         """
-        ArgumentParser containing default values for all necessary argument
-            The arguments here will be added to config if missing.
+        default_model_config containing default values for all necessary argument
+            The arguments in the default_model_config will be added to config if missing.
             If config already have the arguments, the values won't be replaced.
         Parameters
         ----------
-        parent_parser : ArgumentParser
-            This will usually be the empty ArgumentParser or the ArgumentParser from the ChildModel.add_model_specific_args()
-            Then, the arguments here will be added to this ArgumentParser
+        config : Namespace
+            This is the arguments passed by user, waiting for filling in missing arguments.
+
         Returns
         -------
-        parser : ArgumentParser
-            the ArgumentParser with all arguments below.
+        config_rev : Namespace
+            the revised config with missing argument filled in.
         """
-        parser = ArgumentParser(parents=[parent_parser], add_help=False)
-        # basic attributes for training
-        parser.add_argument("--batch_size", type=int, default=4)
-        parser.add_argument("--resolution", type=int, default=32)
-        # wandb log argument
-        parser.add_argument("--log_interval", type=int, default=10)
-        parser.add_argument("--log_num_samples", type=int, default=1)
 
-        # label noise
-        # real/fake label noise magnitude
-        parser.add_argument("--label_noise", type=float, default=0.0)
+        default_model_config = {
+            "batch_size": 4,  # number of data per batch, B.
+            "resolution": 64,  # size of data, res. data shape: (B,1,res,res,res)
+            "log_interval": 10,  # the interval (in epoch) to log generated samples and save ckpt
+            "log_num_samples": 3,  # in log_interval epoch, the number of log generated samples
+            "label_noise": 0.0,  # label smoothing to the discriminator/classifier lables (from {0,1} to {label_noise, 1-label_noise})
+            "z_size": 128,  # the latent vector size for GAN, VAE, and other models with similar structures
+            "activation_leakyReLU_slope": 0.01,  # the slope of leakyReLU in Generator/Discriminator (see Generator/Discriminator)
+            "dropout_prob": 0.0,  # the dropout probability in the Generator/Discriminator (see Generator/Discriminator)
+            "kernel_size": 5,  # kernel size of convT/conv layer in the Generator/Discriminator (see Generator/Discriminator)
+            "fc_size": 2,  # the data shape (B,layer_unit[k],fc,fc,fc) between convT/conv layer and fc_layer (see Generator/Discriminator)
+        }
 
-        # default Generator/Discriminator parameters
-        # latent vector size
-        parser.add_argument("--z_size", type=int, default=128)
-        # activation default leakyReLU
-        parser.add_argument("--activation_leakyReLU_slope", type=float, default=0.1)
-        # Dropout probability
-        parser.add_argument("--dropout_prob", type=float, default=0.0)
-        # arguments with multiple values
-        # kernel size of Generator/Discriminator
-        parser.add_argument("--kernel_size", default=3)
-        # fc size (see Generator/Discriminator)
-        parser.add_argument("--fc_size", default=2)
-        return parser
+        default_model_config.update(vars(config))
+        config_rev = Namespace(**default_model_config)
+        return config_rev
 
     @staticmethod
     def combine_namespace(base, update):
@@ -180,6 +172,7 @@ class BaseModel(pl.LightningModule):
         # whether to log input mesh and reconstructed mesh instead of sample mesh from random z
         self.log_reconstruct = False
 
+    # TODO: combine add_model_specific_args and setup_config_arguments
     def setup_config_arguments(self, config):
         """
         The add_model_specific_args() function listed all the parameters for the model
@@ -199,9 +192,10 @@ class BaseModel(pl.LightningModule):
             with default arguments from add_model_specific_args() replaced by user specified arguments
         """
         # add missing default parameters
-        parser = self.add_model_specific_args(ArgumentParser())
-        args = parser.parse_args([])
-        config = BaseModel.combine_namespace(args, config)
+        # parser = self.add_model_specific_args(ArgumentParser())
+        # args = parser.parse_args([])
+        # config = BaseModel.combine_namespace(args, config)
+        config = self.add_model_specific_args(config)
         return config
 
     def setup_Generator(
@@ -1168,39 +1162,35 @@ class VAE_train(BaseModel):
     """
 
     @staticmethod
-    def add_model_specific_args(parent_parser):
+    def add_model_specific_args(config):
         """
-        ArgumentParser containing default values for all necessary argument
-            The arguments here will be added to config if missing.
+        default_model_config containing default values for all necessary argument
+            The arguments in the default_model_config will be added to config if missing.
             If config already have the arguments, the values won't be replaced.
         Parameters
         ----------
-        parent_parser : ArgumentParser
-            This will usually be the empty ArgumentParser or the ArgumentParser from the ChildModel.add_model_specific_args()
-            Then, the arguments here will be added to this ArgumentParser
+        config : Namespace
+            This is the arguments passed by user, waiting for filling in missing arguments.
+
         Returns
         -------
-        parser : ArgumentParser
-            the ArgumentParser with all arguments below.
+        config_rev : Namespace
+            the revised config with missing argument filled in.
         """
-        parser = ArgumentParser(parents=[parent_parser], add_help=False)
-        # model specific argument (VAE)
+        config = super(VAE_train, VAE_train).add_model_specific_args(config)
 
-        # optimizer in {"Adam", "SGD"}
-        parser.add_argument("--vae_opt", type=str, default="Adam")
-        # loss function in {'BCELoss', 'MSELoss', 'CrossEntropyLoss'}
-        parser.add_argument("--rec_loss", type=str, default="MSELoss")
-        # learning rate
-        parser.add_argument("--vae_lr", type=float, default=1e-5)
-        # KL loss coefficient
-        parser.add_argument("--kl_coef", type=float, default=1)
-        # number of unit per layer
-        decoder_num_layer_unit = DEFAULT_NUM_LAYER_UNIT
-        encoder_num_layer_unit = DEFAULT_NUM_LAYER_UNIT_REV
-        parser.add_argument("--decoder_num_layer_unit", default=decoder_num_layer_unit)
-        parser.add_argument("--encoder_num_layer_unit", default=encoder_num_layer_unit)
+        default_model_config = {
+            "vae_opt": "Adam",
+            "rec_loss": "MSELoss",
+            "vae_lr": 1e-5,
+            "kl_coef": 1,
+            "decoder_num_layer_unit": [128, 256, 512, 256, 128, 128],
+            "encoder_num_layer_unit": [128, 128, 128, 256, 256, 128],
+        }
 
-        return BaseModel.add_model_specific_args(parser)
+        default_model_config.update(vars(config))
+        config_rev = Namespace(**default_model_config)
+        return config_rev
 
     def __init__(self, config):
         super(VAE_train, self).__init__(config)
@@ -1427,52 +1417,43 @@ class VAEGAN(BaseModel):
     """
 
     @staticmethod
-    def add_model_specific_args(parent_parser):
+    def add_model_specific_args(config):
         """
-        ArgumentParser containing default values for all necessary argument
-            The arguments here will be added to config if missing.
+        default_model_config containing default values for all necessary argument
+            The arguments in the default_model_config will be added to config if missing.
             If config already have the arguments, the values won't be replaced.
         Parameters
         ----------
-        parent_parser : ArgumentParser
-            This will usually be the empty ArgumentParser or the ArgumentParser from the ChildModel.add_model_specific_args()
-            Then, the arguments here will be added to this ArgumentParser
+        config : Namespace
+            This is the arguments passed by user, waiting for filling in missing arguments.
+
         Returns
         -------
-        parser : ArgumentParser
-            the ArgumentParser with all arguments below.
+        config_rev : Namespace
+            the revised config with missing argument filled in.
         """
-        parser = ArgumentParser(parents=[parent_parser], add_help=False)
+        config = super(VAEGAN, VAEGAN).add_model_specific_args(config)
 
-        # optimizer in {"Adam", "SGD"}
-        parser.add_argument("--vae_opt", type=str, default="Adam")
-        parser.add_argument("--dis_opt", type=str, default="Adam")
-        # loss function in {'BCELoss', 'MSELoss', 'CrossEntropyLoss'}
-        parser.add_argument("--label_loss", type=str, default="BCELoss")
-        parser.add_argument("--rec_loss", type=str, default="MSELoss")
-        # accuracy_hack
-        parser.add_argument("--accuracy_hack", type=float, default=1.1)
-        # learning rate
-        parser.add_argument("--vae_lr", type=float, default=1e-5)
-        parser.add_argument("--d_lr", type=float, default=1e-5)
-        # KL loss coefficient
-        parser.add_argument("--kl_coef", type=float, default=1)
-        # Discriminator loss coefficient (compared to rec_loss)
-        parser.add_argument("--d_rec_coef", type=float, default=1)
-        # Feature Matching coefficient
-        parser.add_argument("--FMrec_coef", type=float, default=0)
-        parser.add_argument("--FMgan_coef", type=float, default=0)
+        default_model_config = {
+            "vae_opt": "Adam",
+            "dis_opt": "Adam",
+            "label_loss": "BCELoss",
+            "rec_loss": "MSELoss",
+            "accuracy_hack": 1.1,
+            "vae_lr": 1e-5,
+            "d_lr": 1e-5,
+            "kl_coef": 1,
+            "d_rec_coef": 1,
+            "FMrec_coef": 0,
+            "FMgan_coef": 0,
+            "decoder_num_layer_unit": [128, 256, 512, 256, 128, 128],
+            "encoder_num_layer_unit": [128, 128, 128, 256, 256, 128],
+            "dis_num_layer_unit": [128, 128, 128, 256, 256, 128],
+        }
 
-        # number of unit per layer
-        decoder_num_layer_unit = DEFAULT_NUM_LAYER_UNIT
-        encoder_num_layer_unit = DEFAULT_NUM_LAYER_UNIT_REV
-        dis_num_layer_unit = DEFAULT_NUM_LAYER_UNIT_REV
-
-        parser.add_argument("--decoder_num_layer_unit", default=decoder_num_layer_unit)
-        parser.add_argument("--encoder_num_layer_unit", default=encoder_num_layer_unit)
-        parser.add_argument("--dis_num_layer_unit", default=dis_num_layer_unit)
-
-        return BaseModel.add_model_specific_args(parser)
+        default_model_config.update(vars(config))
+        config_rev = Namespace(**default_model_config)
+        return config_rev
 
     def __init__(self, config):
         super(VAEGAN, self).__init__(config)
@@ -1775,43 +1756,38 @@ class GAN(BaseModel):
     """
 
     @staticmethod
-    def add_model_specific_args(parent_parser):
+    def add_model_specific_args(config):
         """
-        ArgumentParser containing default values for all necessary argument
-            The arguments here will be added to config if missing.
+        default_model_config containing default values for all necessary argument
+            The arguments in the default_model_config will be added to config if missing.
             If config already have the arguments, the values won't be replaced.
         Parameters
         ----------
-        parent_parser : ArgumentParser
-            This will usually be the empty ArgumentParser or the ArgumentParser from the ChildModel.add_model_specific_args()
-            Then, the arguments here will be added to this ArgumentParser
+        config : Namespace
+            This is the arguments passed by user, waiting for filling in missing arguments.
+
         Returns
         -------
-        parser : ArgumentParser
-            the ArgumentParser with all arguments below.
+        config_rev : Namespace
+            the revised config with missing argument filled in.
         """
-        parser = ArgumentParser(parents=[parent_parser], add_help=False)
+        config = super(GAN, GAN).add_model_specific_args(config)
 
-        # optimizer in {"Adam", "SGD"}
-        parser.add_argument("--gen_opt", type=str, default="Adam")
-        parser.add_argument("--dis_opt", type=str, default="Adam")
-        # loss function in {'BCELoss', 'MSELoss', 'CrossEntropyLoss'}
-        parser.add_argument("--label_loss", type=str, default="BCELoss")
-        # accuracy_hack
-        parser.add_argument("--accuracy_hack", type=float, default=1.1)
-        # Feature Matching coefficient
-        parser.add_argument("--FMgan_coef", type=float, default=0)
-        # learning rate
-        parser.add_argument("--g_lr", type=float, default=0.0025)
-        parser.add_argument("--d_lr", type=float, default=0.00005)
-        # number of unit per layer
-        gen_num_layer_unit = DEFAULT_NUM_LAYER_UNIT
-        dis_num_layer_unit = DEFAULT_NUM_LAYER_UNIT_REV
+        default_model_config = {
+            "gen_opt": "Adam",
+            "dis_opt": "Adam",
+            "label_loss": "BCELoss",
+            "accuracy_hack": 1.1,
+            "g_lr": 1e-5,
+            "d_lr": 1e-5,
+            "FMgan_coef": 0,
+            "gen_num_layer_unit": [128, 256, 512, 256, 128, 128],
+            "dis_num_layer_unit": [128, 128, 128, 256, 256, 128],
+        }
 
-        parser.add_argument("--gen_num_layer_unit", default=gen_num_layer_unit)
-        parser.add_argument("--dis_num_layer_unit", default=dis_num_layer_unit)
-
-        return BaseModel.add_model_specific_args(parser)
+        default_model_config.update(vars(config))
+        config_rev = Namespace(**default_model_config)
+        return config_rev
 
     def __init__(self, config):
         super(GAN, self).__init__(config)
@@ -1992,26 +1968,30 @@ class GAN_Wloss(GAN):
     """
 
     @staticmethod
-    def add_model_specific_args(parent_parser):
+    def add_model_specific_args(config):
         """
-        ArgumentParser containing default values for all necessary argument
-            The arguments here will be added to config if missing.
+        default_model_config containing default values for all necessary argument
+            The arguments in the default_model_config will be added to config if missing.
             If config already have the arguments, the values won't be replaced.
         Parameters
         ----------
-        parent_parser : ArgumentParser
-            This will usually be the empty ArgumentParser or the ArgumentParser from the ChildModel.add_model_specific_args()
-            Then, the arguments here will be added to this ArgumentParser
+        config : Namespace
+            This is the arguments passed by user, waiting for filling in missing arguments.
+
         Returns
         -------
-        parser : ArgumentParser
-            the ArgumentParser with all arguments below.
+        config_rev : Namespace
+            the revised config with missing argument filled in.
         """
-        parser = ArgumentParser(parents=[parent_parser], add_help=False)
-        # important argument
-        parser.add_argument("--clip_value", type=float, default=0.01)
+        config = super(GAN_Wloss, GAN_Wloss).add_model_specific_args(config)
 
-        return GAN.add_model_specific_args(parser)
+        default_model_config = {
+            "clip_value": 0.01,
+        }
+
+        default_model_config.update(vars(config))
+        config_rev = Namespace(**default_model_config)
+        return config_rev
 
     def configure_optimizers(self):
         """
@@ -2142,26 +2122,30 @@ class GAN_Wloss_GP(GAN):
     """
 
     @staticmethod
-    def add_model_specific_args(parent_parser):
+    def add_model_specific_args(config):
         """
-        ArgumentParser containing default values for all necessary argument
-            The arguments here will be added to config if missing.
+        default_model_config containing default values for all necessary argument
+            The arguments in the default_model_config will be added to config if missing.
             If config already have the arguments, the values won't be replaced.
         Parameters
         ----------
-        parent_parser : ArgumentParser
-            This will usually be the empty ArgumentParser or the ArgumentParser from the ChildModel.add_model_specific_args()
-            Then, the arguments here will be added to this ArgumentParser
+        config : Namespace
+            This is the arguments passed by user, waiting for filling in missing arguments.
+
         Returns
         -------
-        parser : ArgumentParser
-            the ArgumentParser with all arguments below.
+        config_rev : Namespace
+            the revised config with missing argument filled in.
         """
-        parser = ArgumentParser(parents=[parent_parser], add_help=False)
-        # important argument
-        parser.add_argument("--gp_epsilon", type=float, default=2.0)
+        config = super(GAN_Wloss_GP, GAN_Wloss_GP).add_model_specific_args(config)
 
-        return GAN.add_model_specific_args(parser)
+        default_model_config = {
+            "gp_epsilon": 2.0,
+        }
+
+        default_model_config.update(vars(config))
+        config_rev = Namespace(**default_model_config)
+        return config_rev
 
     @staticmethod
     def gradient_penalty(discriminator, gp_epsilon, real_tree, generated_tree):
@@ -2337,28 +2321,28 @@ class CGAN(GAN):
     """
 
     @staticmethod
-    def add_model_specific_args(parent_parser):
+    def add_model_specific_args(config):
         """
-        ArgumentParser containing default values for all necessary argument
-            The arguments here will be added to config if missing.
+        default_model_config containing default values for all necessary argument
+            The arguments in the default_model_config will be added to config if missing.
             If config already have the arguments, the values won't be replaced.
         Parameters
         ----------
-        parent_parser : ArgumentParser
-            This will usually be the empty ArgumentParser or the ArgumentParser from the ChildModel.add_model_specific_args()
-            Then, the arguments here will be added to this ArgumentParser
+        config : Namespace
+            This is the arguments passed by user, waiting for filling in missing arguments.
+
         Returns
         -------
-        parser : ArgumentParser
-            the ArgumentParser with all arguments below.
+        config_rev : Namespace
+            the revised config with missing argument filled in.
         """
-        parser = ArgumentParser(parents=[parent_parser], add_help=False)
-        # log argument
-        parser.add_argument("--num_classes", type=int, default=10)
-        # loss function in {'BCELoss', 'MSELoss', 'CrossEntropyLoss'}
-        parser.add_argument("--class_loss", type=str, default="CrossEntropyLoss")
+        config = super(CGAN, CGAN).add_model_specific_args(config)
 
-        return GAN.add_model_specific_args(parser)
+        default_model_config = {"num_classes": 10, "class_loss": "CrossEntropyLoss"}
+
+        default_model_config.update(vars(config))
+        config_rev = Namespace(**default_model_config)
+        return config_rev
 
     def __init__(self, config):
         super(GAN, self).__init__(config)
@@ -2669,30 +2653,32 @@ class CVAEGAN(VAEGAN):
     """
 
     @staticmethod
-    def add_model_specific_args(parent_parser):
+    def add_model_specific_args(config):
         """
-        ArgumentParser containing default values for all necessary argument
-            The arguments here will be added to config if missing.
+        default_model_config containing default values for all necessary argument
+            The arguments in the default_model_config will be added to config if missing.
             If config already have the arguments, the values won't be replaced.
         Parameters
         ----------
-        parent_parser : ArgumentParser
-            This will usually be the empty ArgumentParser or the ArgumentParser from the ChildModel.add_model_specific_args()
-            Then, the arguments here will be added to this ArgumentParser
+        config : Namespace
+            This is the arguments passed by user, waiting for filling in missing arguments.
+
         Returns
         -------
-        parser : ArgumentParser
-            the ArgumentParser with all arguments below.
+        config_rev : Namespace
+            the revised config with missing argument filled in.
         """
-        parser = ArgumentParser(parents=[parent_parser], add_help=False)
-        # log argument
-        parser.add_argument("--num_classes", type=int, default=10)
-        # loss function in {'BCELoss', 'MSELoss', 'CrossEntropyLoss'}
-        parser.add_argument("--class_loss", type=str, default="CrossEntropyLoss")
-        # Classifier loss coefficient (compared to rec_loss)
-        parser.add_argument("--c_rec_coef", type=float, default=1)
+        config = super(CVAEGAN, CVAEGAN).add_model_specific_args(config)
 
-        return VAEGAN.add_model_specific_args(parser)
+        default_model_config = {
+            "num_classes": 10,
+            "class_loss": "CrossEntropyLoss",
+            "c_rec_coef": 1.0,
+        }
+
+        default_model_config.update(vars(config))
+        config_rev = Namespace(**default_model_config)
+        return config_rev
 
     def __init__(self, config):
         super(VAEGAN, self).__init__(config)
@@ -3004,28 +2990,31 @@ class ZVAEGAN(VAEGAN):
     """
 
     @staticmethod
-    def add_model_specific_args(parent_parser):
+    def add_model_specific_args(config):
         """
-        ArgumentParser containing default values for all necessary argument
-            The arguments here will be added to config if missing.
+        default_model_config containing default values for all necessary argument
+            The arguments in the default_model_config will be added to config if missing.
             If config already have the arguments, the values won't be replaced.
         Parameters
         ----------
-        parent_parser : ArgumentParser
-            This will usually be the empty ArgumentParser or the ArgumentParser from the ChildModel.add_model_specific_args()
-            Then, the arguments here will be added to this ArgumentParser
+        config : Namespace
+            This is the arguments passed by user, waiting for filling in missing arguments.
+
         Returns
         -------
-        parser : ArgumentParser
-            the ArgumentParser with all arguments below.
+        config_rev : Namespace
+            the revised config with missing argument filled in.
         """
-        parser = ArgumentParser(parents=[parent_parser], add_help=False)
-        # log argument
-        parser.add_argument("--num_classes", type=int, default=10)
-        # class_std for specifying N(class_embed, std) for training conditional data
-        parser.add_argument("--class_std", type=float, default=-1)
+        config = super(ZVAEGAN, ZVAEGAN).add_model_specific_args(config)
 
-        return VAEGAN.add_model_specific_args(parser)
+        default_model_config = {
+            "num_classes": 10,
+            "class_std": -1,  # class_std for specifying N(class_embed, std) for training conditional data
+        }
+
+        default_model_config.update(vars(config))
+        config_rev = Namespace(**default_model_config)
+        return config_rev
 
     def __init__(self, config):
         super(VAEGAN, self).__init__(config)
