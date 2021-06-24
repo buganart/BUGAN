@@ -94,11 +94,20 @@ class BaseModel(pl.LightningModule):
     """
 
     @staticmethod
-    def add_model_specific_args(config):
+    def setup_config_arguments(config):
         """
+        The default_model_config listed all the parameters for the model
+
+        from the config dict given by the user, the necessary parameters may not be there
+        This function takes all the default values from the default_model_config,
+            and then add only the missing parameter values to the user config dict
+        (the values in default_model_config will be overwritten by values in user config dict)
+        * this function should be in every child model __init__() right after super().__init__()
+
         default_model_config containing default values for all necessary argument
             The arguments in the default_model_config will be added to config if missing.
             If config already have the arguments, the values won't be replaced.
+
         Parameters
         ----------
         config : Namespace
@@ -124,6 +133,9 @@ class BaseModel(pl.LightningModule):
         }
 
         default_model_config.update(vars(config))
+        # remove config.config as it is just a copy
+        if hasattr(config, "config"):
+            config.pop("config")
         config_rev = Namespace(**default_model_config)
         return config_rev
 
@@ -171,32 +183,6 @@ class BaseModel(pl.LightningModule):
 
         # whether to log input mesh and reconstructed mesh instead of sample mesh from random z
         self.log_reconstruct = False
-
-    # TODO: combine add_model_specific_args and setup_config_arguments
-    def setup_config_arguments(self, config):
-        """
-        The add_model_specific_args() function listed all the parameters for the model
-            from the config dict given by the user, the necessary parameters may not be there
-        This function takes all the default values from the add_model_specific_args() function,
-            and then add only the missing parameter values to the user config dict
-        (the values in add_model_specific_args() will be overwritten by values in user config dict)
-        * this function should be in every child model __init__() right after super().__init__()
-        Parameters
-        ----------
-        config : Namespace
-            the config containing only user specified arguments
-        Returns
-        -------
-        config : Namespace
-            the config containing all necessary arguments for the Model,
-            with default arguments from add_model_specific_args() replaced by user specified arguments
-        """
-        # add missing default parameters
-        # parser = self.add_model_specific_args(ArgumentParser())
-        # args = parser.parse_args([])
-        # config = BaseModel.combine_namespace(args, config)
-        config = self.add_model_specific_args(config)
-        return config
 
     def setup_Generator(
         self,
@@ -1039,7 +1025,7 @@ class BaseModel(pl.LightningModule):
 
     # TODO: change generate tree to generate samples to avoid confusion
     def generate_tree(
-        self, generator, c=None, num_classes=None, embedding_fn=None, num_trees=1, std=1
+        self, generator, c=None, num_classes=None, embedding_fn=None, num_trees=1
     ):
         """
         generate tree
@@ -1079,11 +1065,8 @@ class BaseModel(pl.LightningModule):
 
             if c is not None:
                 # generate noise vector
-                z = (
-                    torch.randn(batch_size, self.config.z_size).type_as(
-                        generator.gen_fc.weight
-                    )
-                    * std
+                z = torch.randn(batch_size, self.config.z_size).type_as(
+                    generator.gen_fc.weight
                 )
                 # turn class vector the same device as z, but with dtype Long
                 c = torch.ones(batch_size) * c
@@ -1098,11 +1081,8 @@ class BaseModel(pl.LightningModule):
                 )
             else:
                 # generate noise vector
-                z = (
-                    torch.randn(batch_size, generator.z_size).type_as(
-                        generator.gen_fc.weight
-                    )
-                    * std
+                z = torch.randn(batch_size, generator.z_size).type_as(
+                    generator.gen_fc.weight
                 )
 
             # no tanh so hasvoxel means >0
@@ -1162,11 +1142,20 @@ class VAE_train(BaseModel):
     """
 
     @staticmethod
-    def add_model_specific_args(config):
+    def setup_config_arguments(config):
         """
+        The default_model_config listed all the parameters for the model
+
+        from the config dict given by the user, the necessary parameters may not be there
+        This function takes all the default values from the default_model_config,
+            and then add only the missing parameter values to the user config dict
+        (the values in default_model_config will be overwritten by values in user config dict)
+        * this function should be in every child model __init__() right after super().__init__()
+
         default_model_config containing default values for all necessary argument
             The arguments in the default_model_config will be added to config if missing.
             If config already have the arguments, the values won't be replaced.
+
         Parameters
         ----------
         config : Namespace
@@ -1177,7 +1166,7 @@ class VAE_train(BaseModel):
         config_rev : Namespace
             the revised config with missing argument filled in.
         """
-        config = super(VAE_train, VAE_train).add_model_specific_args(config)
+        config = super(VAE_train, VAE_train).setup_config_arguments(config)
 
         default_model_config = {
             "vae_opt": "Adam",
@@ -1195,12 +1184,10 @@ class VAE_train(BaseModel):
     def __init__(self, config):
         super(VAE_train, self).__init__(config)
         # assert(vae.sample_size == discriminator.input_size)
-        self.config = config
-        if hasattr(config, "config"):
-            self.config = config.config
-        self.save_hyperparameters("config")
+        # add missing default parameters
         config = self.setup_config_arguments(config)
         self.config = config
+        self.save_hyperparameters("config")
 
         kernel_size = multiple_components_param(config.kernel_size, 2)
         fc_size = multiple_components_param(config.fc_size, 2)
@@ -1339,7 +1326,7 @@ class VAE_train(BaseModel):
 
         return vae_loss
 
-    def generate_tree(self, num_trees=1, std=1):
+    def generate_tree(self, num_trees=1):
         """
         the function to generate tree
         this function specifies the generator module of this model and pass to the parent generate_tree()
@@ -1354,7 +1341,7 @@ class VAE_train(BaseModel):
             the generated samples
         """
         generator = self.vae.vae_decoder
-        return super().generate_tree(generator, num_trees=num_trees, std=std)
+        return super().generate_tree(generator, num_trees=num_trees)
 
 
 class VAEGAN(BaseModel):
@@ -1417,11 +1404,20 @@ class VAEGAN(BaseModel):
     """
 
     @staticmethod
-    def add_model_specific_args(config):
+    def setup_config_arguments(config):
         """
+        The default_model_config listed all the parameters for the model
+
+        from the config dict given by the user, the necessary parameters may not be there
+        This function takes all the default values from the default_model_config,
+            and then add only the missing parameter values to the user config dict
+        (the values in default_model_config will be overwritten by values in user config dict)
+        * this function should be in every child model __init__() right after super().__init__()
+
         default_model_config containing default values for all necessary argument
             The arguments in the default_model_config will be added to config if missing.
             If config already have the arguments, the values won't be replaced.
+
         Parameters
         ----------
         config : Namespace
@@ -1432,7 +1428,7 @@ class VAEGAN(BaseModel):
         config_rev : Namespace
             the revised config with missing argument filled in.
         """
-        config = super(VAEGAN, VAEGAN).add_model_specific_args(config)
+        config = super(VAEGAN, VAEGAN).setup_config_arguments(config)
 
         default_model_config = {
             "vae_opt": "Adam",
@@ -1458,13 +1454,10 @@ class VAEGAN(BaseModel):
     def __init__(self, config):
         super(VAEGAN, self).__init__(config)
         # assert(vae.sample_size == discriminator.input_size)
-        self.config = config
-        if hasattr(config, "config"):
-            self.config = config.config
-        self.save_hyperparameters("config")
         # add missing default parameters
         config = self.setup_config_arguments(config)
         self.config = config
+        self.save_hyperparameters("config")
 
         kernel_size = multiple_components_param(config.kernel_size, 3)
         fc_size = multiple_components_param(config.fc_size, 3)
@@ -1693,7 +1686,7 @@ class VAEGAN(BaseModel):
             dloss = self.apply_accuracy_hack(dloss, dout_real, dout_fake)
             return dloss
 
-    def generate_tree(self, num_trees=1, std=1):
+    def generate_tree(self, num_trees=1):
         """
         the function to generate tree
         this function specifies the generator module of this model and pass to the parent generate_tree()
@@ -1708,7 +1701,7 @@ class VAEGAN(BaseModel):
             the generated samples
         """
         generator = self.vae.vae_decoder
-        return super().generate_tree(generator, num_trees=num_trees, std=std)
+        return super().generate_tree(generator, num_trees=num_trees)
 
 
 class GAN(BaseModel):
@@ -1756,11 +1749,20 @@ class GAN(BaseModel):
     """
 
     @staticmethod
-    def add_model_specific_args(config):
+    def setup_config_arguments(config):
         """
+        The default_model_config listed all the parameters for the model
+
+        from the config dict given by the user, the necessary parameters may not be there
+        This function takes all the default values from the default_model_config,
+            and then add only the missing parameter values to the user config dict
+        (the values in default_model_config will be overwritten by values in user config dict)
+        * this function should be in every child model __init__() right after super().__init__()
+
         default_model_config containing default values for all necessary argument
             The arguments in the default_model_config will be added to config if missing.
             If config already have the arguments, the values won't be replaced.
+
         Parameters
         ----------
         config : Namespace
@@ -1771,7 +1773,7 @@ class GAN(BaseModel):
         config_rev : Namespace
             the revised config with missing argument filled in.
         """
-        config = super(GAN, GAN).add_model_specific_args(config)
+        config = super(GAN, GAN).setup_config_arguments(config)
 
         default_model_config = {
             "gen_opt": "Adam",
@@ -1791,13 +1793,10 @@ class GAN(BaseModel):
 
     def __init__(self, config):
         super(GAN, self).__init__(config)
-        self.config = config
-        if hasattr(config, "config"):
-            self.config = config.config
-        self.save_hyperparameters("config")
         # add missing default parameters
         config = self.setup_config_arguments(config)
         self.config = config
+        self.save_hyperparameters("config")
 
         kernel_size = multiple_components_param(config.kernel_size, 2)
         fc_size = multiple_components_param(config.fc_size, 2)
@@ -1933,7 +1932,7 @@ class GAN(BaseModel):
             dloss = self.apply_accuracy_hack(dloss, dout_real, dout_fake)
             return dloss
 
-    def generate_tree(self, num_trees=1, std=1):
+    def generate_tree(self, num_trees=1):
         """
         the function to generate tree
         this function specifies the generator module of this model and pass to the parent generate_tree()
@@ -1948,7 +1947,7 @@ class GAN(BaseModel):
             the generated samples
         """
         generator = self.generator
-        return super().generate_tree(generator, num_trees=num_trees, std=std)
+        return super().generate_tree(generator, num_trees=num_trees)
 
 
 class GAN_Wloss(GAN):
@@ -1968,11 +1967,20 @@ class GAN_Wloss(GAN):
     """
 
     @staticmethod
-    def add_model_specific_args(config):
+    def setup_config_arguments(config):
         """
+        The default_model_config listed all the parameters for the model
+
+        from the config dict given by the user, the necessary parameters may not be there
+        This function takes all the default values from the default_model_config,
+            and then add only the missing parameter values to the user config dict
+        (the values in default_model_config will be overwritten by values in user config dict)
+        * this function should be in every child model __init__() right after super().__init__()
+
         default_model_config containing default values for all necessary argument
             The arguments in the default_model_config will be added to config if missing.
             If config already have the arguments, the values won't be replaced.
+
         Parameters
         ----------
         config : Namespace
@@ -1983,7 +1991,7 @@ class GAN_Wloss(GAN):
         config_rev : Namespace
             the revised config with missing argument filled in.
         """
-        config = super(GAN_Wloss, GAN_Wloss).add_model_specific_args(config)
+        config = super(GAN_Wloss, GAN_Wloss).setup_config_arguments(config)
 
         default_model_config = {
             "clip_value": 0.01,
@@ -2122,11 +2130,20 @@ class GAN_Wloss_GP(GAN):
     """
 
     @staticmethod
-    def add_model_specific_args(config):
+    def setup_config_arguments(config):
         """
+        The default_model_config listed all the parameters for the model
+
+        from the config dict given by the user, the necessary parameters may not be there
+        This function takes all the default values from the default_model_config,
+            and then add only the missing parameter values to the user config dict
+        (the values in default_model_config will be overwritten by values in user config dict)
+        * this function should be in every child model __init__() right after super().__init__()
+
         default_model_config containing default values for all necessary argument
             The arguments in the default_model_config will be added to config if missing.
             If config already have the arguments, the values won't be replaced.
+
         Parameters
         ----------
         config : Namespace
@@ -2137,7 +2154,7 @@ class GAN_Wloss_GP(GAN):
         config_rev : Namespace
             the revised config with missing argument filled in.
         """
-        config = super(GAN_Wloss_GP, GAN_Wloss_GP).add_model_specific_args(config)
+        config = super(GAN_Wloss_GP, GAN_Wloss_GP).setup_config_arguments(config)
 
         default_model_config = {
             "gp_epsilon": 2.0,
@@ -2321,11 +2338,20 @@ class CGAN(GAN):
     """
 
     @staticmethod
-    def add_model_specific_args(config):
+    def setup_config_arguments(config):
         """
+        The default_model_config listed all the parameters for the model
+
+        from the config dict given by the user, the necessary parameters may not be there
+        This function takes all the default values from the default_model_config,
+            and then add only the missing parameter values to the user config dict
+        (the values in default_model_config will be overwritten by values in user config dict)
+        * this function should be in every child model __init__() right after super().__init__()
+
         default_model_config containing default values for all necessary argument
             The arguments in the default_model_config will be added to config if missing.
             If config already have the arguments, the values won't be replaced.
+
         Parameters
         ----------
         config : Namespace
@@ -2336,7 +2362,7 @@ class CGAN(GAN):
         config_rev : Namespace
             the revised config with missing argument filled in.
         """
-        config = super(CGAN, CGAN).add_model_specific_args(config)
+        config = super(CGAN, CGAN).setup_config_arguments(config)
 
         default_model_config = {"num_classes": 10, "class_loss": "CrossEntropyLoss"}
 
@@ -2346,13 +2372,10 @@ class CGAN(GAN):
 
     def __init__(self, config):
         super(GAN, self).__init__(config)
-        self.config = config
-        if hasattr(config, "config"):
-            self.config = config.config
-        self.save_hyperparameters("config")
         # add missing default parameters
         config = self.setup_config_arguments(config)
         self.config = config
+        self.save_hyperparameters("config")
 
         kernel_size = multiple_components_param(config.kernel_size, 3)
         fc_size = multiple_components_param(config.fc_size, 3)
@@ -2584,7 +2607,7 @@ class CGAN(GAN):
             # closs = (closs_real + closs_fake) / 2
             return closs_real
 
-    def generate_tree(self, c, num_trees=1, std=1):
+    def generate_tree(self, c, num_trees=1):
         """
         the function to generate tree
         this function specifies the generator module of this model and pass to the parent generate_tree()
@@ -2611,7 +2634,6 @@ class CGAN(GAN):
             num_classes=config.num_classes,
             embedding_fn=self.embedding,
             num_trees=num_trees,
-            std=std,
         )
 
 
@@ -2653,11 +2675,20 @@ class CVAEGAN(VAEGAN):
     """
 
     @staticmethod
-    def add_model_specific_args(config):
+    def setup_config_arguments(config):
         """
+        The default_model_config listed all the parameters for the model
+
+        from the config dict given by the user, the necessary parameters may not be there
+        This function takes all the default values from the default_model_config,
+            and then add only the missing parameter values to the user config dict
+        (the values in default_model_config will be overwritten by values in user config dict)
+        * this function should be in every child model __init__() right after super().__init__()
+
         default_model_config containing default values for all necessary argument
             The arguments in the default_model_config will be added to config if missing.
             If config already have the arguments, the values won't be replaced.
+
         Parameters
         ----------
         config : Namespace
@@ -2668,7 +2699,7 @@ class CVAEGAN(VAEGAN):
         config_rev : Namespace
             the revised config with missing argument filled in.
         """
-        config = super(CVAEGAN, CVAEGAN).add_model_specific_args(config)
+        config = super(CVAEGAN, CVAEGAN).setup_config_arguments(config)
 
         default_model_config = {
             "num_classes": 10,
@@ -2682,13 +2713,10 @@ class CVAEGAN(VAEGAN):
 
     def __init__(self, config):
         super(VAEGAN, self).__init__(config)
-        self.config = config
-        if hasattr(config, "config"):
-            self.config = config.config
-        self.save_hyperparameters("config")
         # add missing default parameters
         config = self.setup_config_arguments(config)
         self.config = config
+        self.save_hyperparameters("config")
 
         kernel_size = multiple_components_param(config.kernel_size, 4)
         fc_size = multiple_components_param(config.fc_size, 4)
@@ -2953,7 +2981,7 @@ class CVAEGAN(VAEGAN):
             # closs = (closs_real + closs_fake) / 2
             return closs_real
 
-    def generate_tree(self, c, num_trees=1, std=1):
+    def generate_tree(self, c, num_trees=1):
         """
         the function to generate tree
         this function specifies the generator module of this model and pass to the parent generate_tree()
@@ -2980,7 +3008,6 @@ class CVAEGAN(VAEGAN):
             num_classes=config.num_classes,
             embedding_fn=self.vae.embedding,
             num_trees=num_trees,
-            std=std,
         )
 
 
@@ -2990,11 +3017,20 @@ class ZVAEGAN(VAEGAN):
     """
 
     @staticmethod
-    def add_model_specific_args(config):
+    def setup_config_arguments(config):
         """
+        The default_model_config listed all the parameters for the model
+
+        from the config dict given by the user, the necessary parameters may not be there
+        This function takes all the default values from the default_model_config,
+            and then add only the missing parameter values to the user config dict
+        (the values in default_model_config will be overwritten by values in user config dict)
+        * this function should be in every child model __init__() right after super().__init__()
+
         default_model_config containing default values for all necessary argument
             The arguments in the default_model_config will be added to config if missing.
             If config already have the arguments, the values won't be replaced.
+
         Parameters
         ----------
         config : Namespace
@@ -3005,7 +3041,7 @@ class ZVAEGAN(VAEGAN):
         config_rev : Namespace
             the revised config with missing argument filled in.
         """
-        config = super(ZVAEGAN, ZVAEGAN).add_model_specific_args(config)
+        config = super(ZVAEGAN, ZVAEGAN).setup_config_arguments(config)
 
         default_model_config = {
             "num_classes": 10,
@@ -3018,13 +3054,10 @@ class ZVAEGAN(VAEGAN):
 
     def __init__(self, config):
         super(VAEGAN, self).__init__(config)
-        self.config = config
-        if hasattr(config, "config"):
-            self.config = config.config
-        self.save_hyperparameters("config")
         # add missing default parameters
         config = self.setup_config_arguments(config)
         self.config = config
+        self.save_hyperparameters("config")
 
         kernel_size = multiple_components_param(config.kernel_size, 3)
         fc_size = multiple_components_param(config.fc_size, 3)
@@ -3229,7 +3262,7 @@ class ZVAEGAN(VAEGAN):
             dloss = self.apply_accuracy_hack(dloss, dout_real, dout_fake)
             return dloss
 
-    def generate_tree(self, c=None, num_trees=1, std=1):
+    def generate_tree(self, c=None, num_trees=1):
         """
         the function to generate tree
         this function specifies the generator module of this model and pass to the parent generate_tree()
@@ -3261,11 +3294,8 @@ class ZVAEGAN(VAEGAN):
         num_runs = int(np.ceil(num_trees / batch_size))
         # ignore discriminator
         for i in range(num_runs):
-            z = (
-                torch.randn(batch_size, self.config.z_size).type_as(
-                    generator.gen_fc.weight
-                )
-                * std
+            z = torch.randn(batch_size, self.config.z_size).type_as(
+                generator.gen_fc.weight
             )
 
             if c is not None:
