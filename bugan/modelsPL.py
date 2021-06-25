@@ -946,41 +946,6 @@ class BaseModel(pl.LightningModule):
         else:
             self.model_ep_loss_list[optimizer_idx].append(loss)
 
-    def apply_accuracy_hack(self, dloss, dout_real, dout_fake):
-        """
-        accuracy hack
-        stop update discriminator when prediction accurary > config.accuracy_hack
-        stop update by return 0 loss
-        * the parameter config.accuracy_hack is not in BaseModel.add_model_specific_args().
-            Please add accuracy_hack in the child class.
-        Parameters
-        ----------
-        dloss : torch.Tensor
-            the loss of the discriminator from the loss function
-        dout_real : torch.Tensor
-            the discriminator output of the real data (from dataset)
-            the tensor value is assume to be logit (real if value >= 0)
-        dout_fake : torch.Tensor
-            the discriminator output of the fake data (the generated data from the Generator)
-            the tensor value is assume to be logit (fake if value < 0)
-        Returns
-        -------
-        dloss : torch.Tensor
-            the new loss of the discriminator after the accuracy hack applied
-        """
-        config = self.config
-        # accuracy hack
-        if config.accuracy_hack < 1.0:
-            # hack activated, calculate accuracy
-            # note that dout are before sigmoid
-            real_score = (dout_real >= 0).float()
-            fake_score = (dout_fake < 0).float()
-            accuracy = torch.cat((real_score, fake_score), 0).mean()
-            if accuracy > config.accuracy_hack:
-                # TODO: check return loss 0 can stop update is correct or not
-                return dloss - dloss
-        return dloss
-
     @staticmethod
     def merge_latent_and_class_vector(
         latent_vector, class_vector, num_classes, embedding_fn=None
@@ -1351,11 +1316,6 @@ class VAEGAN(BaseModel):
         label_loss in ['BCELoss', 'MSELoss', 'CrossEntropyLoss']
         the returned loss assuming input to be logit (before sigmoid/tanh)
         this is the prediction loss for discriminator on classifying reconstructed data and real data
-    config.accuracy_hack : float
-        the accuracy threshold of the Discriminator to stop update
-        if the accuracy of Discriminator on classifying real data from generated data
-            is larger than the threshold, the Discriminator stop updating parameters
-            on that batch
     config.vae_lr : float
         the learning_rate of the VAE
     config.d_lr : float
@@ -1423,7 +1383,6 @@ class VAEGAN(BaseModel):
             "vae_opt": "Adam",
             "dis_opt": "Adam",
             "label_loss": "BCELoss",
-            "accuracy_hack": 1.1,
             "vae_lr": 1e-5,
             "d_lr": 1e-5,
             "kl_coef": 1,
@@ -1648,8 +1607,6 @@ class VAEGAN(BaseModel):
 
             dloss = (dloss_fake + dloss_real) / 2  # scale the loss to one
 
-            # accuracy hack
-            dloss = self.apply_accuracy_hack(dloss, dout_real, dout_fake)
             return dloss
 
     def generate_tree(self, num_trees=1):
@@ -1691,11 +1648,6 @@ class GAN(BaseModel):
         label_loss in ['BCELoss', 'MSELoss', 'CrossEntropyLoss']
         the returned loss assuming input to be logit (before sigmoid/tanh)
         this is the prediction loss for discriminator and generator
-    config.accuracy_hack : float
-        the accuracy threshold of the Discriminator to stop update
-        if the accuracy of Discriminator on classifying real data from generated data
-            is larger than the threshold, the Discriminator stop updating parameters
-            on that batch
     config.g_lr : float
         the learning_rate of the Generator
     config.d_lr : float
@@ -1750,7 +1702,6 @@ class GAN(BaseModel):
             "gen_opt": "Adam",
             "dis_opt": "Adam",
             "label_loss": "BCELoss",
-            "accuracy_hack": 1.1,
             "g_lr": 1e-5,
             "d_lr": 1e-5,
             "FMgan_coef": 0,
@@ -1899,8 +1850,6 @@ class GAN(BaseModel):
             # loss function (discriminator classify real data vs generated data)
             dloss = (dloss_real + dloss_fake) / 2
 
-            # accuracy hack
-            dloss = self.apply_accuracy_hack(dloss, dout_real, dout_fake)
             return dloss
 
     def generate_tree(self, num_trees=1):
@@ -2544,8 +2493,6 @@ class CGAN(GAN):
             # loss function (discriminator classify real data vs generated data)
             dloss = (dloss_real + dloss_fake) / 2
 
-            # accuracy hack
-            dloss = self.apply_accuracy_hack(dloss, dout_real, dout_fake)
             return dloss
 
         if optimizer_idx == 2:
@@ -2919,8 +2866,6 @@ class CVAEGAN(VAEGAN):
             # loss function (discriminator classify real data vs generated data)
             dloss = (dloss_real + dloss_fake) / 2
 
-            # accuracy hack
-            dloss = self.apply_accuracy_hack(dloss, dout_real, dout_fake)
             return dloss
 
         if optimizer_idx == 2:
@@ -3210,8 +3155,6 @@ class ZVAEGAN(VAEGAN):
             # loss function (discriminator classify real data vs generated data)
             dloss = (dloss_real + dloss_fake) / 2
 
-            # accuracy hack
-            dloss = self.apply_accuracy_hack(dloss, dout_real, dout_fake)
             return dloss
 
     def generate_tree(self, c=None, num_trees=1):
