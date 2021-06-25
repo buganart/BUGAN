@@ -119,6 +119,7 @@ class BaseModel(pl.LightningModule):
             the revised config with missing argument filled in.
         """
 
+        # for config argument, see model description above
         default_model_config = {
             "batch_size": 4,  # number of data per batch, B.
             "resolution": 64,  # size of data, res. data shape: (B,1,res,res,res)
@@ -218,7 +219,10 @@ class BaseModel(pl.LightningModule):
         kernel_size : int
             the kernel size of the convT layer. padding will be adjusted so the output_size of the model is not affected
         fc_size : int
-            the size of the input volume for the first convT layer. For fc_size=2, the last fc layer will output B*unit_list[0]*fc_size**3, and reshape into (B,unit_list[0],fc_size, fc_size, fc_size).The lower the value, the number of upsampling layer and convT layer increases (self.num_layers = int(np.log2(self.resolution)) - int(np.log2(self.fc_size))).
+            the size of the input volume for the first convT layer.
+            For fc_size=2, the last fc layer will output B*unit_list[0]*fc_size**3, and reshape into (B,unit_list[0],fc_size, fc_size, fc_size).
+            The lower the value, the number of upsampling layer and convT layer increases
+            (number of convTLayer = int(np.log2(self.resolution)) - int(np.log2(self.fc_size))).
         Returns
         -------
         generator : nn.Module
@@ -278,7 +282,10 @@ class BaseModel(pl.LightningModule):
         kernel_size : int
             the kernel size of the conv layer. padding will be adjusted so the output_size of the model is not affected
         fc_size : int
-            the size of the output volume for the last conv layer. For fc_size=2, the last conv layer will output (B,unit_list[-1],fc_size, fc_size, fc_size), and flatten that for fc_layer.The lower the value, the number of downsampling layer and conv layer increases (self.num_layers = int(np.log2(self.resolution)) - int(np.log2(self.fc_size))).
+            the size of the output volume for the last conv layer.
+            For fc_size=2, the last conv layer will output (B,unit_list[-1],fc_size, fc_size, fc_size),
+            and flatten that for fc_layer.The lower the value, the number of downsampling layer and conv layer increases
+            (number of ConvLayer = int(np.log2(self.resolution)) - int(np.log2(self.fc_size))).
         Returns
         -------
         discriminator : nn.Module
@@ -1023,7 +1030,6 @@ class BaseModel(pl.LightningModule):
         z = torch.cat((z, c_onehot), 1)
         return z
 
-    # TODO: change generate tree to generate samples to avoid confusion
     def generate_tree(
         self, generator, c=None, num_classes=None, embedding_fn=None, num_trees=1
     ):
@@ -1107,7 +1113,8 @@ class BaseModel(pl.LightningModule):
 #   models for training
 #####
 
-# TODO: doc about KL loss coef and voxel diff coef
+
+# TODO: remove rec_loss with BCELoss
 class VAE_train(BaseModel):
     """
     VAE
@@ -1118,13 +1125,13 @@ class VAE_train(BaseModel):
     Attributes
     ----------
     config : Namespace
-        dictionary of training parameters
+        dictionary of training parameters, should also contains parameters needed for BaseModel
     config.vae_opt : string
         the string in ['Adam', 'SGD'], setup the optimizer of the VAE
         Using 'Adam' may cause VAE KL loss go to inf.
     config.rec_loss : string
         rec_loss in ['BCELoss', 'MSELoss', 'CrossEntropyLoss']
-        the returned loss assume input to be logit (before sigmoid/tanh)
+        the returned loss, assuming input to be logit (before sigmoid/tanh)
     config.vae_lr : float
         the learning_rate of the VAE
     config.kl_coef : float
@@ -1168,6 +1175,7 @@ class VAE_train(BaseModel):
         """
         config = super(VAE_train, VAE_train).setup_config_arguments(config)
 
+        # for config argument, see model description above
         default_model_config = {
             "vae_opt": "Adam",
             "rec_loss": "MSELoss",
@@ -1384,6 +1392,14 @@ class VAEGAN(BaseModel):
         the coefficient of the KL loss in the final VAE loss
     config.d_rec_coef : float
         the coefficient of the Discriminator loss compared to the reconstruction loss
+    config.FMrec_coef : float
+        the coefficient of the Discriminator Feature Matching between real and reconstructed
+        This FM match the feature of each real object to its reconstructed object.
+        This part works together with rec_loss for VAE reconstruction
+    config.FMgan_coef : float
+        the coefficient of the Discriminator Feature Matching between real and generated
+        This FM match the mean feature over real object to the mean feature over reconstructed object.
+        This mean feature matching works to imporve GAN performance.
     config.decoder_num_layer_unit : int/list
         the decoder_num_layer_unit for BaseModel setup_VAE()
         see also Generator class, BaseModel setup_VAE()
@@ -1430,9 +1446,10 @@ class VAEGAN(BaseModel):
         """
         config = super(VAEGAN, VAEGAN).setup_config_arguments(config)
 
+        # for config argument, see model description above
         default_model_config = {
-            "vae_opt": "Adam",
-            "dis_opt": "Adam",
+            "vae_opt": "Adam",  # optimizer of the VAE
+            "dis_opt": "Adam",  # optimizer of the Discriminator
             "label_loss": "BCELoss",
             "rec_loss": "MSELoss",
             "accuracy_hack": 1.1,
@@ -1734,6 +1751,10 @@ class GAN(BaseModel):
         the learning_rate of the Generator
     config.d_lr : float
         the learning_rate of the Discriminator
+    config.FMgan_coef : float
+        the coefficient of the Discriminator Feature Matching between real and generated
+        This FM match the mean feature over real object to the mean feature over reconstructed object.
+        This mean feature matching works to imporve GAN performance.
     config.gen_num_layer_unit : int/list
         the num_layer_unit for BaseModel setup_Generator()
         see also Generator class, BaseModel setup_Generator()
@@ -1775,6 +1796,7 @@ class GAN(BaseModel):
         """
         config = super(GAN, GAN).setup_config_arguments(config)
 
+        # for config argument, see model description above
         default_model_config = {
             "gen_opt": "Adam",
             "dis_opt": "Adam",
@@ -1993,6 +2015,7 @@ class GAN_Wloss(GAN):
         """
         config = super(GAN_Wloss, GAN_Wloss).setup_config_arguments(config)
 
+        # for config argument, see model description above
         default_model_config = {
             "clip_value": 0.01,
         }
@@ -2156,6 +2179,7 @@ class GAN_Wloss_GP(GAN):
         """
         config = super(GAN_Wloss_GP, GAN_Wloss_GP).setup_config_arguments(config)
 
+        # for config argument, see model description above
         default_model_config = {
             "gp_epsilon": 2.0,
         }
@@ -2364,6 +2388,7 @@ class CGAN(GAN):
         """
         config = super(CGAN, CGAN).setup_config_arguments(config)
 
+        # for config argument, see model description above
         default_model_config = {"num_classes": 10, "class_loss": "CrossEntropyLoss"}
 
         default_model_config.update(vars(config))
@@ -2660,6 +2685,8 @@ class CVAEGAN(VAEGAN):
     config.num_classes : int
         the number of classes in the dataset/datamodule
         if the datamodule is DataModule_process class, the config.num_classes there should be the same
+    config.c_rec_coef : float
+        the coefficient of the Classifier loss compared to the reconstruction loss
     self.vae : nn.Module
         the model component from setup_VAE()
     self.discriminator : nn.Module
@@ -2701,6 +2728,7 @@ class CVAEGAN(VAEGAN):
         """
         config = super(CVAEGAN, CVAEGAN).setup_config_arguments(config)
 
+        # for config argument, see model description above
         default_model_config = {
             "num_classes": 10,
             "class_loss": "CrossEntropyLoss",
@@ -3011,6 +3039,7 @@ class CVAEGAN(VAEGAN):
         )
 
 
+# TODO ZVAEGAN description
 class ZVAEGAN(VAEGAN):
     """
     ZVAE-GAN
@@ -3043,6 +3072,7 @@ class ZVAEGAN(VAEGAN):
         """
         config = super(ZVAEGAN, ZVAEGAN).setup_config_arguments(config)
 
+        # for config argument, see model description above
         default_model_config = {
             "num_classes": 10,
             "class_std": -1,  # class_std for specifying N(class_embed, std) for training conditional data
@@ -3374,18 +3404,12 @@ class VAE(nn.Module):
         """
         noise reparameterization of the VAE
         reference: https://github.com/PyTorchLightning/pytorch-lightning-bolts/blob/master/pl_bolts/models/autoencoders/basic_vae/basic_vae_module.py
-        reference: https://github.com/tensorflow/docs-l10n/blob/master/site/zh-cn/tutorials/generative/cvae.ipynb
         Parameters
         ----------
         mean : torch.Tensor of shape (B, Z)
         logvar : torch.Tensor of shape (B, Z)
         """
-        # # reference: https://github.com/YixinChen-AI/CVAE-GAN-zoos-PyTorch-Beginner/blob/master/CVAE-GAN/CVAE-GAN.py
-        # # reference: https://github.com/tensorflow/docs-l10n/blob/master/site/zh-cn/tutorials/generative/cvae.ipynb
-        # eps = torch.randn(mean.shape).type_as(mean)
-        # z = mean + eps * torch.exp(logvar / 2.0)
 
-        # reference: https://github.com/PyTorchLightning/pytorch-lightning-bolts/blob/master/pl_bolts/models/autoencoders/basic_vae/basic_vae_module.py
         std = torch.exp(logvar / 2)
         q = torch.distributions.Normal(mean, std)
         z = q.rsample()
@@ -3395,15 +3419,12 @@ class VAE(nn.Module):
         """
         calculate log_prob loss (KL/ELBO??) for VAE based on the mean and logvar used for noise_reparameterize()
         reference: https://github.com/PyTorchLightning/pytorch-lightning-bolts/blob/master/pl_bolts/models/autoencoders/basic_vae/basic_vae_module.py
-        reference: https://github.com/tensorflow/docs-l10n/blob/master/site/zh-cn/tutorials/generative/cvae.ipynb
         See VAE class
         Parameters
         ----------
         mu : torch.Tensor
         logVar : torch.Tensor
         """
-        # # reference: https://github.com/YixinChen-AI/CVAE-GAN-zoos-PyTorch-Beginner/blob/master/CVAE-GAN/CVAE-GAN.py
-        # loss = 0.5 * torch.sum(mu ** 2 + torch.exp(logVar) - 1.0 - logVar)
 
         # reference: https://github.com/PyTorchLightning/pytorch-lightning-bolts/blob/master/pl_bolts/models/autoencoders/basic_vae/basic_vae_module.py
         std = torch.exp(logVar / 2)
@@ -3415,14 +3436,6 @@ class VAE(nn.Module):
 
         kl = log_qz - log_pz
         loss = kl.mean()
-
-        # # reference: https://github.com/tensorflow/docs-l10n/blob/master/site/zh-cn/tutorials/generative/cvae.ipynb
-        # log2pi = torch.log(2 * torch.tensor(np.pi))
-        # logpz = torch.sum(0.5 * (z ** 2 + log2pi), axis=1)
-        # logqz_x = torch.sum(
-        #     0.5 * ((z - mu) ** 2.0 * torch.exp(-logVar) + logVar + log2pi), axis=1
-        # )
-        # loss = torch.mean(logpz - logqz_x)
         return loss
 
     def forward(self, x, c=None, output_all=False):
@@ -3498,6 +3511,7 @@ class VAE(nn.Module):
         return x
 
 
+# TODO: VAE_mod doc
 class VAE_mod(nn.Module):
     def __init__(self, encoder, decoder, num_classes=None, class_std=1):
         super(VAE_mod, self).__init__()
@@ -3633,11 +3647,13 @@ class VAE_mod(nn.Module):
         return x
 
 
-# TODO: rewrite doc
 class Generator(nn.Module):
     """
     The generator class
     This class serves as the generator and VAE decoder of models above
+    the model starts with (linear/convT) depending on fc_size, with several ConvTLayer, and ends with 1 conv layer.
+    Each ConvTLayer of the model contains (dropout, convT, batchnorm, activations)
+
     Attributes
     ----------
     z_size : int
@@ -3656,9 +3672,34 @@ class Generator(nn.Module):
         the generator use ConvT-BatchNorm-activation-dropout structure
     activations : nn actication function
         the actication function used for all layers except the last layer of all models
+    kernel_size : int
+            the kernel size of the convT layer. padding will be adjusted so the output_size of the model is not affected
+    fc_size : int
+        the size of the input volume for the first convT layer.
+        For fc_size=2, the last fc layer will output B*unit_list[0]*fc_size**3, and reshape into (B,unit_list[0],fc_size, fc_size, fc_size).
+        The lower the value, the number of upsampling layer and convT layer increases
+        (number of ConvTLayer = int(np.log2(self.resolution)) - int(np.log2(self.fc_size))).
     """
 
     def ConvTLayer(self, in_channel, out_channel):
+        """
+        helper function to construct (dropout, convT, batchnorm, activations)
+        Parameters
+        ----------
+        in_channel : int
+            the number of input channel for ConvTranspose3d() layer
+        out_channel : int
+            the number of out channel for ConvTranspose3d() layer
+        self.dropout_prob : int
+        self.activations : nn actication function
+        self.kernel_size : int
+            described in Generator Attributes above.
+        Returns
+        -------
+        layer_modules : nn.Sequential(*layer_module)
+            a block of layers with (dropout, convT, batchnorm, activations)
+        """
+
         dropout_prob = self.dropout_prob
         activations = self.activations
         kernel_size = self.kernel_size
@@ -3788,11 +3829,12 @@ class Generator(nn.Module):
         return x
 
 
-# TODO: rewrite doc
 class Discriminator(nn.Module):
     """
     The Discriminator class
     This class serves as the discriminator, the classifier, and VAE encoder of models above
+    The model starts with 1 conv layer, with several ConvLayer, and ends (conv/linear) depends on fc_size.
+    Each ConvLayer of the model contains (dropout, conv, batchnorm, activations)
     Attributes
     ----------
     output_size : int
@@ -3812,9 +3854,33 @@ class Discriminator(nn.Module):
         the generator use ConvT-BatchNorm-activation-dropout structure
     activations : nn actication function
         the actication function used for all layers except the last layer of all models
+    kernel_size : int
+        the kernel size of the conv layer. padding will be adjusted so the output_size of the model is not affected
+    fc_size : int
+        the size of the output volume for the last conv layer.
+        For fc_size=2, the last conv layer will output (B,unit_list[-1],fc_size, fc_size, fc_size), and flatten that for fc_layer.
+        The lower the value, the number of downsampling layer and conv layer increases
+        (number of ConvLayer = int(np.log2(self.resolution)) - int(np.log2(self.fc_size))).
     """
 
     def ConvLayer(self, in_channel, out_channel):
+        """
+        helper function to construct (dropout, conv, batchnorm, activations)
+        Parameters
+        ----------
+        in_channel : int
+            the number of input channel for Conv3d() layer
+        out_channel : int
+            the number of out channel for Conv3d() layer
+        self.dropout_prob : int
+        self.activations : nn actication function
+        self.kernel_size : int
+            described in Generator Attributes above.
+        Returns
+        -------
+        layer_modules : nn.Sequential(*layer_module)
+            a block of layers with (dropout, conv, batchnorm, activations)
+        """
         dropout_prob = self.dropout_prob
         activations = self.activations
         kernel_size = self.kernel_size
