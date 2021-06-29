@@ -54,3 +54,9 @@ Remember to record the wandb run_id (length 8) in the training section, which ca
     python script/predict.py --run_id <run_id>
 
 The run_id should come from the model you trained.
+
+Parameters listed in **generate.ipynb** colab notebook can also be used here.
+
+For example: `python script/predict.py --run_id <run_id> --num_samples 2 --post_process True --class_index 1 --latent True`
+
+Note that if `--latent True`, latent space walk is set, and the latent vectors will be sampled evenly from linear space between **1** and **-1**.
