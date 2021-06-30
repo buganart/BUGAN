@@ -128,9 +128,16 @@ def setup_config_arguments(config):
 
 
 def get_resume_run_config(project_name, resume_id):
+    # extract entity from project_name if in format "{entity}/{project_name}"
+    if "/" in project_name:
+        project_list = project_name.split("/")
+        entity = project_list[0]
+        project_name = project_list[1]
+    else:
+        entity = "bugan"
     # all config will be replaced by the stored one in wandb
     api = wandb.Api()
-    previous_run = api.run(f"bugan/{project_name}/{resume_id}")
+    previous_run = api.run(f"{entity}/{project_name}/{resume_id}")
     config = Namespace(**previous_run.config)
     return config
 
@@ -145,7 +152,14 @@ def init_wandb_run(config, run_dir="./", mode="run"):
     resume_id = config.resume_id
     project_name = config.project_name
     selected_model = config.selected_model
-    entity = "bugan"
+
+    # extract entity from project_name if in format "{entity}/{project_name}"
+    if "/" in project_name:
+        project_list = project_name.split("/")
+        entity = project_list[0]
+        project_name = project_list[1]
+    else:
+        entity = "bugan"
     run_dir = Path(run_dir).absolute()
 
     if resume_id:
