@@ -134,10 +134,16 @@ def get_resume_run_config(project_name, resume_id):
         entity = project_list[0]
         project_name = project_list[1]
     else:
-        entity = "bugan"
+        # use default login entity
+        entity = None
+
+    run_string = f"{project_name}/{resume_id}"
+    if entity:
+        run_string = f"{entity}/" + run_string
+
     # all config will be replaced by the stored one in wandb
     api = wandb.Api()
-    previous_run = api.run(f"{entity}/{project_name}/{resume_id}")
+    previous_run = api.run(run_string)
     config = Namespace(**previous_run.config)
     return config
 
@@ -159,7 +165,8 @@ def init_wandb_run(config, run_dir="./", mode="run"):
         entity = project_list[0]
         project_name = project_list[1]
     else:
-        entity = "bugan"
+        # use default login entity
+        entity = None
     run_dir = Path(run_dir).absolute()
 
     if resume_id:
