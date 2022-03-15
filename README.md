@@ -2,6 +2,10 @@
 ![CI](https://github.com/buganart/BUGAN/workflows/CI/badge.svg?branch=master)
 [![codecov](https://codecov.io/gh/buganart/BUGAN/branch/master/graph/badge.svg)](https://codecov.io/gh/buganart/BUGAN)
 
+## Dataset
+
+The tree dataset with around 26000 trees in 76 classes are available to [download here](https://drive.google.com/file/d/1_pC6qarczSZk6oiqgmefxH2IuUlU8aLh/view?usp=sharing).
+
 ## Colab Notebook
 
 To try the model in this repository, go to **notebook_util** folder.
