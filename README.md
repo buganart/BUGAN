@@ -4,7 +4,7 @@
 
 ## Dataset
 
-The tree dataset with around 26000 trees in 76 classes are available to [download here](https://drive.google.com/file/d/1_pC6qarczSZk6oiqgmefxH2IuUlU8aLh/view?usp=sharing).
+The tree dataset with around 26000 trees in 76 classes are available to [download here](https://drive.google.com/file/d/1ck-gcKHyN1Axy5f36f1wJApbe1zK98hu/view?usp=drive_link).
 
 ## Colab Notebook
 
