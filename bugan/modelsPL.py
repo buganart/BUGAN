@@ -2133,7 +2133,7 @@ class GAN_Wloss_GP(GAN):
         grad = grad.view(batch_size, -1)
 
         # calculate norm and add epsilon to prevent sqrt(0)
-        grad_norm = torch.sqrt(torch.sum(grad ** 2, dim=1) + 1e-10)
+        grad_norm = torch.sqrt(torch.sum(grad**2, dim=1) + 1e-10)
 
         # return gradient penalty
         return gp_epsilon * ((grad_norm - 1) ** 2).mean()

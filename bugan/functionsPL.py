@@ -22,6 +22,7 @@ from disjoint_set import DisjointSet
 #   functions/callbacks for script, colab
 #####
 
+
 # callback for pl.Trainer() to save_checkpoint() in log_interval
 class SaveWandbCallback(Callback):
     def __init__(self, log_interval, save_model_path, history_checkpoint_frequency=0):
@@ -65,6 +66,7 @@ def load_checkpoint_from_cloud(checkpoint_path="model_dict.pth"):
 #   functions for wandbLog in modelPL
 #   calculate_log_media_stat() is called by BaseModel on_train_epoch_end()
 #####
+
 
 # convert boolean voxel array (shape: H,W,D) to voxel coordinate list (shape: num_points, 3)
 def netarray2indices(boolarray):
@@ -240,6 +242,7 @@ def calculate_log_media_stat(samples, log_num_samples=-1):
 #####
 #   helper function (datamodule)
 #####
+
 
 # given a mesh (trimesh), this function rotate the mesh by
 # (radians[0], axes[0]), then (radians[1], axes[1]), ...
