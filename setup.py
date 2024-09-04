@@ -11,7 +11,7 @@ setup(
         "disjoint-set==0.6.3",
         "Pillow==10.4.0",
         "pytorch_lightning==1.8.6",
-        "numpy==1.21.6",
+        "numpy==1.22.0",
         "torch==1.13.1",
         "torchsummary==1.5.1",
         "tqdm==4.66.5",
