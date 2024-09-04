@@ -31,7 +31,7 @@ class SaveWandbCallback(Callback):
         self.save_model_path = Path(save_model_path)
         self.history_checkpoint_frequency = history_checkpoint_frequency
 
-    def on_train_epoch_end(self, trainer, pl_module, outputs):
+    def on_train_epoch_end(self, trainer, pl_module):
         if trainer.current_epoch % self.log_interval == 0:
             # log
             model_file_path = str(self.save_model_path / "checkpoint.ckpt")

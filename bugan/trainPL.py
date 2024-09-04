@@ -284,7 +284,7 @@ def train(config, run, model, dataModule, extra_trainer_args):
         logger=wandb_logger,
         callbacks=callbacks,
         default_root_dir=wandb.run.dir,
-        checkpoint_callback=None,
+        # checkpoint_callback=None,
         **extra_trainer_args,
     )
 
