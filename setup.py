@@ -12,7 +12,7 @@ setup(
         "Pillow==10.4.0",
         "pytorch_lightning==1.8.6",
         "numpy==1.21.6",
-        "torch==1.13.1",
+        "torch==2.2.0",
         "torchsummary==1.5.1",
         "tqdm==4.66.5",
         "trimesh==4.4.8",
