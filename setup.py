@@ -18,7 +18,7 @@ setup(
         "trimesh==4.4.8",
         "scipy==1.10.1",
         "scikit-image==0.21.0",
-        "wandb==0.17.8",
+        "wandb==0.12.21",
     ],
     use_scm_version=True,
     setup_requires=["setuptools_scm"],
